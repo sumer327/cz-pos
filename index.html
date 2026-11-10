@@ -596,6 +596,25 @@ const DemoStore = {
     this.notify(d, b.store, `${b.bbId}: Sam sent ${cents(b.paid)} by ${b.payout}. The seller has been paid.`, {tab: 'closeout'});
     this.log(d, actor.id, b.store, 'Payout sent', `${b.bbId} ${cents(b.paid)} ${b.payout} ${ref || ''}`); this.save(d); return b;
   },
+  /* ---------- register open / close (drawer + buyback fund) ---------- */
+  regTotals(d, store, day){ const same = x => x.store === store && dayKey(x.at) === day && !x.rsId;
+    const inv = d.invoices.filter(same); const sum = (a, f) => a.reduce((t, x) => t + f(x), 0);
+    return {cashSales: sum(inv.filter(i => i.payment === 'Cash'), i => i.total), cardSales: sum(inv.filter(i => /^Square/.test(i.payment)), i => i.total),
+      otherSales: sum(inv.filter(i => i.payment !== 'Cash' && !/^Square/.test(i.payment)), i => i.total), cashBuys: sum(d.buybacks.filter(b => same(b) && /^cash/i.test(b.payout || '')), b => b.paid)}; },
+  async registerDays(){ return (this.db().registers || []); },
+  async registerToday(store){ const d = this.db(); const r = (d.registers || []).find(x => x.store === store && !x.closedAt); return r ? {id: r.id, day: r.day, ...this.regTotals(d, store, r.day)} : null; },
+  async openRegister(emp, store, drawer, fund){ const d = this.db(); d.registers = d.registers || []; const day = dayKey(new Date());
+    if (!(drawer >= 0) || !(fund >= 0)) throw new Error('Count the drawer and the buyback fund.');
+    if (d.registers.some(x => x.store === store && x.day === day)) throw new Error('The register is already open for today.');
+    const r = {id: uid(), store, day, openedBy: emp.id, openedAt: now(), openDrawer: drawer, openFund: fund}; d.registers.unshift(r);
+    this.log(d, emp.id, store, 'Register opened', `Drawer ${cents(drawer)} · buyback fund ${cents(fund)}`); this.save(d); return r; },
+  async closeRegister(emp, store, c){ const d = this.db(); const r = (d.registers || []).find(x => x.store === store && !x.closedAt); if (!r) throw new Error('Open the register first.');
+    if (!(c.drawer >= 0) || !(c.fund >= 0)) throw new Error('Count the drawer and the buyback fund.');
+    const t = this.regTotals(d, store, r.day); const dexp = r.openDrawer + t.cashSales, dep = Math.max(0, Math.round((c.drawer - r.openDrawer) * 100) / 100), fexp = r.openFund - t.cashBuys + dep;
+    if ((Math.abs(c.drawer - dexp) >= 5 || Math.abs(c.fund - fexp) >= 5) && !(c.notes || '').trim()) throw new Error('Something is over or short by $5 or more. Add a note explaining it.');
+    Object.assign(r, t, {closedBy: emp.id, closedAt: now(), drawerExpected: dexp, drawerCounted: c.drawer, deposit: dep, fundExpected: fexp, fundCounted: c.fund, squareApp: c.square, notes: c.notes || ''});
+    if (Math.abs(c.drawer - dexp) >= 5 || Math.abs(c.fund - fexp) >= 5) this.notify(d, null, `${STORES[store]} register ${r.day}: drawer ${cents(c.drawer - dexp)} · buyback fund ${cents(c.fund - fexp)} off`, {tab: 'closeout'}, 'manager');
+    this.log(d, emp.id, store, 'Register closed', `Deposit ${cents(dep)} into buyback fund · fund ${cents(c.fund)}`); this.save(d); return r; },
   /* ---------- close out ---------- */
   async closeouts(){ return this.db().closeouts; },
   async saveCloseout(emp, store, c){ const d = this.db(); if (d.closeouts.some(x => x.store === store && x.day === c.day)) throw new Error('This day is already closed out for this store.');
@@ -785,6 +804,10 @@ const LiveStore = {
   async buybacksAll(){ return []; },
   async markPayout(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
   async closeouts(){ return []; },
+  async registerDays(){ const {data, error} = await this.sb.from('register_days_v').select('*').order('day', {ascending: false}).limit(90); if (error) throw error; return data; },
+  async registerToday(store){ const {data, error} = await this.sb.rpc('pos_register_today', {p_store: store}); if (error) throw new Error(error.message); return data; },
+  async openRegister(emp, store, drawer, fund){ return this.rpc('pos_register_open', {p_pin: this.pinFor(emp), p_store: store, p_drawer: drawer, p_fund: fund}); },
+  async closeRegister(emp, store, c){ return this.rpc('pos_register_close', {p_pin: this.pinFor(emp), p_store: store, p_drawer: c.drawer, p_fund: c.fund, p_square: c.square, p_notes: c.notes || ''}); },
   async saveCloseout(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
   async counts(){ return []; },
   async saveCount(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
@@ -1397,13 +1420,55 @@ async function viewInbox(el){
 S.cart = [];
 function upsellBox(set){ return set.upsells?.length ? `<div class="banner acc small stack" style="gap:4px"><b>Before you ring it up:</b>${set.upsells.map(u => `<span>• ${esc(u)}</span>`).join('')}</div>` : ''; }
 const prodMatch = (p, q) => { q = q.trim().toLowerCase(); if (!q) return false; if (p.upc && p.upc === q) return true; return q.split(/\s+/).every(w => (p.name + ' ' + (p.category || '') + ' ' + (p.upc || '')).toLowerCase().includes(w)); };
+/* Register open/close panel: drawer (float + cash sales → deposit) and buyback fund (start − cash buys + deposit). */
+async function registerPanel(box, again){
+  const [days, today] = await Promise.all([Store.registerDays(), Store.registerToday(S.store)]);
+  const mine = days.filter(r => r.store === S.store); const open = mine.find(r => !r.closedAt); const last = mine.find(r => r.closedAt);
+  const tk = dayKey(new Date()); const closedToday = mine.find(r => r.closedAt && r.day === tk);
+  const off = (a, b) => { const v = Math.round((a - b) * 100) / 100; return v === 0 ? '<span class="pill ok">exact</span>' : `<span class="pill ${Math.abs(v) >= 5 ? 'bad' : 'warn'}">${v > 0 ? 'over' : 'short'} ${cents(Math.abs(v))}</span>`; };
+  if (open && today) {
+    const dexp = open.openDrawer + today.cashSales, fnow = open.openFund - today.cashBuys;
+    box.innerHTML = `<div class="panel stack"><div class="row" style="justify-content:space-between"><h3>Register open · ${STORES[S.store]}</h3><span class="small muted">Opened ${fmtTime(open.openedAt)} by ${esc(staffName(open.openedBy))}${open.day !== tk ? ` · <b style="color:var(--bad)">still open from ${fmtDate(open.day + 'T12:00')}</b>` : ''}</span></div>
+      <div class="grid g2"><div class="stack" style="gap:4px"><span class="label">Cash drawer</span><div class="small">Started ${cents(open.openDrawer)} + cash sales ${cents(today.cashSales)}</div><div class="num" style="font-size:22px">${cents(dexp)} <span class="small muted">should be in the drawer</span></div></div>
+        <div class="stack" style="gap:4px"><span class="label">Buyback fund</span><div class="small">Started ${cents(open.openFund)} − cash buys ${cents(today.cashBuys)}</div><div class="num" style="font-size:22px">${cents(fnow)} <span class="small muted">should be in the fund (before tonight's deposit)</span></div></div></div>
+      <div class="small muted">Today so far: Square ${cents(today.cardSales)} · cash ${cents(today.cashSales)} · other ${cents(today.otherSales)}</div>
+      <button class="primary" id="rg-close" style="align-self:flex-start">Close register</button></div>`;
+    box.querySelector('#rg-close').onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Close register · ${STORES[S.store]}</h3><button data-close>Close</button></div>
+      <div class="field"><label class="label" for="cr-d">1 · Count the cash drawer (should be ${cents(dexp)})</label><input id="cr-d" inputmode="decimal" placeholder="${dexp.toFixed(2)}"></div>
+      <div class="banner acc small" id="cr-dep">Deposit = drawer count − ${cents(open.openDrawer)} float. Leave the float in the drawer.</div>
+      <div class="field"><label class="label" for="cr-f" id="cr-fl">2 · Put the deposit in the buyback fund, then count the fund</label><input id="cr-f" inputmode="decimal"></div>
+      <div class="field"><label class="label" for="cr-s">3 · Square app total for today (should match ${cents(today.cardSales)})</label><input id="cr-s" inputmode="decimal" placeholder="${today.cardSales.toFixed(2)}"></div>
+      <div class="field"><label class="label" for="cr-n">Notes (required if anything is $5+ over or short)</label><input id="cr-n"></div>
+      <div class="err" id="cr-e" role="alert"></div><button class="primary" id="cr-go">Close register</button>`, (L, close) => {
+        const upd = () => { const dc = parseFloat(L.querySelector('#cr-d').value); if (isNaN(dc)) return; const dep = Math.max(0, dc - open.openDrawer); const fexp = fnow + dep;
+          L.querySelector('#cr-dep').innerHTML = `Drawer ${off(dc, dexp)} · <b>Deposit ${cents(dep)}</b> goes into the buyback fund. Leave ${cents(open.openDrawer)} in the drawer.`;
+          L.querySelector('#cr-fl').textContent = `2 · Put the ${cents(dep)} deposit in the buyback fund, then count the fund (should be ${cents(fexp)})`; L.querySelector('#cr-f').placeholder = fexp.toFixed(2); };
+        L.querySelector('#cr-d').oninput = upd;
+        L.querySelector('#cr-go').onclick = async () => { const drawer = parseFloat(L.querySelector('#cr-d').value), fund = parseFloat(L.querySelector('#cr-f').value), sq = L.querySelector('#cr-s').value === '' ? null : parseFloat(L.querySelector('#cr-s').value);
+          if (isNaN(drawer) || isNaN(fund)) { L.querySelector('#cr-e').textContent = 'Count the drawer and the buyback fund.'; return; }
+          try { await Store.closeRegister(S.user, S.store, {drawer, fund, square: sq, notes: L.querySelector('#cr-n').value.trim()}); close(); toast('Register closed'); again(); } catch (e) { L.querySelector('#cr-e').textContent = e.message; } }; });
+    return;
+  }
+  const prevDrawer = last ? last.openDrawer : 100, prevFund = last ? last.fundCounted : 0;
+  box.innerHTML = `<div class="panel stack"><div class="row" style="justify-content:space-between"><h3>${closedToday ? 'Register closed for today' : 'Register not open yet'} · ${STORES[S.store]}</h3>${closedToday ? '' : '<button class="primary" id="rg-open">Open register</button>'}</div>
+    ${closedToday ? `<div class="small">Closed ${fmtTime(closedToday.closedAt)} by ${esc(staffName(closedToday.closedBy))} · drawer ${cents(closedToday.drawerCounted)} ${off(closedToday.drawerCounted, closedToday.drawerExpected)} · deposit ${cents(closedToday.deposit)} into the fund · buyback fund ${cents(closedToday.fundCounted)} ${off(closedToday.fundCounted, closedToday.fundExpected)}</div>`
+      : `<div class="small muted">${last ? `Last close ${fmtDate(last.day + 'T12:00')}: drawer float ${cents(last.openDrawer)}, buyback fund ${cents(last.fundCounted)}.` : 'First day on the POS: count the drawer and the buyback fund.'} Count both before the first sale or buyback.</div>`}</div>`;
+  box.querySelector('#rg-open') && (box.querySelector('#rg-open').onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Open register · ${STORES[S.store]}</h3><button data-close>Close</button></div>
+    <div class="grid g2"><div class="field"><label class="label" for="or-d">Cash in the drawer</label><input id="or-d" inputmode="decimal" placeholder="${prevDrawer.toFixed(2)}"></div>
+    <div class="field"><label class="label" for="or-f">Cash in the buyback fund</label><input id="or-f" inputmode="decimal" placeholder="${prevFund.toFixed(2)}"></div></div>
+    ${last ? `<div class="small muted">Last night: drawer float ${cents(last.openDrawer)}, buyback fund ${cents(last.fundCounted)}. If your count is different, tell a manager.</div>` : ''}
+    <div class="err" id="or-e" role="alert"></div><button class="primary" id="or-go">Open register</button>`, (L, close) => L.querySelector('#or-go').onclick = async () => {
+      const dr = parseFloat(L.querySelector('#or-d').value), fu = parseFloat(L.querySelector('#or-f').value);
+      if (isNaN(dr) || isNaN(fu)) { L.querySelector('#or-e').textContent = 'Count the drawer and the buyback fund.'; return; }
+      try { await Store.openRegister(S.user, S.store, dr, fu); close(); toast('Register open'); again(); } catch (e) { L.querySelector('#or-e').textContent = e.message; } }));
+}
 async function viewRegister(el){
   const set = await Store.settings();
   if (!S.prods || Date.now() - S.prodsAt > 120000) { S.prods = await Store.products().catch(() => []); S.prodsAt = Date.now(); }
   const pq = (S.rgq || '').trim(); const exact = pq && S.prods.find(p => p.upc && p.upc === pq);
   const hits = pq ? S.prods.filter(p => prodMatch(p, pq)).sort((a, b) => (b.qty?.[S.store] || 0) - (a.qty?.[S.store] || 0)).slice(0, 15) : [];
   const total = S.cart.reduce((a, l) => a + l.price * (l.qty || 1), 0);
-  el.innerHTML = `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));align-items:start">
+  el.innerHTML = `<div id="rg-day" style="margin-bottom:14px"></div><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));align-items:start">
     <div class="panel stack"><h2>Register</h2>
       <p class="muted small" style="margin:0">Accessories and walk-in sales. No customer needed. Add their phone if they want a receipt or might come back.</p>
       <div class="field"><label class="label" for="rg-q">Scan or search inventory (${S.prods.length} items)</label><input id="rg-q" value="${esc(S.rgq || '')}" placeholder="Scan the barcode, or type: clear case 15 pro" autocomplete="off"></div>
@@ -1438,6 +1503,7 @@ async function viewRegister(el){
   const rq = $('#rg-q'); let rqt; rq.oninput = () => { clearTimeout(rqt); rqt = setTimeout(() => { S.rgq = rq.value; viewRegister(el).then(() => { const n = $('#rg-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 200); };
   rq.onkeydown = e => { if (e.key === 'Enter') { const v = rq.value.trim(); const p = S.prods.find(x => x.upc && x.upc === v) || (S.prods.filter(x => prodMatch(x, v)).length === 1 ? S.prods.find(x => prodMatch(x, v)) : null); if (p) addProd(p); } };
   if (exact) { addProd(exact); return; }
+  registerPanel($('#rg-day'), () => viewRegister(el)).catch(e => { $('#rg-day').innerHTML = `<div class="banner warn small">Register open/close isn't available: ${esc(e.message)}</div>`; });
   $('#rg-ph').oninput = e => { S.cartPhone = e.target.value; };
   $('#rg-pay').onchange = e => { $('#rg-sq').hidden = !e.target.value.startsWith('Square'); };
   $('#rg-go').onclick = async () => {
@@ -1453,7 +1519,7 @@ async function viewRegister(el){
 S.coDay = null;
 async function viewCloseout(el){
   const day = S.coDay || dayKey(new Date()); const t0 = new Date(day + 'T00:00'); const t1 = new Date(t0); t1.setDate(t1.getDate() + 1);
-  const [invs, bbsAll, closes, set] = await Promise.all([Store.invoices(t0, t1), Store.buybacksAll().catch(() => []), Store.closeouts(), Store.settings()]);
+  const [invs, bbsAll, closes, set, regs] = await Promise.all([Store.invoices(t0, t1), Store.buybacksAll().catch(() => []), Store.closeouts(), Store.settings(), Store.registerDays()]);
   const inv = invs.filter(i => i.store === S.store);
   const bbs = bbsAll.filter(b => b.store === S.store && new Date(b.at) >= t0 && new Date(b.at) < t1);
   const sum = (arr, f) => arr.reduce((a, x) => a + f(x), 0);
@@ -1468,41 +1534,17 @@ async function viewCloseout(el){
       <div class="tbl"><table><thead><tr><th>Buyback ID</th><th>Seller</th><th>Send to</th><th class="r">Amount</th><th>Requested</th><th></th></tr></thead><tbody>
       ${pending.map(b => `<tr><td class="num"><b>${esc(b.bbId)}</b></td><td>${esc(b.seller.firstName)} ${esc(b.seller.lastName)}<div class="small muted num">${fmtPhone(b.seller.phone)}</div></td><td>${esc(b.payout)}: <b>${esc(b.payoutTo || '—')}</b></td><td class="r num">${cents(b.paid)}</td><td class="small">${ago(b.at)} · ${STORES[b.store]}</td>
         <td class="r">${can(3) ? `<button class="primary" data-paid="${b.id}" style="min-height:34px;padding:4px 10px">Mark sent</button>` : '<span class="pill warn">Waiting on Sam</span>'}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
-    <div class="panel stack">
-      <div class="row" style="justify-content:space-between"><h2>Close out · ${STORES[S.store]}</h2><input type="date" id="co-day" value="${day}" style="width:auto"></div>
-      <div class="grid g2">
-        <div class="stack"><span class="label">Money in</span><div class="tbl"><table><tbody>${by.map(([p, v]) => `<tr><td>${p}</td><td class="r num">${cents(v)}</td></tr>`).join('')}<tr><td><b>Total sales</b></td><td class="r num"><b>${cents(sum(inv, i => i.total))}</b></td></tr></tbody></table></div>
-          <span class="small muted">Square total should match the Square app's report for today. Acima should match the Acima portal.</span></div>
-        <div class="stack"><span class="label">Buyback payouts</span><div class="tbl"><table><tbody>${out.map(([p, v]) => `<tr><td>${p}</td><td class="r num">${cents(v)}</td></tr>`).join('')}<tr><td><b>${bbs.length} buys</b></td><td class="r num"><b>${cents(sum(bbs, b => b.paid))}</b></td></tr></tbody></table></div></div>
-      </div>
-      <div class="grid g3">
-        <div class="stat"><span class="label">Starting cash</span><span class="v">${cents(done?.float ?? set.float)}</span></div>
-        <div class="stat"><span class="label">+ cash sales − cash buys</span><span class="v">${cents(cashIn - cashOut)}</span></div>
-        <div class="stat"><span class="label">Drawer should have</span><span class="v">${cents(expected)}</span></div>
-      </div>
-      ${done ? `<div class="banner ${Math.abs(done.variance) < 5 ? 'ok' : 'bad'}">Closed by ${esc(staffName(done.by))} at ${fmtTime(done.at)}. Counted ${cents(done.counted)} · ${done.variance === 0 ? 'exact' : (done.variance > 0 ? 'over ' : 'short ') + cents(Math.abs(done.variance))}. Square ${cents(done.square)} in the POS vs ${done.squareApp != null ? cents(done.squareApp) : '—'} in the Square app.${done.notes ? ' Note: ' + esc(done.notes) : ''}</div>`
-      : `<div class="grid g2">
-          <div class="field"><label class="label" for="co-cash">Cash counted in the drawer</label><input id="co-cash" inputmode="decimal" placeholder="${expected.toFixed(2)}"></div>
-          <div class="field"><label class="label" for="co-sq">Square app total for today</label><input id="co-sq" inputmode="decimal" placeholder="${by[0][1].toFixed(2)}"></div></div>
-        <div class="field"><label class="label" for="co-n">Notes</label><input id="co-n" placeholder="Explain anything over or short"></div>
-        <div class="err" id="co-err" role="alert"></div>
-        <button class="primary" id="co-go">Close out ${fmtDate(t0)}</button>`}
-    </div>
-    <div class="panel stack"><h3>Recent close-outs</h3><div class="tbl"><table><thead><tr><th>Day</th><th>Store</th><th class="r">Expected</th><th class="r">Counted</th><th class="r">Over / short</th><th>By</th></tr></thead><tbody>
-      ${closes.filter(c => can(3) || c.store === S.store).slice(0, 20).map(c => `<tr><td>${c.day}</td><td>${c.store}</td><td class="r num">${cents(c.expected)}</td><td class="r num">${cents(c.counted)}</td><td class="r num" style="color:${Math.abs(c.variance) < 5 ? 'inherit' : 'var(--bad)'}">${c.variance >= 0 ? '+' : '−'}${cents(Math.abs(c.variance))}</td><td class="small">${esc(staffName(c.by))}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No close-outs yet.</td></tr>'}
+    <div id="co-reg"></div>
+    <div class="panel stack"><h3>Register history · ${can(3) ? 'all stores' : STORES[S.store]}</h3><div class="tbl"><table><thead><tr><th>Day</th><th>Store</th><th class="r">Drawer start</th><th class="r">Cash sales</th><th class="r">Drawer count</th><th class="r">Deposit</th><th class="r">Fund start</th><th class="r">Cash buys</th><th class="r">Fund count</th><th>Over / short</th><th>Closed by</th></tr></thead><tbody>
+      ${regs.filter(r => can(3) || r.store === S.store).map(r => { const o = (a, b) => a == null ? '' : Math.abs(a - b) < 0.005 ? 'exact' : (a > b ? '+' : '−') + cents(Math.abs(a - b)); const bad = r.closedAt && (Math.abs(r.drawerCounted - r.drawerExpected) >= 5 || Math.abs(r.fundCounted - r.fundExpected) >= 5);
+        return `<tr><td>${r.day}</td><td>${r.store}</td><td class="r num">${cents(r.openDrawer)}</td><td class="r num">${r.closedAt ? cents(r.cashSales) : '—'}</td><td class="r num">${r.closedAt ? cents(r.drawerCounted) : '<span class="pill warn">open</span>'}</td><td class="r num">${r.closedAt ? cents(r.deposit) : ''}</td>
+        <td class="r num">${cents(r.openFund)}</td><td class="r num">${r.closedAt ? cents(r.cashBuys) : ''}</td><td class="r num">${r.closedAt ? cents(r.fundCounted) : ''}</td>
+        <td class="small" style="color:${bad ? 'var(--bad)' : 'inherit'}">${r.closedAt ? `drawer ${o(r.drawerCounted, r.drawerExpected)} · fund ${o(r.fundCounted, r.fundExpected)}${r.notes ? `<div class="muted">${esc(r.notes)}</div>` : ''}` : ''}</td><td class="small">${r.closedBy ? esc(staffName(r.closedBy)) : ''}</td></tr>`; }).join('') || '<tr><td colspan="11" class="muted">No register days yet.</td></tr>'}
     </tbody></table></div></div></div>`;
-  $('#co-day').onchange = e => { S.coDay = e.target.value; viewCloseout(el); };
+  registerPanel($('#co-reg'), () => viewCloseout(el));
   el.querySelectorAll('[data-paid]').forEach(b => b.onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Mark payout sent</h3><button data-close>Close</button></div>
     <div class="field"><label class="label" for="pd-ref">Confirmation (optional)</label><input id="pd-ref" placeholder="Apple Pay 11/10 2:14 PM"></div><button class="primary" id="pd-go">Mark sent</button>`,
     (L, close) => L.querySelector('#pd-go').onclick = async () => { try { await Store.markPayout(S.user, b.dataset.paid, L.querySelector('#pd-ref').value.trim()); close(); toast('Payout marked sent. The store sees it.'); viewCloseout(el); } catch (e) { toast(e.message); } }));
-  $('#co-go') && ($('#co-go').onclick = async () => {
-    const counted = parseFloat($('#co-cash').value); const sqa = $('#co-sq').value === '' ? null : parseFloat($('#co-sq').value);
-    if (!(counted >= 0)) { $('#co-err').textContent = 'Count the cash drawer and enter the total.'; return; }
-    const variance = Math.round((counted - expected) * 100) / 100;
-    if (Math.abs(variance) >= 5 && !$('#co-n').value.trim()) { $('#co-err').textContent = `Cash is ${variance > 0 ? 'over' : 'short'} ${cents(Math.abs(variance))}. Add a note explaining it.`; return; }
-    await Store.saveCloseout(S.user, S.store, {day, float: set.float, cashIn, cashOut, expected, counted, variance, square: by[0][1], squareApp: sqa, acima: by.find(x => x[0] === 'Acima')[1], payouts: Object.fromEntries(out), sales: sum(inv, i => i.total), notes: $('#co-n').value.trim()});
-    toast('Day closed'); viewCloseout(el);
-  });
 }
 
 /* ---------------- COUNTS: phones every day, parts Mon/Wed/Fri ---------------- */
@@ -2593,14 +2635,15 @@ async function viewQuote(el){
 async function viewDashboard(el){
   const t0 = new Date(); t0.setHours(0,0,0,0); const t1 = new Date(t0); t1.setDate(t1.getDate() + 1);
   const [bbs, devs, punches, audit, parts, tix, invs, custs, counts, trs, leads, ships, bbAll, closes] = await Promise.all([Store.buybacks(t0, t1), Store.devices(), Store.punches(new Date(t0 - 86400000), t1), Store.audit(can(3) ? 25 : 120), Store.parts(), Store.tickets(), Store.invoices(t0, t1), Store.customers(),
-    Store.counts(), Store.transfers(), Store.leads(), Store.ships(), Store.buybacksAll(), Store.closeouts()]);
+    Store.counts(), Store.transfers(), Store.leads(), Store.ships(), Store.buybacksAll(), Store.registerDays()]);
   const today = dayKey(new Date()), yest = dayKey(new Date(Date.now() - 86400000));
   const att = [];
   const DS = can(3) ? Object.keys(STORES) : [S.store];
   DS.forEach(st => {
     if (!counts.some(c => c.store === st && c.kind === 'phones' && dayKey(c.at) === today)) att.push(['warn', `${STORES[st]}: phones not counted today`, 'counts']);
     const lastPh = counts.find(c => c.store === st && c.kind === 'phones'); if (lastPh && (lastPh.missing.length || lastPh.extra.length)) att.push(['bad', `${STORES[st]}: last phone count was off (${lastPh.missing.length} missing, ${lastPh.extra.length} unexpected)`, 'counts']);
-    if (!closes.some(c => c.store === st && c.day === yest)) att.push(['warn', `${STORES[st]}: yesterday (${fmtDate(yest + 'T12:00')}) wasn't closed out`, 'closeout']);
+    if (!closes.some(c => c.store === st && c.day === yest && c.closedAt)) att.push(['warn', `${STORES[st]}: yesterday's register (${fmtDate(yest + 'T12:00')}) wasn't closed`, 'register']);
+    { const o = closes.find(c => c.store === st && !c.closedAt && c.day < today); if (o) att.push(['bad', `${STORES[st]}: register from ${fmtDate(o.day + 'T12:00')} is still open`, 'register']); }
   });
   bbAll.filter(b => b.payoutStatus === 'requested' && DS.includes(b.store)).forEach(b => att.push(['bad', `Payout waiting: ${b.bbId} ${cents(b.paid)} by ${b.payout}`, 'closeout']));
   trs.filter(t => t.status === 'transit' && (DS.includes(t.from) || DS.includes(t.to))).forEach(t => att.push(['warn', `Transfer T${t.number} ${t.from} → ${t.to} in transit ${daysOld(t.at)}d`, 'transfers']));
