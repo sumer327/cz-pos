@@ -163,7 +163,8 @@ const STATUSES = [
 ];
 const STATUS_LABEL = Object.fromEntries(STATUSES);
 const CONDS = [['new','New'],['mint','Mint'],['used','Used'],['heavy','Heavy wear'],['glass','Glass/LCD broken'],['damaged','Damaged']];
-const IDLE_LOCK_MS = 120000;
+const IDLE_LOCK_MS = 30 * 60000;   /* lock after 30 minutes idle */
+const GLASS = {regular: 29.99, privacy: 34.99, replace: 5};   /* tempered glass: any model; lifetime warranty = $5 replacement */
 /* Same statuses, issue types and priorities as Cellular Zone's RepairShopr account (checked Nov 9 2026) */
 const TSTATUS = [['new','New','st-new'],['progress','In Progress','st-prog'],['approval','Awaiting Approval','st-appr'],['device','Awaiting Device','st-dev'],
   ['scheduled','Scheduled','st-sched'],['parts','Waiting for Parts','st-parts'],['customer','Waiting on Customer','st-cust'],['reply','Customer Reply','st-reply'],
@@ -183,8 +184,8 @@ const needsBH = t => /iphone/i.test(t.issue + ' ' + t.device) && t.type !== 'buy
 const DEFAULT_SETTINGS = {
   reviewLink: 'https://cellularzonesa.com/customer-review/', reviewDelayH: 24,
   reviewMsg: 'Hi {first}, thank you for choosing Cellular Zone {store}! If we took good care of your {device}, would you leave us a quick 5-star review? {link}',
-  upsells: ['Ask for tempered glass: $19.99 with $5 lifetime replacement', 'Cases start at $5. Point out the cases on sale', "Declined the glass? Leave us a review in store and get it for $5.99"],
-  accessories: [['Tempered glass', 19.99, 'Tempered glass'], ['Tempered glass (review deal)', 5.99, 'Tempered glass'], ['Glass replacement (lifetime)', 5, 'Tempered glass'], ['Case', 5, 'Accessory'], ['20W charger', 19.99, 'Accessory'], ['USB-C cable', 14.99, 'Accessory']],
+  upsells: ['Ask for tempered glass: $29.99 ($34.99 privacy). Lifetime warranty: bring it back any time, new one for $5', 'Cases start at $5. Point out the cases on sale', "Declined the glass? Leave us a review in store and get it for $5.99"],
+  accessories: [['Tempered glass (review deal)', 5.99, 'Tempered glass'], ['Case', 5, 'Accessory'], ['20W charger', 19.99, 'Accessory'], ['USB-C cable', 14.99, 'Accessory']],
   labor: {phone: 80, tablet: 80, console: 100, computer: 100}, oemAdd: 125, float: 200
 };
 const DAILY_GOAL = 1000;
@@ -512,6 +513,9 @@ const DemoStore = {
       if (needsBH(t0) && !t0.bh && !t0.bhSkip) throw new Error('Record battery health (BH %) on this iPhone ticket before checking out.'); }
     const row = {id: uid(), number: d.nextInvoice++, at: now(), by: emp.id, store, ...inv, total: inv.lines.reduce((a, l) => a + l.price, 0)};
     d.invoices.unshift(row);
+    d.glass = d.glass || [];
+    (inv.lines || []).forEach(l => { if (l.glass && inv.customerId) d.glass.unshift({id: uid(), customerId: inv.customerId, store, kind: l.glass, device: l.device || '', invoiceId: row.id, soldAt: now(), replacements: 0, lastReplacedAt: null});
+      if (l.glassWarrantyId) { const w = d.glass.find(x => x.id === l.glassWarrantyId); if (w) { w.replacements++; w.lastReplacedAt = now(); } } });
     (inv.lines || []).filter(l => l.productId).forEach(l => { const p = (d.products || []).find(x => x.id === l.productId); if (p && p.maintainStock) p.qty[store] = Math.max(0, (p.qty[store] || 0) - 1); });
     const glass = inv.lines.filter(l => isGlassOnly(l.desc)).length;
     if (glass) { const t0 = inv.ticketId ? d.tickets.find(x => x.id === inv.ticketId) : null; for (let i = 0; i < glass; i++) this.refurbAdd(d, emp, store, t0?.device || 'Glass-only job', `Invoice #${row.number}` + (t0 ? ` · ticket #${t0.number}` : ''), 'Glass-only job: customer screen kept for refurb'); }
@@ -524,6 +528,7 @@ const DemoStore = {
   async allInvoices(){ return this.db().invoices; },
   /* GoHighLevel (demo: simulated, nothing is sent) */
   async callSources(){ return this.db().callSources || []; },
+  async glassWarranties(phone){ const d = this.db(); const ids = d.customers.filter(c => c.phone === phone).map(c => c.id); return (d.glass || []).filter(w => ids.includes(w.customerId)); },
   async saveCallSource(emp, cs){ const d = this.db(); d.callSources = (d.callSources || []).filter(x => x.number !== cs.number); if (!cs.delete) d.callSources.push({number: cs.number, label: cs.label, paid: !!cs.paid, store: cs.store || null}); this.save(d); return true; },
   async ghlEvents(){ const d = this.db(); const C = d.customers; const M = Object.fromEntries((d.callSources || []).map(x => [x.number, x])); return d.ghl.filter(e => e.kind !== 'other').map(e => ({...e, source: M[e.calledNumber]?.label || e.source, paid: M[e.calledNumber] ? M[e.calledNumber].paid : e.paid, customerId: C.find(c => c.phone && c.phone === e.phone)?.id || null})); },
   async ghlThread(store, c){
@@ -798,6 +803,7 @@ const LiveStore = {
   async invoices(from, to){ const {data, error} = await this.sb.from('invoices_v').select('*').gte('at', from.toISOString()).lt('at', to.toISOString()); if (error) throw error; return data; },
   async allInvoices(){ const {data, error} = await this.sb.from('invoices_v').select('*').order('at', {ascending: false}).limit(1000); if (error) throw error; this.keep(this.cI, data); return [...this.cI.values()].sort((a, b) => new Date(b.at) - new Date(a.at)); },
   async ghlEvents(){ const {data, error} = await this.sb.from('ghl_events_v').select('*').gte('at', new Date(Date.now() - 3*86400000).toISOString()).order('at', {ascending: false}).limit(300); if (error) throw error; return data; },
+  async glassWarranties(phone){ const {data, error} = await this.sb.from('glass_warranties_v').select('*').eq('phone', phone).order('soldAt', {ascending: false}); if (error) throw error; return data; },
   async callSources(){ const {data, error} = await this.sb.from('call_sources').select('*').order('label'); if (error) return []; return data; },
   async saveCallSource(emp, cs){ return this.rpc('pos_save_call_source', {p_pin: this.pinFor(emp), p_number: cs.number, p_label: cs.label || '', p_paid: !!cs.paid, p_store: cs.store || '', p_delete: !!cs.delete}); },
   async ghlCall(body){ const {data, error} = await this.sb.functions.invoke('ghl', {body}); if (error) { let m = error.message; try { m = (await error.context.json()).error || m; } catch {} throw new Error(m); } if (data?.error) throw new Error(data.error); return data; },
@@ -990,7 +996,7 @@ async function renderLock(){
 
 /* auto-lock when idle */
 ['click','keydown','input'].forEach(ev => document.addEventListener(ev, () => { S.lastAct = Date.now(); }, true));
-setInterval(() => { if (S.user && !RSI.running && Date.now() - S.lastAct > IDLE_LOCK_MS && !$('#layer').innerHTML) { renderLock(); toast('Locked after 2 minutes idle'); } }, 5000);
+setInterval(() => { if (S.user && !RSI.running && Date.now() - S.lastAct > IDLE_LOCK_MS && !$('#layer').innerHTML) { renderLock(); toast('Locked after 30 minutes idle'); } }, 5000);
 
 const NAV = [
   ['dashboard','Dashboard',0],['customers','Customers',0],['tickets','Tickets',0],['register','Register',0],['inbox','Inbox',0],['buyback','Buyback',0],
@@ -1336,7 +1342,7 @@ function checkoutSheet(t, c){
   sheet(`<div class="row" style="justify-content:space-between"><h3>${t ? `Check out #${t.number}` : 'Quick sale'}</h3><button data-close>Close</button></div>
     ${c ? `<div class="small muted">${esc(c.name)} · ${fmtPhone(c.phone)}</div>` : ''}
     <div id="co-lines" class="stack" style="gap:10px"></div>
-    <div class="row"><button type="button" id="co-add">+ Add line</button><button type="button" id="co-glass">+ Tempered glass $19.99</button><button type="button" id="co-case">+ Case $5</button></div>
+    <div class="row"><button type="button" id="co-add">+ Add line</button><button type="button" id="co-glass">+ Tempered glass $29.99</button><button type="button" id="co-glassp">+ Privacy glass $34.99</button><button type="button" id="co-case">+ Case $5</button></div>
     <div id="co-up"></div>
     <div class="small muted">A line that says "Glass Only" adds the customer's screen to the refurb count automatically.</div>
     <div class="row" style="justify-content:space-between"><span class="label">Total</span><span class="num" style="font-size:24px" id="co-total"></span></div>
@@ -1348,14 +1354,15 @@ function checkoutSheet(t, c){
   (L, close) => {
     draw(L);
     L.querySelector('#co-add').onclick = () => { lines.push({desc: '', cat: 'Accessory', price: 0}); draw(L); };
-    L.querySelector('#co-glass').onclick = () => { lines.push({desc: 'Tempered glass', cat: 'Tempered glass', price: 19.99}); draw(L); };
+    L.querySelector('#co-glass').onclick = () => { lines.push({desc: 'Tempered glass (lifetime warranty)', cat: 'Tempered glass', price: GLASS.regular, glass: 'regular'}); draw(L); };
+    L.querySelector('#co-glassp').onclick = () => { lines.push({desc: 'Privacy tempered glass (lifetime warranty)', cat: 'Tempered glass', price: GLASS.privacy, glass: 'privacy'}); draw(L); };
     L.querySelector('#co-case').onclick = () => { lines.push({desc: 'Case', cat: 'Accessory', price: 5}); draw(L); };
     Store.settings().then(set => { const u = L.querySelector('#co-up'); if (u) u.innerHTML = upsellBox(set); });
     L.querySelector('#co-pay').onchange = e => { L.querySelector('#co-sq').hidden = !e.target.value.startsWith('Square'); };
     L.querySelector('#co-go').onclick = async () => {
       const bad = lines.find(l => !l.desc.trim() || !(l.price > 0));
       if (bad) { L.querySelector('#co-err').textContent = 'Every line needs an item name and a price.'; return; }
-      let inv; try { inv = await Store.checkout(S.user, S.store, {ticketId: t?.id || null, customerId: c?.id || null, lines: lines.map(l => ({desc: l.desc.trim(), cat: l.cat, price: +l.price})), partsCost, payment: L.querySelector('#co-pay').value}); }
+      let inv; try { inv = await Store.checkout(S.user, S.store, {ticketId: t?.id || null, customerId: c?.id || null, lines: lines.map(l => ({desc: l.desc.trim(), cat: l.cat, price: +l.price, ...(l.glass ? {glass: l.glass} : {}), ...(l.glassWarrantyId ? {glassWarrantyId: l.glassWarrantyId} : {})})), partsCost, payment: L.querySelector('#co-pay').value}); }
       catch (e) { L.querySelector('#co-err').textContent = e.message; return; }
       close(); toast(`Invoice #${inv.number} · ${cents(inv.total)} recorded`); t ? viewTicket($('#main')) : go('invoices');
     };
@@ -1463,6 +1470,27 @@ async function viewInbox(el){
 S.cart = [];
 function upsellBox(set){ return set.upsells?.length ? `<div class="banner acc small stack" style="gap:4px"><b>Before you ring it up:</b>${set.upsells.map(u => `<span>• ${esc(u)}</span>`).join('')}</div>` : ''; }
 const prodMatch = (p, q) => { q = q.trim().toLowerCase(); if (!q) return false; if (p.upc && p.upc === q) return true; return q.split(/\s+/).every(w => (p.name + ' ' + (p.category || '') + ' ' + (p.upc || '')).toLowerCase().includes(w)); };
+/* Lifetime glass warranty: find the customer's glass by phone, add a $5 replacement line linked to it. */
+async function glassReplaceSheet(phone0, add){
+  sheet(`<div class="row" style="justify-content:space-between"><h3>Lifetime glass replacement · ${cents(GLASS.replace)}</h3><button data-close>Close</button></div>
+    <p class="small muted" style="margin:0">Every tempered glass we sell comes with a lifetime warranty: if it cracks or peels, they get a new one for ${cents(GLASS.replace)}. Look them up by the phone number on the original sale.</p>
+    <div class="row"><input id="gr-p" inputmode="tel" placeholder="Customer phone" value="${esc(phone0)}" style="flex:1;min-width:0"><button id="gr-go">Look up</button></div>
+    <div id="gr-res"></div><div class="err" id="gr-e" role="alert"></div>`, (L, close) => {
+    const look = async () => { const ph = L.querySelector('#gr-p').value.replace(/\D/g, ''); if (ph.length !== 10) { L.querySelector('#gr-e').textContent = 'Enter the 10-digit phone number.'; return; }
+      L.querySelector('#gr-e').textContent = ''; const list = await Store.glassWarranties(ph);
+      const box = L.querySelector('#gr-res');
+      box.innerHTML = list.length ? `<div class="tbl"><table><thead><tr><th>Glass</th><th>Bought</th><th>Replaced</th><th></th></tr></thead><tbody>${list.map(w => `<tr><td>${w.kind === 'privacy' ? 'Privacy' : 'Regular'}${w.device ? `<div class="small muted">${esc(w.device)}</div>` : ''}</td><td class="small">${fmtDate(w.soldAt)} · ${w.store}</td><td class="small">${w.replacements ? `${w.replacements}× (last ${fmtDate(w.lastReplacedAt)})` : 'never'}</td>
+          <td class="r"><button class="primary" data-gw="${w.id}" style="min-height:34px;padding:4px 10px">Replace for ${cents(GLASS.replace)}</button></td></tr>`).join('')}</tbody></table></div>`
+        : `<div class="banner warn small stack" style="gap:6px"><span>No tempered glass on file for this number. Glass sold before the POS isn't on file yet.</span><button id="gr-ok" style="align-self:flex-start">Manager approves the ${cents(GLASS.replace)} replacement</button></div>`;
+      box.querySelectorAll('[data-gw]').forEach(b => b.onclick = () => { const w = list.find(x => x.id === b.dataset.gw); close(); add({desc: `${w.kind === 'privacy' ? 'Privacy glass' : 'Tempered glass'} lifetime replacement (orig. ${fmtDate(w.soldAt)})`, cat: 'Tempered glass', price: GLASS.replace, glassWarrantyId: w.id, phone: ph}); });
+      box.querySelector('#gr-ok') && (box.querySelector('#gr-ok').onclick = async () => { const m = await askPin('Manager PIN to approve a replacement with no glass on file', 2); if (!m) return; close();
+        add({desc: `Tempered glass lifetime replacement (no record · approved by ${m.name})`, cat: 'Tempered glass', price: GLASS.replace, phone: ph}); });
+    };
+    L.querySelector('#gr-go').onclick = look; L.querySelector('#gr-p').onkeydown = e => { if (e.key === 'Enter') look(); };
+    if (phone0 && phone0.replace(/\D/g, '').length === 10) look();
+  });
+}
+
 /* Register open/close panel: drawer (float + cash sales → deposit) and buyback fund (start − cash buys + deposit). */
 async function registerPanel(box, again){
   const [days, today] = await Promise.all([Store.registerDays(), Store.registerToday(S.store)]);
@@ -1514,6 +1542,10 @@ async function viewRegister(el){
   el.innerHTML = `<div id="rg-day" style="margin-bottom:14px"></div><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));align-items:start">
     <div class="panel stack"><h2>Register</h2>
       <p class="muted small" style="margin:0">Accessories and walk-in sales. No customer needed. Add their phone if they want a receipt or might come back.</p>
+      <div class="stack" style="gap:6px"><span class="label">Tempered glass (any model) · lifetime warranty</span>
+        <div class="grid g3"><button data-gl="regular" style="min-height:64px;text-align:left"><b>Tempered glass</b><div class="small muted num">${cents(GLASS.regular)}</div></button>
+        <button data-gl="privacy" style="min-height:64px;text-align:left"><b>Privacy glass</b><div class="small muted num">${cents(GLASS.privacy)}</div></button>
+        <button data-gl="replace" style="min-height:64px;text-align:left"><b>Lifetime replacement</b><div class="small muted num">${cents(GLASS.replace)} · look up their glass</div></button></div></div>
       <div class="field"><label class="label" for="rg-q">Scan or search inventory (${S.prods.length} items)</label><input id="rg-q" value="${esc(S.rgq || '')}" placeholder="Scan the barcode, or type: clear case 15 pro" autocomplete="off"></div>
       ${pq ? `<div class="tbl"><table><tbody>${hits.map(p => { const q = p.qty?.[S.store] || 0; return `<tr class="click" data-prod="${p.id}"><td><b>${esc(p.name)}</b><div class="small muted">${esc(p.category || '')}${p.upc ? ' · ' + esc(p.upc) : ''}</div></td><td class="r num">${cents(p.price)}</td><td class="r"><span class="pill ${q > 0 ? 'ok' : 'bad'}">${q} here</span></td></tr>`; }).join('') || '<tr><td class="muted">Nothing matches. Use "Other item" below.</td></tr>'}</tbody></table></div>` : ''}
       <div class="grid g3">${set.accessories.map(([n, p, c], i) => `<button data-acc="${i}" style="min-height:64px;text-align:left"><b>${esc(n)}</b><div class="small muted num">${cents(p)}</div></button>`).join('')}
@@ -1523,7 +1555,7 @@ async function viewRegister(el){
     <div class="panel stack"><h2>Sale</h2>
       ${S.cart.length ? `<div class="tbl"><table><tbody>${S.cart.map((l, i) => `<tr><td>${esc(l.desc)}<div class="small muted">${esc(l.cat)}</div></td><td class="r num">${cents(l.price)}</td><td class="r"><button data-rmc="${i}" aria-label="Remove ${esc(l.desc)}" style="min-height:32px;padding:2px 10px">✕</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">Tap an item to add it.</p>'}
       <div class="row" style="justify-content:space-between"><span class="label">Total</span><span class="num" style="font-size:26px">${cents(total)}</span></div>
-      <div class="field"><label class="label" for="rg-ph">Customer phone (optional)</label><input id="rg-ph" inputmode="tel" value="${esc(S.cartPhone || '')}" placeholder="Leave blank for walk-in"></div>
+      <div class="field"><label class="label" for="rg-ph">Customer phone (${S.cart.some(l => l.glass) ? 'required for the glass warranty' : 'optional'})</label><input id="rg-ph" inputmode="tel" value="${esc(S.cartPhone || '')}" placeholder="Leave blank for walk-in"></div>
       <div class="field"><label class="label" for="rg-pay">Paid with</label><select id="rg-pay">${PAYMENTS.map(p => `<option>${p}</option>`).join('')}</select></div>
       <div class="banner warn small" id="rg-sq">Charge the card on the Square iPad first, then record it here.</div>
       <div class="err" id="rg-err" role="alert"></div>
@@ -1540,8 +1572,12 @@ async function viewRegister(el){
         S.cart.push({desc: n, price: p, cat: L.querySelector('#ci-c').value}); close(); viewRegister(el); });
     const [n, p, c] = set.accessories[+b.dataset.acc]; S.cart.push({desc: n, price: p, cat: c}); viewRegister(el); });
   el.querySelectorAll('[data-rmc]').forEach(b => b.onclick = () => { S.cart.splice(+b.dataset.rmc, 1); viewRegister(el); });
+  el.querySelectorAll('[data-gl]').forEach(b => b.onclick = () => { const k = b.dataset.gl;
+    if (k !== 'replace') { S.cart.push({desc: (k === 'privacy' ? 'Privacy tempered glass' : 'Tempered glass') + ' (lifetime warranty)', cat: 'Tempered glass', price: GLASS[k], glass: k}); return viewRegister(el); }
+    glassReplaceSheet(S.cartPhone || '', line => { S.cart.push(line); if (line.phone && !S.cartPhone) S.cartPhone = line.phone; viewRegister(el); }); });
   const addProd = p => { if (p.maintainStock && (p.qty?.[S.store] || 0) < 1) toast(`System shows 0 ${p.name} at ${STORES[S.store]}. Added anyway; tell a manager to fix the count.`);
-    S.cart.push({desc: p.name, price: p.price, cat: /tempered|glass protector|screen protector/i.test(p.name) ? 'Tempered glass' : 'Accessory', productId: p.id}); S.rgq = ''; viewRegister(el).then(() => $('#rg-q').focus()); };
+    const gl = /tempered|glass protector|screen protector/i.test(p.name) ? (/privacy/i.test(p.name) ? 'privacy' : 'regular') : null;
+    S.cart.push(gl ? {desc: p.name + ' (lifetime warranty)', price: GLASS[gl], cat: 'Tempered glass', productId: p.id, glass: gl} : {desc: p.name, price: p.price, cat: 'Accessory', productId: p.id}); S.rgq = ''; viewRegister(el).then(() => $('#rg-q').focus()); };
   el.querySelectorAll('[data-prod]').forEach(tr => tr.onclick = () => addProd(S.prods.find(p => p.id === tr.dataset.prod)));
   const rq = $('#rg-q'); let rqt; rq.oninput = () => { clearTimeout(rqt); rqt = setTimeout(() => { S.rgq = rq.value; viewRegister(el).then(() => { const n = $('#rg-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 200); };
   rq.onkeydown = e => { if (e.key === 'Enter') { const v = rq.value.trim(); const p = S.prods.find(x => x.upc && x.upc === v) || (S.prods.filter(x => prodMatch(x, v)).length === 1 ? S.prods.find(x => prodMatch(x, v)) : null); if (p) addProd(p); } };
@@ -1552,8 +1588,9 @@ async function viewRegister(el){
   $('#rg-go').onclick = async () => {
     const ph = (S.cartPhone || '').replace(/\D/g, ''); let cust = null;
     if (ph && ph.length !== 10) { $('#rg-err').textContent = 'Phone should be 10 digits, or leave it blank.'; return; }
+    if (!ph && S.cart.some(l => l.glass)) { $('#rg-err').textContent = "Tempered glass comes with the lifetime warranty: enter the customer's phone so it's on file."; return; }
     if (ph) { cust = (await Store.customerByPhone(ph)) || await Store.saveCustomer(S.user, S.store, {name: 'Walk-in ' + ph.slice(-4), phone: ph, heardFrom: 'Walk in / drive by'}); }
-    const inv = await Store.checkout(S.user, S.store, {ticketId: null, customerId: cust?.id || null, lines: S.cart.map(l => ({desc: l.desc, cat: l.cat, price: l.price, ...(l.productId ? {productId: l.productId} : {})})), partsCost: 0, payment: $('#rg-pay').value});
+    const inv = await Store.checkout(S.user, S.store, {ticketId: null, customerId: cust?.id || null, lines: S.cart.map(l => ({desc: l.desc, cat: l.cat, price: l.price, ...(l.productId ? {productId: l.productId} : {}), ...(l.glass ? {glass: l.glass} : {}), ...(l.glassWarrantyId ? {glassWarrantyId: l.glassWarrantyId} : {})})), partsCost: 0, payment: $('#rg-pay').value});
     S.cart = []; S.cartPhone = ''; S.prods = null; toast(`Sale #${inv.number} · ${cents(inv.total)} recorded`); viewRegister(el);
   };
 }
@@ -1726,7 +1763,7 @@ async function viewCustomer(el){
   const mine = tix.filter(t => t.customerId === c.id), paid = invs.filter(i => i.customerId === c.id);
   el.innerHTML = `<div class="crumb"><a id="back">Customers</a><span class="muted">›</span><b>${esc(c.name)}</b></div>
   <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr));align-items:start">
-    <div class="panel stack"><dl class="kv"><dt>Phone</dt><dd class="num">${fmtPhone(c.phone)}</dd><dt>Email</dt><dd>${esc(c.email || '—')}</dd><dt>Since</dt><dd>${fmtDate(c.createdAt)}</dd><dt>Found us</dt><dd>${esc(c.heardFrom || '—')}</dd><dt>Spent</dt><dd class="num">${cents(paid.reduce((a, i) => a + i.total, 0))}</dd></dl>
+    <div class="panel stack"><dl class="kv"><dt>Phone</dt><dd class="num">${fmtPhone(c.phone)}</dd><dt>Email</dt><dd>${esc(c.email || '—')}</dd><dt>Since</dt><dd>${fmtDate(c.createdAt)}</dd><dt>Found us</dt><dd>${esc(c.heardFrom || '—')}</dd><dt>Glass warranty</dt><dd id="cv-glass" class="small">—</dd><dt>Spent</dt><dd class="num">${cents(paid.reduce((a, i) => a + i.total, 0))}</dd></dl>
       <div class="row"><button class="primary" id="cv-nt">+ New ticket</button><button id="cv-sale">Quick sale</button><button id="cv-edit">Edit</button></div></div>
     <div class="stack">
       <div class="tbl"><table><thead><tr><th>#</th><th>Subject</th><th>Status</th><th>Created</th></tr></thead><tbody>
@@ -1740,6 +1777,7 @@ async function viewCustomer(el){
   $('#cv-sale').onclick = () => checkoutSheet(null, c);
   $('#cv-edit').onclick = () => customerSheet(c, () => viewCustomer(el));
   renderThread($('#cv-ghl'), S.store, c);
+  if (c.phone) Store.glassWarranties(c.phone).then(ws => { const g = $('#cv-glass'); if (g) g.innerHTML = ws.length ? ws.map(w => `${w.kind === 'privacy' ? 'Privacy' : 'Regular'} · ${fmtDate(w.soldAt)}${w.replacements ? ` · replaced ${w.replacements}×` : ''}`).join('<br>') + `<div class="muted">Lifetime: new one for ${cents(GLASS.replace)} at the Register</div>` : 'None on file'; }).catch(() => {});
   el.querySelectorAll('tr[data-t]').forEach(tr => tr.onclick = () => go('ticket', {ticketId: tr.dataset.t}));
 }
 
