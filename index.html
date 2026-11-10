@@ -159,7 +159,7 @@ const ROLES = {owner:'Owner', manager:'Manager', tech:'Tech', rep:'Sales rep'};
 const RANK = {rep:1, tech:1, manager:2, owner:3};
 const STATUSES = [
   ['testing','Testing'],['repair','Needs repair'],['hot','Hot stock (in store)'],
-  ['tolist','Ready to list'],['swappa','Listed on Swappa'],['atlas','Sent to Atlas'],['sold','Sold']
+  ['tolist','Ready to list'],['swappa','Listed on Swappa'],['wholesale','Wholesale (going to Atlas)'],['atlas','Sent to Atlas'],['sold','Sold']
 ];
 const STATUS_LABEL = Object.fromEntries(STATUSES);
 const CONDS = [['new','New'],['mint','Mint'],['used','Used'],['heavy','Heavy wear'],['glass','Glass/LCD broken'],['damaged','Damaged']];
@@ -433,6 +433,8 @@ const DemoStore = {
     const was = row.status; Object.assign(row, patch, {updatedAt: now()});
     if (patch.status === 'repair' && !row.repairStatus) { row.repairStatus = 'diag'; row.log = row.log || []; row.needs = row.needs || []; }
     if (patch.status === 'sold' && !row.soldAt) row.soldAt = now();
+    if (patch.status === 'wholesale' && was !== 'wholesale') row.wholesaleAt = now(); else if (patch.status && !['wholesale', 'atlas'].includes(patch.status)) row.wholesaleAt = null;
+    if (patch.status && patch.status !== was) { row.log = row.log || []; row.log.unshift({at: now(), who: emp.id, text: 'Moved to ' + STATUS_LABEL[patch.status]}); }
     this.log(d, emp.id, store, 'Device updated', `${row.model} ${row.storage}: ${STATUS_LABEL[was]} → ${STATUS_LABEL[row.status]}` + (patch.soldPrice ? ` · sold ${money(patch.soldPrice)}` : ''));
     this.save(d); return row;
   },
@@ -525,6 +527,22 @@ const DemoStore = {
       if (c.invoiceId) throw new Error(`That charge is already paid (invoice #${c.invoiceNo}). It can't be removed from the ticket.`);
       t.charges = t.charges.filter(x => x.id !== removeId); t.comments.unshift({id: uid(), at: now(), who: emp.id, text: `Charge removed: ${c.desc} ${cents(c.price)}`, pub: false, sys: true}); }
     t.updatedAt = now(); this.save(d); return t;
+  },
+  async atlasBatches(){ return (this.db().atlasBatches || []).slice().sort((a, b) => new Date(b.at) - new Date(a.at)); },
+  async wholesaleShip(emp, store, ids, tracking, notes){
+    const d = this.db(); const devs = d.devices.filter(x => ids.includes(x.id) && x.store === store && x.status === 'wholesale');
+    if (!ids.length) throw new Error('Tick the devices going in this box.'); if (devs.length !== ids.length) throw new Error(`Some of those devices aren't in ${store} wholesale anymore. Reload and try again.`);
+    d.atlasBatches = d.atlasBatches || []; const b = {id: uid(), number: d.atlasBatches.length + 1, store, at: now(), by: emp.id, deviceIds: ids, costTotal: devs.reduce((a, x) => a + (+x.cost || 0), 0),
+      devices: devs.map(x => ({id: x.id, stockNo: x.stockNo, model: x.model, storage: x.storage, carrier: x.carrier, imei: x.imei, cost: x.cost})), tracking: (tracking || '').trim() || null, notes: (notes || '').trim() || null, payout: null, paidAt: null};
+    d.atlasBatches.push(b);
+    devs.forEach(x => { Object.assign(x, {status: 'atlas', channel: 'Atlas', atlasBatch: b.id, soldAt: x.soldAt || now(), updatedAt: now()}); (x.log = x.log || []).unshift({at: now(), who: emp.id, text: `Shipped to Atlas · batch #${b.number}` + (b.tracking ? ' · ' + b.tracking : '')}); });
+    this.log(d, emp.id, store, 'Shipped to Atlas', `Batch #${b.number} · ${devs.length} devices · cost ${money(b.costTotal)}`); this.save(d); return b;
+  },
+  async atlasPayout(emp, id, amount){
+    if (RANK[emp.role] < 2) throw new Error('A manager records the Atlas payout.'); if (!(amount >= 0)) throw new Error('Enter what Atlas paid for this batch.');
+    const d = this.db(); const b = d.atlasBatches.find(x => x.id === id); Object.assign(b, {payout: amount, paidAt: now(), paidBy: emp.id});
+    d.devices.filter(x => b.deviceIds.includes(x.id)).forEach(x => { x.soldPrice = Math.round((b.costTotal ? amount * x.cost / b.costTotal : amount / b.deviceIds.length) * 100) / 100; });
+    this.log(d, emp.id, b.store, 'Atlas payout', `Batch #${b.number} · paid ${money(amount)}`); this.save(d); return b;
   },
   async ticketInvoices(id){ return this.db().invoices.filter(i => i.ticketId === id).sort((a, b) => new Date(b.at) - new Date(a.at)); },
   async checkout(emp, store, inv){
@@ -841,6 +859,9 @@ const LiveStore = {
   async useTicketPart(emp, store, id, partId){ return this.rpc('pos_ticket_part', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_part: partId}); },
   async checkout(emp, store, inv){ const r = await this.rpc('pos_checkout', {p_pin: this.pinFor(emp), p_store: store, p_inv: inv}); if (inv.ticketId) { this.cT.delete(inv.ticketId); await this.loadTicket(inv.ticketId).catch(() => {}); } this.keep(this.cI, [r]); return r; },
   async ticketCharge(emp, store, id, add, removeId){ const r = await this.rpc('pos_ticket_charge', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_add: add || null, p_remove: removeId || null}); this.keep(this.cT, [r]); return r; },
+  async atlasBatches(){ const {data, error} = await this.sb.from('atlas_batches_v').select('*').order('at', {ascending: false}).limit(200); if (error) throw error; return data; },
+  async wholesaleShip(emp, store, ids, tracking, notes){ return this.rpc('pos_wholesale_ship', {p_pin: this.pinFor(emp), p_store: store, p_ids: ids, p_tracking: tracking || '', p_notes: notes || ''}); },
+  async atlasPayout(emp, id, amount){ return this.rpc('pos_atlas_payout', {p_pin: this.pinFor(emp), p_id: id, p_amount: amount}); },
   async ticketInvoices(id){ const {data, error} = await this.sb.from('invoices_v').select('*').eq('ticketId', id).order('at', {ascending: false}); if (error) throw error; this.keep(this.cI, data); return data; },
   async invoices(from, to){ const {data, error} = await this.sb.from('invoices_v').select('*').gte('at', from.toISOString()).lt('at', to.toISOString()); if (error) throw error; return data; },
   async allInvoices(){ const {data, error} = await this.sb.from('invoices_v').select('*').order('at', {ascending: false}).limit(1000); if (error) throw error; this.keep(this.cI, data); return [...this.cI.values()].sort((a, b) => new Date(b.at) - new Date(a.at)); },
@@ -1046,7 +1067,7 @@ setInterval(() => { if (S.user && !RSI.running && Date.now() - S.lastAct > IDLE_
 
 const NAV = [
   ['dashboard','Dashboard',0],['customers','Customers',0],['tickets','Tickets',0],['register','Register',0],['inbox','Inbox',0],['buyback','Buyback',0],
-  ['inventory','Devices',0],['swappa','Swappa',0],['repairs','Repair stock',0],['parts','Parts',0],['quote','Quote',0]
+  ['inventory','Devices',0],['swappa','Swappa',0],['wholesale','Wholesale',0],['repairs','Repair stock',0],['parts','Parts',0],['quote','Quote',0]
 ];
 const MORE = [['counts','Counts',0],['transfers','Transfers',0],['closeout','Close out',0],['invoices','Invoices',2],['hours','Timesheets',2],['staff','Admin',3]];
 const ALIAS = {ticket: 'tickets', newticket: 'tickets', customer: 'customers', repair: 'repairs', calls: 'inbox'};
@@ -1092,7 +1113,7 @@ async function renderShell(){
   });
   const gs = $('#gsearch');
   gs.onkeydown = e => { if (e.key === 'Enter' && gs.value.trim()) go('search', {q: gs.value.trim()}); };
-  const views = {clock: viewClock, buyback: viewBuyback, inventory: viewInventory, parts: viewParts, quote: viewQuote, swappa: viewSwappa, dashboard: viewDashboard,
+  const views = {clock: viewClock, buyback: viewBuyback, inventory: viewInventory, parts: viewParts, quote: viewQuote, swappa: viewSwappa, wholesale: viewWholesale, dashboard: viewDashboard,
     hours: viewHours, staff: viewStaff, tickets: viewTickets, ticket: viewTicket, newticket: viewNewTicket, customers: viewCustomers,
     customer: viewCustomer, search: viewSearch, invoices: viewInvoices, calls: viewInbox, inbox: viewInbox, repairs: viewRepairs, repair: viewRepair,
     register: viewRegister, closeout: viewCloseout, counts: viewCounts, transfers: viewTransfers};
@@ -2361,9 +2382,17 @@ async function viewBuybackDone(el){
     <div class="stack" style="gap:8px">
       <button class="primary" id="d-bos" style="min-height:52px;font-size:16px">1 · Print bill of sale for signature</button>
       <button id="d-label" style="min-height:52px;font-size:16px">2 · Print label</button>
+      <span class="label" style="margin-top:6px">3 · Where does it go?</span>
+      <div class="grid g3" style="gap:8px">
+        <button data-dest="${HOT_STOCK.includes(dv.model.toUpperCase()) ? 'hot' : 'tolist'}" aria-pressed="${['hot', 'tolist'].includes(dv.status)}">Inventory<span class="small muted" style="display:block">${HOT_STOCK.includes(dv.model.toUpperCase()) ? 'hot stock, sell in store' : 'ready to list on Swappa'}</span></button>
+        <button data-dest="repair" aria-pressed="${dv.status === 'repair'}">Repair stock<span class="small muted" style="display:block">needs work first</span></button>
+        <button data-dest="wholesale" aria-pressed="${dv.status === 'wholesale'}">Wholesale<span class="small muted" style="display:block">ship to Atlas</span></button>
+      </div>
       ${dv.status === 'repair' ? '<button id="d-rep">Open in repair stock</button>' : ''}
       <button id="d-next">Buy another device</button>
     </div></div>`;
+  el.querySelectorAll('[data-dest]').forEach(b => b.onclick = async () => { if (b.getAttribute('aria-pressed') === 'true') return;
+    try { await Store.updateDevice(S.user, S.store, dv.id, {status: b.dataset.dest}); toast(b.dataset.dest === 'wholesale' ? `Added to ${STORES[dv.store]} wholesale` : `Moved to ${STATUS_LABEL[b.dataset.dest]}`); viewBuybackDone(el); } catch (e) { toast(e.message); } });
   $('#d-bos').onclick = () => bosSheet(S.bbDone.buybackId, dv.id);
   $('#d-label').onclick = () => labelSheet(dv);
   $('#d-rep') && ($('#d-rep').onclick = () => { S.bbDone = null; go('repair', {deviceId: dv.id}); });
@@ -2476,6 +2505,70 @@ function nextStatusHint(d){
 }
 
 /* ---------------- SWAPPA LISTINGS ---------------- */
+/* ---------------- WHOLESALE (Atlas) ----------------
+   Devices bought to be wholesaled sit here, per store, until they ship. "Ship to Atlas" takes the ticked ones out of wholesale
+   (they become Sent to Atlas) and logs the box as a batch; the Atlas payout is recorded on the batch when it arrives. */
+S.ws = {store: 'mine', tab: 'stock', pick: new Set()};
+async function viewWholesale(el){
+  const W = S.ws; if (!can(3)) W.store = 'mine';
+  const [all, batches] = await Promise.all([Store.devices(), Store.atlasBatches().catch(() => [])]);
+  const inS = st => W.store === 'all' || st === (W.store === 'mine' ? S.store : W.store);
+  const stock = all.filter(d => d.status === 'wholesale' && inS(d.store) && !d.transferId).sort((a, b) => new Date(a.wholesaleAt || a.updatedAt) - new Date(b.wholesaleAt || b.updatedAt));
+  [...W.pick].forEach(id => { if (!stock.some(d => d.id === id)) W.pick.delete(id); });
+  const bs = batches.filter(b => inS(b.store));
+  const cost = list => list.reduce((a, d) => a + (+d.cost || 0) + (+d.partsCost || 0), 0);
+  const perStore = Object.keys(STORES).map(k => [k, all.filter(d => d.status === 'wholesale' && d.store === k)]);
+  const shipStore = W.store === 'all' ? null : (W.store === 'mine' ? S.store : W.store);
+  const picked = stock.filter(d => W.pick.has(d.id));
+  el.innerHTML = `<div class="stack">
+    <div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2>Wholesale</h2><p class="muted small" style="margin:0">Devices bought to go to Atlas. They stay here, per store, until the box ships. Ship to Atlas takes them out of wholesale and logs the batch.</p></div>
+      ${can(3) ? `<select id="ws-store" aria-label="Store" style="width:auto"><option value="mine">${STORES[S.store]}</option><option value="all">All stores</option>${Object.entries(STORES).filter(([k]) => k !== S.store).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>` : ''}</div>
+    ${can(3) ? `<div class="grid g3">${perStore.map(([k, l]) => `<div class="stat"><span class="label">${STORES[k]} wholesale</span><span class="v">${l.length}</span><span class="small muted">${money(cost(l))} cost</span></div>`).join('')}</div>` : ''}
+    <div class="statusbar" role="group" aria-label="View"><button data-wt="stock" aria-pressed="${W.tab === 'stock'}">In wholesale (${stock.length})</button><button data-wt="log" aria-pressed="${W.tab === 'log'}">Shipped to Atlas (${bs.length})</button></div>
+    ${W.tab === 'stock' ? `
+    <div class="panel stack">
+      <div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap"><span><b>${stock.length}</b> device${stock.length === 1 ? '' : 's'} · <b class="num">${money(cost(stock))}</b> cost${W.store === 'all' ? ' · pick one store to ship' : ''}</span>
+        ${shipStore && stock.length ? `<span class="row" style="gap:6px"><button id="ws-all">${picked.length === stock.length ? 'Untick all' : 'Tick all'}</button><button class="primary" id="ws-ship" ${picked.length ? '' : 'disabled'}>Ship to Atlas · ${picked.length} device${picked.length === 1 ? '' : 's'}</button></span>` : ''}</div>
+      <div class="tbl"><table><thead><tr>${shipStore ? '<th style="width:36px"></th>' : ''}<th>Stock #</th><th>Device</th><th>IMEI / serial</th><th>Condition</th><th class="r">Cost</th><th>In wholesale</th>${W.store === 'all' ? '<th>Store</th>' : ''}</tr></thead><tbody>
+      ${stock.map(d => { const age = daysOld(d.wholesaleAt || d.updatedAt); return `<tr ${shipStore ? `data-wp="${d.id}" style="cursor:pointer"` : ''}>${shipStore ? `<td><input type="checkbox" ${W.pick.has(d.id) ? 'checked' : ''} aria-label="Ship #${d.stockNo}" style="width:20px;height:20px"></td>` : ''}
+        <td class="num"><a data-dv="${d.id}" style="color:var(--accent);cursor:pointer">#${d.stockNo}</a></td><td>${esc(d.model)} ${esc(d.storage || '')}<div class="small muted">${esc(d.carrier || '')}${d.color ? ' · ' + esc(d.color) : ''}</div></td>
+        <td class="mono small">${esc(d.imei || '—')}</td><td class="small">${esc((CONDS.find(c => c[0] === d.cond) || [, d.cond || ''])[1])}</td><td class="r num">${cents((+d.cost || 0) + (+d.partsCost || 0))}</td>
+        <td><span class="${age >= 14 ? 'pill bad' : age >= 7 ? 'pill warn' : 'small'}">${age}d</span></td>${W.store === 'all' ? `<td>${d.store}</td>` : ''}</tr>`; }).join('') || `<tr><td colspan="8" class="muted">Nothing in wholesale${shipStore ? ' at ' + STORES[shipStore] : ''}. After a buy, tap "Wholesale" on the buy-complete screen, or move any device here from its page.</td></tr>`}
+      </tbody></table></div>
+    </div>` : `
+    <div class="stack">${bs.map(b => { const margin = b.payout != null ? b.payout - b.costTotal : null; return `<div class="panel stack" style="gap:8px">
+      <div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap"><b>Batch #${b.number} · ${STORES[b.store]} · ${fmtDate(b.at)} ${fmtTime(b.at)}</b>
+        <span class="row" style="gap:6px">${b.payout != null ? `<span class="pill ${margin >= 0 ? 'ok' : 'bad'}">Atlas paid ${money(b.payout)} · ${margin >= 0 ? '+' : ''}${money(margin)}</span>` : '<span class="pill warn">Waiting on Atlas payout</span>'}
+        ${can(2) ? `<button data-pay="${b.id}" style="min-height:32px;padding:2px 10px">${b.payout != null ? 'Edit payout' : 'Record payout'}</button>` : ''}<button data-bprint="${b.id}" style="min-height:32px;padding:2px 10px">Print packing list</button></span></div>
+      <div class="small muted">${b.devices.length} devices · ${money(b.costTotal)} cost · shipped by ${esc(staffName(b.by))}${b.tracking ? ' · tracking ' + esc(b.tracking) : ''}${b.notes ? ' · ' + esc(b.notes) : ''}</div>
+      <div class="small">${b.devices.map(x => `#${x.stockNo} ${esc(x.model)} ${esc(x.storage || '')}`).join(' · ')}</div></div>`; }).join('') || '<p class="muted">No boxes shipped to Atlas yet.</p>'}</div>`}
+  </div>`;
+  $('#ws-store') && ($('#ws-store').value = W.store, $('#ws-store').onchange = e => { W.store = e.target.value; W.pick.clear(); viewWholesale(el); });
+  el.querySelectorAll('[data-wt]').forEach(b => b.onclick = () => { W.tab = b.dataset.wt; viewWholesale(el); });
+  el.querySelectorAll('[data-dv]').forEach(a => a.onclick = e => { e.stopPropagation(); deviceSheet(stock.find(d => d.id === a.dataset.dv), () => viewWholesale(el)); });
+  el.querySelectorAll('[data-wp]').forEach(tr => tr.onclick = e => { if (e.target.closest('a')) return; const id = tr.dataset.wp; W.pick.has(id) ? W.pick.delete(id) : W.pick.add(id); viewWholesale(el); });
+  $('#ws-all') && ($('#ws-all').onclick = () => { if (picked.length === stock.length) W.pick.clear(); else stock.forEach(d => W.pick.add(d.id)); viewWholesale(el); });
+  const packing = b => printHTML(`Atlas batch #${b.number}`, `<h2 style="margin:0 0 4px">Cellular Zone ${esc(STORES[b.store])} → Atlas Mobile</h2><div>Batch #${b.number} · ${new Date(b.at).toLocaleDateString('en-US')} · ${b.devices.length} devices${b.tracking ? ' · tracking ' + esc(b.tracking) : ''}</div>
+    <table><thead><tr><th>#</th><th>Stock #</th><th>Device</th><th>Carrier</th><th>IMEI / serial</th></tr></thead><tbody>${b.devices.map((x, i) => `<tr><td>${i + 1}</td><td>${x.stockNo}</td><td>${esc(x.model)} ${esc(x.storage || '')}</td><td>${esc(x.carrier || '')}</td><td>${esc(x.imei || '')}</td></tr>`).join('')}</tbody></table>`,
+    '@page{size:letter;margin:12mm}body{font:12px Arial,sans-serif}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #999;padding:4px 6px;text-align:left}');
+  el.querySelectorAll('[data-bprint]').forEach(b => b.onclick = () => packing(bs.find(x => x.id === b.dataset.bprint)));
+  el.querySelectorAll('[data-pay]').forEach(btn => btn.onclick = () => { const b = bs.find(x => x.id === btn.dataset.pay);
+    sheet(`<div class="row" style="justify-content:space-between"><h3>Atlas payout · batch #${b.number}</h3><button data-close>Close</button></div>
+      <div class="small muted">${b.devices.length} devices · ${money(b.costTotal)} cost. The payout is split over the devices by cost, so each one shows what it sold for.</div>
+      <div class="field" style="max-width:200px"><label class="label" for="ap-v">Atlas paid</label><input id="ap-v" inputmode="decimal" value="${b.payout ?? ''}" placeholder="0.00"></div>
+      <div class="err" id="ap-e" role="alert"></div><button class="primary" id="ap-go">Save payout</button>`,
+      (L, close) => L.querySelector('#ap-go').onclick = async () => { try { await Store.atlasPayout(S.user, b.id, parseFloat(L.querySelector('#ap-v').value)); close(); toast('Payout saved'); viewWholesale(el); } catch (e) { L.querySelector('#ap-e').textContent = e.message; } }); });
+  $('#ws-ship') && ($('#ws-ship').onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Ship to Atlas · ${STORES[shipStore]}</h3><button data-close>Close</button></div>
+    <p style="margin:0">These ${picked.length} device${picked.length === 1 ? '' : 's'} come out of ${STORES[shipStore]} wholesale and are marked <b>Sent to Atlas</b>.</p>
+    <div class="tbl" style="max-height:260px;overflow:auto"><table><tbody>${picked.map(d => `<tr><td class="num">#${d.stockNo}</td><td>${esc(d.model)} ${esc(d.storage || '')}</td><td class="mono small">${esc(d.imei || '')}</td><td class="r num">${cents((+d.cost || 0) + (+d.partsCost || 0))}</td></tr>`).join('')}</tbody></table></div>
+    <div class="row" style="justify-content:space-between"><span class="label">Total cost</span><b class="num">${money(cost(picked))}</b></div>
+    <div class="grid g2"><div class="field"><label class="label" for="sh-t">Tracking # (optional)</label><input id="sh-t" placeholder="1Z…"></div><div class="field"><label class="label" for="sh-n">Note (optional)</label><input id="sh-n" placeholder="Box 1 of 2"></div></div>
+    <div class="err" id="sh-e" role="alert"></div><button class="primary" id="sh-go" style="min-height:48px">Clear wholesale and ship ${picked.length}</button>`,
+    (L, close) => L.querySelector('#sh-go').onclick = async () => { const btn = L.querySelector('#sh-go'); btn.disabled = true;
+      try { const b = await Store.wholesaleShip(S.user, shipStore, picked.map(d => d.id), L.querySelector('#sh-t').value, L.querySelector('#sh-n').value);
+        close(); W.pick.clear(); W.tab = 'log'; toast(`Batch #${b.number} shipped · ${picked.length} devices out of wholesale`); viewWholesale(el); packing(b); }
+      catch (e) { L.querySelector('#sh-e').textContent = e.message; btn.disabled = false; } }));
+}
 async function viewSwappa(el){
   const W = S.sw; const [all, ships] = await Promise.all([Store.devices(), Store.ships()]);
   if (!can(3)) W.store = 'mine';
