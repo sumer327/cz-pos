@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Cellular Zone Receipt</title>
+<style>
+  body{margin:0;background:#f4f5f7;color:#111;font:14px/1.5 -apple-system,Segoe UI,Roboto,Arial,sans-serif}
+  .wrap{max-width:420px;margin:24px auto;padding:0 16px}
+  .card{background:#fff;border-radius:14px;padding:22px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  .row{display:flex;justify-content:space-between;gap:12px}
+  hr{border:0;border-top:1px dashed #bbb;margin:12px 0}
+  .c{text-align:center} .muted{color:#666} .big{font-size:18px;font-weight:700}
+  button{margin-top:14px;width:100%;min-height:44px;border:1px solid #ccc;border-radius:10px;background:#fff;font:inherit;cursor:pointer}
+  @media print{body{background:#fff}.wrap{margin:0}.card{box-shadow:none;padding:0}button{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap"><div class="card" id="r"><p class="c muted">Loading your receipt…</p></div><button onclick="print()">Print</button></div>
+<script>
+const CZ = {url: "https://tdcekxznmfvwcuwokkba.supabase.co", key: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};
+const STORES = {DZ: ['Babcock', '6565 Babcock Rd, San Antonio, TX 78249', '(726) 227-4782'],
+  BV: ['Bulverde', '17910 Bulverde Rd Suite 106, San Antonio, TX 78259', '(726) 227-4665'],
+  PT: ['Potranco', '9230 Potranco Rd #105, San Antonio, TX 78251', '(726) 227-4697']};
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const cents = n => (+n < 0 ? '−$' : '$') + Math.abs(+n || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+(async () => {
+  const box = document.getElementById('r'); const id = location.hash.slice(1);
+  if (!/^[0-9a-f-]{36}$/i.test(id)) { box.innerHTML = '<p class="c">This receipt link is incomplete.</p>'; return; }
+  try {
+    const res = await fetch(CZ.url + '/rest/v1/rpc/pos_receipt', {method: 'POST', headers: {'Content-Type': 'application/json', apikey: CZ.key, Authorization: 'Bearer ' + CZ.key}, body: JSON.stringify({p_id: id})});
+    const r = await res.json();
+    if (!res.ok || !r) { box.innerHTML = '<p class="c">We couldn\'t find this receipt. Call the store and we\'ll send it again.</p>'; return; }
+    const s = STORES[r.store] || ['', '', ''];
+    const glass = (r.lines || []).some(l => l.glass || /tempered glass/i.test(l.desc || '')); const repair = (r.lines || []).some(l => /repair|labor/i.test(l.cat || ''));
+    document.title = 'Cellular Zone Receipt #' + r.number;
+    box.innerHTML = `<div class="c"><div class="big">Cellular Zone</div><div>${esc(s[0])}</div><div class="muted">${esc(s[1])}</div><div class="muted">${esc(s[2])} · cellularzonesa.com</div></div><hr>
+      <div class="row"><span>Receipt #${esc(r.number)}</span><span>${new Date(r.at).toLocaleString('en-US', {month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'})}</span></div>
+      ${r.customer ? `<div>Customer: ${esc(r.customer)}</div>` : ''}${r.ticket ? `<div>Ticket #${esc(r.ticket)}${r.device ? ' · ' + esc(r.device) : ''}</div>` : ''}<hr>
+      ${(r.lines || []).map(l => `<div class="row"><span>${esc(l.desc)}</span><span>${cents(l.price)}</span></div>`).join('')}<hr>
+      <div class="row"><span>Subtotal</span><span>${cents(r.subtotal)}</span></div><div class="row"><span>Sales tax (8.25%)</span><span>${cents(r.tax)}</span></div>
+      <div class="row big"><span>Total</span><span>${cents(r.total)}</span></div><div class="row"><span>Paid with</span><span>${esc(r.payment)}</span></div><hr>
+      <div class="c muted" style="font-size:13px">${repair ? '<div>Repairs carry a 6-month warranty from the date above.</div>' : ''}${glass ? '<div>Tempered glass: lifetime warranty. Bring it back any time for a new one for $5.</div>' : ''}<div style="margin-top:6px">Thank you for choosing Cellular Zone!</div></div>`;
+  } catch { box.innerHTML = '<p class="c">Couldn\'t load the receipt. Check your connection and try again.</p>'; }
+})();
+</script>
+</body>
+</html>

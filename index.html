@@ -174,7 +174,13 @@ const issueGuess = d => /iphone/i.test(d) ? 'iPhone Repair' : /ipad/i.test(d) ? 
 const TS = Object.fromEntries(TSTATUS.map(t => [t[0], t]));
 const stPill = k => `<span class="st ${TS[k][2]}">${TS[k][1]}</span>`;
 const ISSUES = ['iPhone Repair','Smartphone Repair','iPad Repair','Computer Repair','Tablet Repair','Phone Sale','Macbook Repair','Game Console Repair'];
-const LINE_CATS = ['Repair','Board-level repair','Diagnostic','Console repair','Phone sale','Accessory','Tempered glass','Labor (part provided)','Other'];
+const LINE_CATS = ['Repair','Board-level repair','Diagnostic','Water damage treatment','Console repair','Phone sale','Accessory','Tempered glass','Labor (part provided)','Other'];
+/* Texas sales tax: San Antonio 8.25% (6.25% state + 1.125% city + 0.875% transit districts). Everything is taxed except labor-only
+   diagnostics and water damage treatments. The database works out the tax on every invoice the same way; this is for showing it. */
+const TAX_RATE = 0.0825;
+const isTaxable = l => !['Diagnostic', 'Diagnostic credit', 'Water damage treatment'].includes(l.cat) && !/water damage/i.test(l.desc || '');
+const taxOf = lines => Math.max(0, Math.round(lines.filter(isTaxable).reduce((a, l) => a + (+l.price || 0) * (l.qty || 1), 0) * TAX_RATE * 100) / 100);
+const taxRow = (sub, tax) => `<div class="row small" style="justify-content:space-between"><span class="muted">Subtotal ${cents(sub)} · Sales tax 8.25% ${cents(tax)}</span>${tax === 0 && sub > 0 ? '<span class="muted">labor only, no tax</span>' : ''}</div>`;
 const PAYMENTS = ['Square (card)','Cash','Acima','Zelle'];
 const PAYOUTS = ['Cash','Apple Pay','Cash App','Zelle','Store credit'];          // how a buyback seller gets paid
 const SAM_PAYS = ['Apple Pay','Cash App','Zelle'];                              // these need Sam to send the money
@@ -212,7 +218,7 @@ const lkKey = (dev, part) => (dev + '|' + part).toLowerCase().replace(/[^a-z0-9|
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const cents = n => (n == null || isNaN(n)) ? '—' : '$' + (+n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const cents = n => (n == null || isNaN(n)) ? '—' : (+n < 0 ? '−$' : '$') + Math.abs(+n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 const money = n => (n == null || isNaN(n)) ? '—' : '$' + Math.round(n).toLocaleString('en-US');
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 const now = () => new Date().toISOString();
@@ -535,7 +541,8 @@ const DemoStore = {
       if (rep < cr) throw new Error('The diagnostic credit is more than the repair on this payment. Add the repair charge first.');
       credit = cs.map(x => ({desc: `Diagnostic credit (paid on invoice #${x.invoiceNo})`, cat: 'Diagnostic credit', price: -x.price})); }
     const lines = [...inv.lines, ...credit];
-    const row = {id: uid(), number: d.nextInvoice++, at: now(), by: emp.id, store, ...inv, lines, total: lines.reduce((a, l) => a + l.price, 0)};
+    const subtotal = Math.round(lines.reduce((a, l) => a + l.price, 0) * 100) / 100; const tax = taxOf(lines);
+    const row = {id: uid(), number: d.nextInvoice++, at: now(), by: emp.id, store, ...inv, lines, subtotal, tax, total: Math.round((subtotal + tax) * 100) / 100};
     delete row.chargeIds; delete row.resolve; delete row.creditIds; if (!resolve) row.partsCost = 0;
     if (credit.length) { const t0 = d.tickets.find(x => x.id === inv.ticketId); t0.charges.forEach(x => { if (inv.creditIds.includes(x.id)) x.creditedOn = row.number; }); }
     d.invoices.unshift(row);
@@ -568,6 +575,8 @@ const DemoStore = {
     const outs = d.ghlOut.filter(m => m.phone === c.phone).map(m => ({at: m.at, direction: 'outbound', type: 'SMS', body: m.body}));
     return [...ins, ...outs].sort((a, b) => new Date(b.at) - new Date(a.at));
   },
+  async emailReceipt(){ return {demo: true}; },
+  receiptLink(id){ return location.origin + location.pathname.replace(/[^/]*$/, '') + 'r.html#' + id; },
   async ghlSend(emp, store, {customer, ticketId, message}){
     if (!message.trim()) throw new Error('Type the text first.');
     if (!customer?.phone) throw new Error('This customer has no phone number.');
@@ -844,6 +853,8 @@ const LiveStore = {
   async ghlCall(body){ const {data, error} = await this.sb.functions.invoke('ghl', {body}); if (error) { let m = error.message; try { m = (await error.context.json()).error || m; } catch {} throw new Error(m); } if (data?.error) throw new Error(data.error); return data; },
   async ghlThread(store, c){ if (!c?.phone) return []; const r = await this.ghlCall({action: 'thread', store, phone: c.phone, name: c.name}); return r.messages || []; },
   async ghlSend(emp, store, {customer, ticketId, message}){ return this.ghlCall({action: 'send', pin: this.pinFor(emp), store, phone: customer?.phone, name: customer?.name, message, ticketId}); },
+  async emailReceipt(emp, store, {email, customer, subject, html}){ return this.ghlCall({action: 'email', pin: this.pinFor(emp), store, email, phone: customer?.phone, name: customer?.name, subject, html}); },
+  receiptLink(id){ return location.origin + location.pathname.replace(/[^/]*$/, '') + 'r.html#' + id; },
   /* Round-3 modules: designed and working in the demo; their database functions get written once Sam signs off on how they work. */
   async settings(){ return JSON.parse(JSON.stringify(DEFAULT_SETTINGS)); },
   async lookups(){ return []; },
@@ -1158,7 +1169,7 @@ async function viewTicket(el){
   const partsCost = t.partsUsed.reduce((a, p) => a + (+p.cost || 0), 0);
   const ch = t.charges || []; const due = ch.filter(x => !x.invoiceId);
   const diagCr = ch.filter(x => x.cat === 'Diagnostic' && x.invoiceId && !x.creditedOn); const crNow = chSum(due.filter(x => REPAIR_CATS.includes(x.cat))) >= chSum(diagCr) ? chSum(diagCr) : 0;
-  const dueSum = chSum(due) - crNow; const netCharged = chSum(ch) - chSum(ch.filter(x => x.creditedOn)) - crNow;
+  const dueSum = chSum(due) - crNow + taxOf([...due, ...(crNow ? [{cat: 'Diagnostic credit', price: -crNow}] : [])]); const netCharged = chSum(ch) - chSum(ch.filter(x => x.creditedOn)) - crNow;
   const tInv = await Store.ticketInvoices(t.id).catch(() => []); const paidSum = tInv.reduce((a, i) => a + (+i.total || 0), 0);
   const isOpen = t.status !== 'resolved';
   const first = (c.name || '').split(' ')[0];
@@ -1190,7 +1201,7 @@ async function viewTicket(el){
           <dt>Store</dt><dd>${STORES[t.store]}</dd>
           <dt>Checked in</dt><dd>${new Date(t.createdAt).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})} by ${esc(staffName(t.by))}</dd>
         </dl>
-        ${t.status !== 'resolved' ? `<div class="row"><button class="primary" id="t-pay">${t.type === 'rework' ? 'Close rework' : due.length ? 'Check out · ' + cents(dueSum) + ' due' : tInv.length ? 'Close ticket (paid)' : 'Check out'}</button>${t.status !== 'customer' ? '<button id="t-ready">Ready for pickup</button>' : ''}</div>` : `<div class="row">${t.invoiceId ? '<span class="pill ok">Paid and resolved</span>' : ''}<button id="t-rework">Customer came back: open rework</button></div>`}
+        ${t.status !== 'resolved' ? `<div class="row"><button id="t-label">Print label</button><button class="primary" id="t-pay">${t.type === 'rework' ? 'Close rework' : due.length ? 'Check out · ' + cents(dueSum) + ' due' : tInv.length ? 'Close ticket (paid)' : 'Check out'}</button>${t.status !== 'customer' ? '<button id="t-ready">Ready for pickup</button>' : ''}</div>` : `<div class="row">${t.invoiceId ? '<span class="pill ok">Paid and resolved</span>' : ''}<button id="t-rework">Customer came back: open rework</button></div>`}
         ${reworks.length ? `<div class="small">Reworks: ${reworks.map(r => `<a data-goto="${r.id}" style="color:var(--accent);cursor:pointer">#${r.number}</a> ${stPill(r.status)}`).join(' ')}</div>` : ''}
       </div>
       <div class="panel stack" id="t-charges">
@@ -1202,9 +1213,9 @@ async function viewTicket(el){
         ${ch.length ? `<div class="tbl"><table><tbody>${ch.map(x => `<tr><td>${esc(x.desc)}<div class="small muted">${esc(x.cat)}${x.glass ? ' · lifetime warranty' : ''} · ${esc(staffName(x.by))} · ${fmtDate(x.at)}</div></td><td class="r num">${cents(x.price)}</td>
           <td class="r" style="white-space:nowrap">${x.invoiceId ? `<span class="pill ok">Paid · #${esc(x.invoiceNo)}</span>${x.creditedOn ? ` <span class="pill acc">credited on #${esc(x.creditedOn)}</span>` : ''}` : isOpen ? `<span class="pill warn">Due</span> <button data-rmch="${x.id}" aria-label="Remove ${esc(x.desc)}" style="min-height:30px;padding:2px 8px">✕</button>` : '<span class="pill bad">Unpaid</span>'}</td></tr>`).join('')}</tbody></table></div>`
           : `<p class="muted small" style="margin:0">${isOpen ? 'Nothing charged yet. Add the diagnostic, the repair, glass or a case here, then take payment. Charge the diagnostic up front and the repair at pickup: each payment makes its own invoice.' : 'No charges on this ticket.'}</p>`}
-        ${ch.length || tInv.length ? `<div class="row" style="justify-content:space-between;gap:12px;flex-wrap:wrap"><span class="small">Charged <b class="num">${cents(netCharged)}</b> · Paid <b class="num">${cents(paidSum)}</b>${crNow ? ` · <span style="color:var(--ok)">${cents(crNow)} diagnostic comes off the repair</span>` : ch.some(x => x.creditedOn) ? ' · diagnostic credited' : diagCr.length ? ` · <span class="muted">${cents(chSum(diagCr))} diagnostic comes off once the repair is added</span>` : ''}</span><span>Balance due <b class="num" style="font-size:20px">${cents(dueSum)}</b></span></div>` : ''}
+        ${ch.length || tInv.length ? `<div class="row" style="justify-content:space-between;gap:12px;flex-wrap:wrap"><span class="small">Charged <b class="num">${cents(netCharged)}</b> + tax · Paid <b class="num">${cents(paidSum)}</b>${crNow ? ` · <span style="color:var(--ok)">${cents(crNow)} diagnostic comes off the repair</span>` : ch.some(x => x.creditedOn) ? ' · diagnostic credited' : diagCr.length ? ` · <span class="muted">${cents(chSum(diagCr))} diagnostic comes off once the repair is added</span>` : ''}</span><span>Balance due <b class="num" style="font-size:20px">${cents(dueSum)}</b>${due.some(isTaxable) ? ' <span class="small muted">with tax</span>' : ''}</span></div>` : ''}
         ${isOpen && due.length ? `<button class="primary" id="ch-pay" style="min-height:48px">Take payment · ${cents(dueSum)}</button>` : ''}
-        ${tInv.length ? `<div class="small stack" style="gap:2px"><span class="label">Invoices on this ticket</span>${tInv.map(i => `<span class="num">#${i.number} · ${cents(i.total)} · ${esc(i.payment || '')} · ${fmtDate(i.at)} ${fmtTime(i.at)} · ${esc((i.lines || []).map(l => l.desc).join(', '))}</span>`).join('')}</div>` : ''}
+        ${tInv.length ? `<div class="small stack" style="gap:2px"><span class="label">Invoices on this ticket</span>${tInv.map(i => `<span class="row" style="justify-content:space-between;gap:8px"><span class="num">#${i.number} · ${cents(i.total)} · ${esc(i.payment || '')} · ${fmtDate(i.at)} ${fmtTime(i.at)} · ${esc((i.lines || []).map(l => l.desc).join(', '))}</span><button data-rcpt="${i.id}" style="min-height:30px;padding:2px 10px">Receipt</button></span>`).join('')}</div>` : ''}
       </div>
       <div class="panel stack">
         <div class="row" style="justify-content:space-between"><h3>Customer</h3><button id="t-cust">Open customer</button></div>
@@ -1252,6 +1263,15 @@ async function viewTicket(el){
     const g = k === 'glassp' ? 'privacy' : 'regular'; addCh({desc: (g === 'privacy' ? 'Privacy tempered glass' : 'Tempered glass') + ' (lifetime warranty)', cat: 'Tempered glass', price: GLASS[g], glass: g}); });
   $('#ch-add') && ($('#ch-add').onclick = () => chargeSheet(t, c, () => viewTicket(el)));
   $('#ch-pay') && ($('#ch-pay').onclick = () => paySheet(t, c, {}));
+  $('#t-label') && ($('#t-label').onclick = () => printTicketLabel(t, c));
+  if (S.justCreated === t.id) { S.justCreated = null;
+    sheet(`<div class="row" style="justify-content:space-between"><h3>Ticket #${t.number} created</h3><button data-close>Done</button></div>
+      <div class="small muted">${esc(c.name || '')} · ${esc(t.device)} · ${esc(t.subject)}</div>
+      <button class="primary" id="nt-lbl" style="min-height:48px">Print ticket label</button>
+      ${ch.length ? '' : `<button id="nt-diag" style="min-height:48px">Collect diagnostic ${cents(diagFor(t.device, set))} now</button>`}`,
+      (L, close) => { L.querySelector('#nt-lbl').onclick = () => printTicketLabel(t, c);
+        L.querySelector('#nt-diag') && (L.querySelector('#nt-diag').onclick = () => { close(); addCh({desc: 'Diagnostic · ' + t.device, cat: 'Diagnostic', price: diagFor(t.device, set)}, true); }); }); }
+  el.querySelectorAll('[data-rcpt]').forEach(b => b.onclick = () => receiptSheet(tInv.find(i => i.id === b.dataset.rcpt), {c, t}));
   el.querySelectorAll('[data-rmch]').forEach(b => b.onclick = async () => { try { await Store.ticketCharge(S.user, S.store, t.id, null, b.dataset.rmch); toast('Charge removed'); viewTicket(el); } catch (e) { toast(e.message); } });
   $('#t-cust').onclick = () => go('customer', {customerId: c.id});
   $('#pc-show') && ($('#pc-show').onclick = () => { $('#pc').textContent = $('#pc').dataset.v; $('#pc-show').remove(); });
@@ -1384,13 +1404,88 @@ async function viewNewTicket(el){
     $('#nt-err').textContent = err; if (err) return;
     const t = await Store.createTicket(S.user, S.store, {customerId: D.customerId, device: D.device.trim(), issue: D.issue, subject: D.subject.trim(),
       estimate: parseFloat(D.estimate) || null, imei: D.imei.trim(), passcode: D.passcode.trim(), techId: $('#nt-tech').value || null, notes: D.notes.trim()});
-    S.draft = {}; toast(`Ticket #${t.number} created`); go('ticket', {ticketId: t.id});
+    S.draft = {}; S.justCreated = t.id; go('ticket', {ticketId: t.id});
   };
 }
 
 /* ---------------- TICKET CHARGES → INVOICE ----------------
    Charges build up on the ticket (diagnostic, the repair, glass, a case...). "Take payment" turns the ones you tick into one invoice.
    Paying only the diagnostic keeps the ticket open; paying everything at pickup closes it. */
+/* ---------------- RECEIPTS: print, text, email ---------------- */
+const STORE_INFO = {DZ: {addr: '6565 Babcock Rd, San Antonio, TX 78249', phone: '(726) 227-4782'},
+  BV: {addr: '17910 Bulverde Rd Suite 106, San Antonio, TX 78259', phone: '(726) 227-4665'},
+  PT: {addr: '9230 Potranco Rd #105, San Antonio, TX 78251', phone: '(726) 227-4697'}};
+/* r = {number, at, store, lines, subtotal, tax, total, payment, ticket, device, customer}. Same layout as r.html (the page the texted link opens). */
+function receiptHTML(r){
+  const si = STORE_INFO[r.store] || {}; const sub = r.subtotal ?? r.total, tax = r.tax || 0;
+  const glass = (r.lines || []).some(l => l.glass || /tempered glass/i.test(l.desc || '')); const repair = (r.lines || []).some(l => REPAIR_CATS.includes(l.cat) || /repair/i.test(l.cat || ''));
+  return `<div style="font:13px/1.45 -apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111;max-width:320px;margin:0 auto">
+    <div style="text-align:center"><div style="font-size:18px;font-weight:700">Cellular Zone</div><div>${esc(STORES[r.store] || '')}</div><div>${esc(si.addr || '')}</div><div>${esc(si.phone || '')} · cellularzonesa.com</div></div>
+    <hr style="border:0;border-top:1px dashed #999;margin:10px 0">
+    <div>Receipt #${esc(r.number)}<span style="float:right">${new Date(r.at).toLocaleString('en-US', {month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'})}</span></div>
+    ${r.customer ? `<div>Customer: ${esc(r.customer)}</div>` : ''}${r.ticket ? `<div>Ticket #${esc(r.ticket)}${r.device ? ' · ' + esc(r.device) : ''}</div>` : ''}
+    <hr style="border:0;border-top:1px dashed #999;margin:10px 0">
+    ${(r.lines || []).map(l => `<div style="display:flex;justify-content:space-between;gap:10px"><span>${esc(l.desc)}</span><span style="white-space:nowrap">${cents(l.price)}</span></div>`).join('')}
+    <hr style="border:0;border-top:1px dashed #999;margin:10px 0">
+    <div style="display:flex;justify-content:space-between"><span>Subtotal</span><span>${cents(sub)}</span></div>
+    <div style="display:flex;justify-content:space-between"><span>Sales tax (8.25%)</span><span>${cents(tax)}</span></div>
+    <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:700"><span>Total</span><span>${cents(r.total)}</span></div>
+    <div style="display:flex;justify-content:space-between"><span>Paid with</span><span>${esc(r.payment || '')}</span></div>
+    <hr style="border:0;border-top:1px dashed #999;margin:10px 0">
+    <div style="text-align:center;font-size:12px">${repair ? '<div>Repairs carry a 6-month warranty from today.</div>' : ''}${glass ? '<div>Tempered glass: lifetime warranty. Bring it back any time for a new one for $5.</div>' : ''}<div style="margin-top:6px">Thank you for choosing Cellular Zone!</div></div></div>`;
+}
+/* Epson TM-T88V: 80 mm roll, 72 mm printable width, page as long as the receipt (up to 297 mm) */
+function printReceipt(r){
+  printHTML('Receipt #' + r.number, receiptHTML(r), '@page{size:72mm 297mm;margin:0}html,body{margin:0;width:72mm}body{padding:2mm 3mm;box-sizing:border-box}body>div{max-width:none!important;font-size:12px!important}');
+}
+/* DYMO LabelWriter 450, 3.5 × 1.1 in label stuck on the device: ticket #, customer, phone, device, issue, barcode (scan it into search to open the ticket) */
+function printTicketLabel(t, c){
+  const L = LABELS['30252'];
+  printHTML('Ticket ' + t.number, `<div class="t"><span>CELLULAR ZONE · ${esc(STORES[t.store] || t.store)}</span><b>#${t.number}</b></div>
+    <div class="m">${esc(c?.name || 'Walk-in')} · ${esc(fmtPhone(c?.phone))}</div>
+    <div class="s">${esc(t.device || '')} · ${esc((t.subject || '').slice(0, 60))}</div>
+    <div class="t s"><span>In ${fmtDate(t.createdAt)}</span><span>${t.techId ? esc(staffName(t.techId)) : ''}</span></div>
+    <div class="bc">${barcodeSVG(t.number, 20)}</div>`,
+    `@page{size:${L.w} ${L.h};margin:0}*{box-sizing:border-box}html,body{margin:0}body{width:${L.w};height:${L.h};padding:.04in .08in;font:600 8.5px/1.15 Arial,Helvetica,sans-serif;color:#000;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden}
+     .t{display:flex;justify-content:space-between;gap:4px}.t b{font-size:12px}.m{font-size:11px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.s{font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bc svg{width:100%;height:20px;display:block}`);
+}
+/* after a payment, or from an invoice: print / text / email the receipt */
+async function receiptSheet(inv, ctx = {}){
+  const c = ctx.c || (inv.customerId ? (await Store.customers().catch(() => [])).find(x => x.id === inv.customerId) : null) || {};
+  const t = ctx.t || null;
+  const r = {number: inv.number, at: inv.at, store: inv.store, lines: inv.lines, subtotal: inv.subtotal ?? inv.total, tax: inv.tax || 0, total: inv.total, payment: inv.payment,
+    ticket: t?.number || null, device: t?.device || null, customer: (c.name || '').split(' ')[0]};
+  const link = Store.mode === 'demo' ? null : Store.receiptLink(inv.id);
+  const first = (c.name || '').split(' ')[0];
+  const textMsg = `Hi${first ? ' ' + first : ''}, thanks for choosing Cellular Zone ${STORES[inv.store]}! Receipt #${inv.number}: ${cents(inv.total)} paid${link ? '. View it here: ' + link : ''}`;
+  sheet(`<div class="row" style="justify-content:space-between"><h3>${ctx.justPaid ? 'Paid · ' + cents(inv.total) : 'Receipt #' + inv.number}</h3><button data-close>Done</button></div>
+    ${ctx.justPaid ? `<div class="small muted">Invoice #${inv.number} · ${esc(inv.payment)}${ctx.note ? ' · ' + esc(ctx.note) : ''}</div>` : ''}
+    <div style="background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:14px;max-height:340px;overflow:auto">${receiptHTML(r)}</div>
+    <button class="primary" id="rc-print" style="min-height:48px">Print receipt</button>
+    <div class="grid g2" style="align-items:end"><div class="field"><label class="label" for="rc-ph">Text to</label><input id="rc-ph" inputmode="tel" value="${esc(fmtPhone(c.phone) === '—' ? '' : c.phone || '')}" placeholder="Customer's mobile"></div><button id="rc-text" style="min-height:44px">Text receipt</button></div>
+    <div class="grid g2" style="align-items:end"><div class="field"><label class="label" for="rc-em">Email to</label><input id="rc-em" type="email" value="${esc(c.email || '')}" placeholder="name@email.com"></div><button id="rc-email" style="min-height:44px">Email receipt</button></div>
+    <div class="small" id="rc-msg" role="status"></div>`, (L, close) => {
+    const msg = (h, bad) => { const m = L.querySelector('#rc-msg'); m.innerHTML = h; m.style.color = bad ? 'var(--bad)' : 'var(--ok)'; };
+    const fallback = why => `${esc(why)}${link ? ` <a href="#" id="rc-copy" style="color:var(--accent)">Copy the receipt link</a> to send it yourself.` : ''}`;
+    const bindCopy = () => { const a = L.querySelector('#rc-copy'); if (a) a.onclick = async e => { e.preventDefault(); try { await navigator.clipboard.writeText(link); toast('Receipt link copied'); } catch { prompt('Copy the receipt link:', link); } }; };
+    L.querySelector('#rc-print').onclick = () => printReceipt(r);
+    L.querySelector('#rc-text').onclick = async e => { const ph = L.querySelector('#rc-ph').value.replace(/\D/g, '').slice(-10);
+      if (ph.length !== 10) return msg('Enter a 10-digit mobile number.', true);
+      e.target.disabled = true; e.target.textContent = 'Sending…';
+      try { const res = await Store.ghlSend(S.user, inv.store, {customer: {phone: ph, name: c.name || ''}, ticketId: null, message: textMsg}); msg(res?.demo ? 'Demo: text logged, not actually sent.' : 'Receipt texted to ' + fmtPhone(ph) + '.'); }
+      catch (x) { msg(fallback("Couldn't text it: " + x.message + '.'), true); bindCopy(); }
+      e.target.disabled = false; e.target.textContent = 'Text receipt'; };
+    L.querySelector('#rc-email').onclick = async e => { const em = L.querySelector('#rc-em').value.trim();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return msg('Enter a valid email address.', true);
+      e.target.disabled = true; e.target.textContent = 'Sending…';
+      try { const res = await Store.emailReceipt(S.user, inv.store, {email: em, customer: {phone: c.phone, name: c.name}, subject: `Your Cellular Zone receipt #${inv.number}`,
+          html: receiptHTML(r) + (link ? `<p style="text-align:center;font:12px Arial"><a href="${link}">View this receipt online</a></p>` : '')});
+        msg(res?.demo ? 'Demo: email not actually sent.' : 'Receipt emailed to ' + esc(em) + '.'); }
+      catch (x) { const mail = `mailto:${encodeURIComponent(em)}?subject=${encodeURIComponent('Your Cellular Zone receipt #' + inv.number)}&body=${encodeURIComponent(textMsg)}`;
+        msg(`Couldn't email it from the POS: ${esc(x.message)}. <a href="${mail}" style="color:var(--accent)">Open it in this computer's email app</a>${link ? ' or <a href="#" id="rc-copy" style="color:var(--accent)">copy the receipt link</a>' : ''}.`, true); bindCopy(); }
+      e.target.disabled = false; e.target.textContent = 'Email receipt'; };
+  });
+}
 const chSum = list => list.reduce((a, x) => a + (+x.price || 0), 0);
 const REPAIR_CATS = ['Repair', 'Board-level repair', 'Console repair', 'Labor (part provided)'];
 function paySheet(t, c, opts = {}){
@@ -1403,7 +1498,7 @@ function paySheet(t, c, opts = {}){
   sheet(`<div class="row" style="justify-content:space-between"><h3>Take payment · #${t.number}</h3><button data-close>Close</button></div>
     ${c?.name ? `<div class="small muted">${esc(c.name)} · ${fmtPhone(c.phone)} · ${esc(t.device)}</div>` : ''}
     <div id="py-lines"></div>
-    <div class="row" style="justify-content:space-between"><span class="label">Total</span><span class="num" style="font-size:28px" id="py-total"></span></div>
+    <div id="py-tax"></div><div class="row" style="justify-content:space-between"><span class="label">Total with tax</span><span class="num" style="font-size:28px" id="py-total"></span></div>
     <label class="row" style="gap:10px;align-items:flex-start;cursor:pointer;background:var(--soft);border-radius:var(--r);padding:10px 12px"><input type="checkbox" id="py-res" style="width:22px;height:22px;margin-top:2px">
       <span><b>Repair is done: close the ticket</b><span class="small muted" style="display:block" id="py-reshint"></span></span></label>
     <div id="py-bh" class="grid g2" hidden><div class="field"><label class="label" for="py-bhv">Battery health % (needed to close this iPhone ticket)</label><input id="py-bhv" inputmode="numeric" placeholder="87"></div>
@@ -1422,11 +1517,12 @@ function paySheet(t, c, opts = {}){
           : credits.length ? `<div class="small muted">The ${cents(chSum(credits))} diagnostic paid on #${credits.map(x => esc(x.invoiceNo)).join(', #')} comes off when the repair is paid.</div>` : ''}
         ${sel.length < due.length ? `<div class="small muted">${due.length - sel.length} charge${due.length - sel.length === 1 ? '' : 's'} (${cents(chSum(due) - chSum(sel))}) stay on the ticket for later.</div>` : ''}`;
       L.querySelector('#py-cr') && (L.querySelector('#py-cr').onchange = e => { useCredit = e.target.checked; draw(); });
-      L.querySelector('#py-total').textContent = cents(tot);
+      const ptLines = [...sel, ...(cr ? [{cat: 'Diagnostic credit', price: -cr}] : [])]; const ptax = taxOf(ptLines);
+      L.querySelector('#py-tax').innerHTML = taxRow(tot, ptax); L.querySelector('#py-total').textContent = cents(tot + ptax);
       L.querySelector('#py-res').checked = res; L.querySelector('#py-bh').hidden = !(res && needsBH(t) && !t.bh && !t.bhSkip);
       L.querySelector('#py-reshint').textContent = res ? (sel.length < due.length ? "Can't close yet: tick every charge, or remove the ones that aren't happening." : 'Ticket moves to Resolved and the customer gets the review text.')
         : 'Ticket stays open (diagnostic or deposit paid up front). Charge the rest at pickup.';
-      const go = L.querySelector('#py-go'); go.textContent = sel.length ? `Record ${cents(tot)} payment${res ? ' and close ticket' : ''}` : 'Tick what they are paying for'; go.disabled = !sel.length || (res && sel.length < due.length);
+      const go = L.querySelector('#py-go'); go.textContent = sel.length ? `Record ${cents(tot + ptax)} payment${res ? ' and close ticket' : ''}` : 'Tick what they are paying for'; go.disabled = !sel.length || (res && sel.length < due.length);
       L.querySelectorAll('[data-pk]').forEach(tr => tr.onclick = () => { const id = tr.dataset.pk; pick.has(id) ? pick.delete(id) : pick.add(id); draw(); });
     };
     draw();
@@ -1444,7 +1540,7 @@ function paySheet(t, c, opts = {}){
           creditIds: useCredit && creditFor(sel) ? credits.map(x => x.id) : [],
           partsCost: res ? t.partsUsed.reduce((a, p) => a + (+p.cost || 0), 0) : 0,
           lines: sel.map(x => ({desc: x.desc, cat: x.cat, price: +x.price, ...(x.productId ? {productId: x.productId} : {}), ...(x.glass ? {glass: x.glass, device: t.device} : {})}))});
-        close(); toast(`Invoice #${inv.number} · ${cents(inv.total)} paid${res ? ' · ticket closed' : ' · ticket stays open'}`); viewTicket($('#main'));
+        close(); viewTicket($('#main')); receiptSheet(inv, {c, t, justPaid: true, note: res ? 'ticket closed' : 'ticket stays open'});
       } catch (e) { L.querySelector('#py-err').textContent = e.message; btn.disabled = false; }
     };
   });
@@ -1500,8 +1596,8 @@ async function chargeSheet(t, c, after){
       }
     };
     const foot = (L, close) => { const due = (t.charges || []).filter(x => !x.invoiceId);
-      L.querySelector('#cs-foot').innerHTML = `<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding-top:10px;gap:8px"><span>${due.length} due on the ticket · <b class="num">${cents(chSum(due))}</b></span>
-        <span class="row" style="gap:6px"><button id="cs-done">Done</button>${due.length ? `<button class="primary" id="cs-pay">Take payment · ${cents(chSum(due))}</button>` : ''}</span></div>`;
+      L.querySelector('#cs-foot').innerHTML = `<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding-top:10px;gap:8px"><span>${due.length} due on the ticket · <b class="num">${cents(chSum(due))}</b> <span class="small muted">+ tax</span></span>
+        <span class="row" style="gap:6px"><button id="cs-done">Done</button>${due.length ? `<button class="primary" id="cs-pay">Take payment</button>` : ''}</span></div>`;
       L.querySelector('#cs-done').onclick = () => { close(); after && after(); };
       L.querySelector('#cs-pay') && (L.querySelector('#cs-pay').onclick = () => { close(); after && after(); paySheet(t, c, {}); }); };
     L.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; body(); });
@@ -1517,6 +1613,9 @@ function checkoutSheet(t, c){
     <div class="err" id="rw-err" role="alert"></div>${t.warranty ? '<button class="primary" id="rw-close">Mark resolved</button>' : ''}`, (L, close) => { const b = L.querySelector('#rw-close'); if (b) b.onclick = async () => { try { await Store.updateTicket(S.user, S.store, t.id, {status: 'resolved'}); close(); toast('Rework resolved'); viewTicket($('#main')); } catch (e) { L.querySelector('#rw-err').textContent = e.message; } }; });
   const lines = t ? [{desc: t.subject, cat: t.status === 'board' ? 'Board-level repair' : /console/i.test(t.issue) ? 'Console repair' : t.issue === 'Phone Sale' ? 'Phone sale' : /diag/i.test(t.subject) ? 'Diagnostic' : 'Repair', price: t.estimate || 0}] : [{desc: '', cat: 'Phone sale', price: 0}];
   const partsCost = t ? t.partsUsed.reduce((a, p) => a + (+p.cost || 0), 0) : 0;
+  const upd = L => { const sub = lines.reduce((a, x) => a + (+x.price || 0), 0), tax = taxOf(lines);
+    L.querySelector('#co-tax').innerHTML = taxRow(sub, tax); L.querySelector('#co-total').textContent = cents(sub + tax);
+    L.querySelector('#co-gp').textContent = t ? `${money(sub - partsCost)} profit after ${money(partsCost)} parts (before tax)` : ''; };
   const draw = L => {
     const total = lines.reduce((a, l) => a + (+l.price || 0), 0);
     L.querySelector('#co-lines').innerHTML = lines.map((l, i) => `<div class="grid" style="grid-template-columns:2fr 1.3fr 1fr auto;gap:8px;align-items:end">
@@ -1524,9 +1623,8 @@ function checkoutSheet(t, c){
       <div class="field"><label class="label" for="co-c${i}">Category</label><select id="co-c${i}" data-i="${i}" data-k="cat">${LINE_CATS.map(x => `<option ${l.cat === x ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
       <div class="field"><label class="label" for="co-p${i}">Price</label><input id="co-p${i}" data-i="${i}" data-k="price" inputmode="decimal" value="${l.price || ''}"></div>
       <button type="button" data-rm="${i}" aria-label="Remove line" ${lines.length < 2 ? 'disabled' : ''}>✕</button></div>`).join('');
-    L.querySelector('#co-total').textContent = cents(total);
-    L.querySelector('#co-gp').textContent = t ? `${money(total - partsCost)} profit after ${money(partsCost)} parts` : '';
-    L.querySelectorAll('[data-k]').forEach(inp => inp.oninput = inp.onchange = () => { const l = lines[inp.dataset.i]; l[inp.dataset.k] = inp.dataset.k === 'price' ? parseFloat(inp.value) || 0 : inp.value; L.querySelector('#co-total').textContent = cents(lines.reduce((a, x) => a + (+x.price || 0), 0)); L.querySelector('#co-gp').textContent = t ? `${money(lines.reduce((a, x) => a + (+x.price || 0), 0) - partsCost)} profit after ${money(partsCost)} parts` : ''; });
+    upd(L);
+    L.querySelectorAll('[data-k]').forEach(inp => inp.oninput = inp.onchange = () => { const l = lines[inp.dataset.i]; l[inp.dataset.k] = inp.dataset.k === 'price' ? parseFloat(inp.value) || 0 : inp.value; upd(L); });
     L.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { lines.splice(+b.dataset.rm, 1); draw(L); });
   };
   sheet(`<div class="row" style="justify-content:space-between"><h3>${t ? `Check out #${t.number}` : 'Quick sale'}</h3><button data-close>Close</button></div>
@@ -1535,7 +1633,7 @@ function checkoutSheet(t, c){
     <div class="row"><button type="button" id="co-add">+ Add line</button><button type="button" id="co-glass">+ Tempered glass $29.99</button><button type="button" id="co-glassp">+ Privacy glass $34.99</button><button type="button" id="co-case">+ Case $5</button></div>
     <div id="co-up"></div>
     <div class="small muted">A line that says "Glass Only" adds the customer's screen to the refurb count automatically.</div>
-    <div class="row" style="justify-content:space-between"><span class="label">Total</span><span class="num" style="font-size:24px" id="co-total"></span></div>
+    <div id="co-tax"></div><div class="row" style="justify-content:space-between"><span class="label">Total with tax</span><span class="num" style="font-size:24px" id="co-total"></span></div>
     <div class="small muted" id="co-gp"></div>
     <div class="field"><label class="label" for="co-pay">Paid with</label><select id="co-pay">${PAYMENTS.map(p => `<option>${p}</option>`).join('')}</select></div>
     <div class="banner warn small" id="co-sq">Charge the card on the Square iPad first, then record it here.</div>
@@ -1554,7 +1652,7 @@ function checkoutSheet(t, c){
       if (bad) { L.querySelector('#co-err').textContent = 'Every line needs an item name and a price.'; return; }
       let inv; try { inv = await Store.checkout(S.user, S.store, {ticketId: t?.id || null, customerId: c?.id || null, lines: lines.map(l => ({desc: l.desc.trim(), cat: l.cat, price: +l.price, ...(l.glass ? {glass: l.glass} : {}), ...(l.glassWarrantyId ? {glassWarrantyId: l.glassWarrantyId} : {})})), partsCost, payment: L.querySelector('#co-pay').value}); }
       catch (e) { L.querySelector('#co-err').textContent = e.message; return; }
-      close(); toast(`Invoice #${inv.number} · ${cents(inv.total)} recorded`); t ? viewTicket($('#main')) : go('invoices');
+      close(); t ? viewTicket($('#main')) : go('invoices'); receiptSheet(inv, {c, t, justPaid: true});
     };
   });
 }
@@ -1728,7 +1826,7 @@ async function viewRegister(el){
   if (!S.prods || Date.now() - S.prodsAt > 120000) { S.prods = await Store.products().catch(() => []); S.prodsAt = Date.now(); }
   const pq = (S.rgq || '').trim(); const exact = pq && S.prods.find(p => p.upc && p.upc === pq);
   const hits = pq ? S.prods.filter(p => prodMatch(p, pq)).sort((a, b) => (b.qty?.[S.store] || 0) - (a.qty?.[S.store] || 0)).slice(0, 15) : [];
-  const total = S.cart.reduce((a, l) => a + l.price * (l.qty || 1), 0);
+  const sub = S.cart.reduce((a, l) => a + l.price * (l.qty || 1), 0), rtax = taxOf(S.cart), total = sub + rtax;
   el.innerHTML = `<div id="rg-day" style="margin-bottom:14px"></div><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));align-items:start">
     <div class="panel stack"><h2>Register</h2>
       <p class="muted small" style="margin:0">Accessories and walk-in sales. No customer needed. Add their phone if they want a receipt or might come back.</p>
@@ -1744,7 +1842,7 @@ async function viewRegister(el){
     </div>
     <div class="panel stack"><h2>Sale</h2>
       ${S.cart.length ? `<div class="tbl"><table><tbody>${S.cart.map((l, i) => `<tr><td>${esc(l.desc)}<div class="small muted">${esc(l.cat)}</div></td><td class="r num">${cents(l.price)}</td><td class="r"><button data-rmc="${i}" aria-label="Remove ${esc(l.desc)}" style="min-height:32px;padding:2px 10px">✕</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">Tap an item to add it.</p>'}
-      <div class="row" style="justify-content:space-between"><span class="label">Total</span><span class="num" style="font-size:26px">${cents(total)}</span></div>
+      ${S.cart.length ? taxRow(sub, rtax) : ''}<div class="row" style="justify-content:space-between"><span class="label">Total with tax</span><span class="num" style="font-size:26px">${cents(total)}</span></div>
       <div class="field"><label class="label" for="rg-ph">Customer phone (${S.cart.some(l => l.glass) ? 'required for the glass warranty' : 'optional'})</label><input id="rg-ph" inputmode="tel" value="${esc(S.cartPhone || '')}" placeholder="Leave blank for walk-in"></div>
       <div class="field"><label class="label" for="rg-pay">Paid with</label><select id="rg-pay">${PAYMENTS.map(p => `<option>${p}</option>`).join('')}</select></div>
       <div class="banner warn small" id="rg-sq">Charge the card on the Square iPad first, then record it here.</div>
@@ -1781,7 +1879,7 @@ async function viewRegister(el){
     if (!ph && S.cart.some(l => l.glass)) { $('#rg-err').textContent = "Tempered glass comes with the lifetime warranty: enter the customer's phone so it's on file."; return; }
     if (ph) { cust = (await Store.customerByPhone(ph)) || await Store.saveCustomer(S.user, S.store, {name: 'Walk-in ' + ph.slice(-4), phone: ph, heardFrom: 'Walk in / drive by'}); }
     const inv = await Store.checkout(S.user, S.store, {ticketId: null, customerId: cust?.id || null, lines: S.cart.map(l => ({desc: l.desc, cat: l.cat, price: l.price, ...(l.productId ? {productId: l.productId} : {}), ...(l.glass ? {glass: l.glass} : {}), ...(l.glassWarrantyId ? {glassWarrantyId: l.glassWarrantyId} : {})})), partsCost: 0, payment: $('#rg-pay').value});
-    S.cart = []; S.cartPhone = ''; S.prods = null; toast(`Sale #${inv.number} · ${cents(inv.total)} recorded`); viewRegister(el);
+    S.cart = []; S.cartPhone = ''; S.prods = null; viewRegister(el); receiptSheet(inv, {c: cust || {}, justPaid: true});
   };
 }
 
@@ -2027,7 +2125,7 @@ async function viewClock(el){
 
 /* ---------------- PRINTING (bill of sale, DYMO labels) ---------------- */
 const LABELS = {
-  '30252': {name: 'DYMO 30252 Address · 3½ × 1⅛ in', w: '3.5in', h: '1.125in'},
+  '30252': {name: 'DYMO 30252 Address · 3½ × 1.1 in (LabelWriter 450)', w: '3.5in', h: '1.097in'},
   '30336': {name: 'DYMO 30336 Small multipurpose · 2⅛ × 1 in', w: '2.125in', h: '1in'},
   '30334': {name: 'DYMO 30334 Multipurpose · 2¼ × 1¼ in', w: '2.25in', h: '1.25in'},
   '30330': {name: 'DYMO 30330 Return address · 2 × ¾ in', w: '2in', h: '0.75in'}
@@ -2928,7 +3026,7 @@ async function viewDashboard(el){
   const per = DS.map(s => {
     const b = bbs.filter(x => x.store === s), d = devs.filter(x => x.store === s && x.status !== 'sold'), inv = invs.filter(i => i.store === s);
     const open = tix.filter(t => t.store === s && t.status !== 'resolved');
-    const sales = inv.reduce((a, i) => a + i.total, 0), gm = inv.reduce((a, i) => a + i.total - (i.partsCost || 0), 0);
+    const sales = inv.reduce((a, i) => a + i.total - (i.tax || 0), 0), gm = inv.reduce((a, i) => a + i.total - (i.tax || 0) - (i.partsCost || 0), 0);
     return {s, sales, gm, nInv: inv.length, open: open.length, parts: open.filter(t => t.status === 'parts').length,
       partsLate: open.filter(t => t.status === 'parts' && daysOld(t.createdAt) >= 5).length, ready: open.filter(t => t.status === 'customer').length,
       bb: b.length, spend: b.reduce((a, x) => a + x.paid, 0), inv: d.length, invCost: d.reduce((a, x) => a + (+x.cost || 0), 0),
