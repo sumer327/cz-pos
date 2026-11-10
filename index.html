@@ -115,6 +115,8 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .menu{position:absolute;right:0;top:calc(100% + 4px);background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:10px;min-width:200px;padding:6px;z-index:30;display:flex;flex-direction:column}
 .menu button{border:0;text-align:left;min-height:40px}
 .menu button:hover{background:var(--soft)}
+button.qa{display:flex!important;flex-direction:column;align-items:flex-start!important;justify-content:center;gap:3px;background:var(--panel);border:1px solid var(--line);box-shadow:0 1px 2px rgba(0,0,0,.04)}
+button.qa:hover{border-color:var(--accent);background:var(--soft)}
 .appbar .menu button,.appbar nav .menu button{color:var(--ink);background:transparent;box-shadow:none;font-size:15px;font-weight:500;padding:8px 12px;border-radius:6px;width:100%}
 .appbar .menu button:hover{background:var(--soft);color:var(--ink)}
 .crumb{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;margin-bottom:12px}
@@ -981,7 +983,7 @@ async function renderLock(){
 setInterval(() => { if (S.user && Date.now() - S.lastAct > IDLE_LOCK_MS && !$('#layer').innerHTML) { renderLock(); toast('Locked after 2 minutes idle'); } }, 5000);
 
 const NAV = [
-  ['dashboard','Dashboard',2],['customers','Customers',0],['tickets','Tickets',0],['register','Register',0],['inbox','Inbox',0],['buyback','Buyback',0],
+  ['dashboard','Dashboard',0],['customers','Customers',0],['tickets','Tickets',0],['register','Register',0],['inbox','Inbox',0],['buyback','Buyback',0],
   ['inventory','Devices',0],['swappa','Swappa',0],['repairs','Repair stock',0],['parts','Parts',0],['quote','Quote',0]
 ];
 const MORE = [['counts','Counts',0],['transfers','Transfers',0],['closeout','Close out',0],['invoices','Invoices',2],['hours','Timesheets',2],['staff','Admin',3]];
@@ -2640,17 +2642,17 @@ async function viewDashboard(el){
     Store.counts(), Store.transfers(), Store.leads(), Store.ships(), Store.buybacksAll(), Store.registerDays()]);
   const today = dayKey(new Date()), yest = dayKey(new Date(Date.now() - 86400000));
   const att = [];
-  const DS = can(3) ? Object.keys(STORES) : [S.store];
-  DS.forEach(st => {
+  const DS = [S.store]; const AS = can(3) ? Object.keys(STORES) : [];   /* cards/lineup: this store only. Needs attention: owner only, all stores */
+  AS.forEach(st => {
     if (!counts.some(c => c.store === st && c.kind === 'phones' && dayKey(c.at) === today)) att.push(['warn', `${STORES[st]}: phones not counted today`, 'counts']);
     const lastPh = counts.find(c => c.store === st && c.kind === 'phones'); if (lastPh && (lastPh.missing.length || lastPh.extra.length)) att.push(['bad', `${STORES[st]}: last phone count was off (${lastPh.missing.length} missing, ${lastPh.extra.length} unexpected)`, 'counts']);
     if (!closes.some(c => c.store === st && c.day === yest && c.closedAt)) att.push(['warn', `${STORES[st]}: yesterday's register (${fmtDate(yest + 'T12:00')}) wasn't closed`, 'register']);
     { const o = closes.find(c => c.store === st && !c.closedAt && c.day < today); if (o) att.push(['bad', `${STORES[st]}: register from ${fmtDate(o.day + 'T12:00')} is still open`, 'register']); }
   });
-  bbAll.filter(b => b.payoutStatus === 'requested' && DS.includes(b.store)).forEach(b => att.push(['bad', `Payout waiting: ${b.bbId} ${cents(b.paid)} by ${b.payout}`, 'closeout']));
-  trs.filter(t => t.status === 'transit' && (DS.includes(t.from) || DS.includes(t.to))).forEach(t => att.push(['warn', `Transfer T${t.number} ${t.from} → ${t.to} in transit ${daysOld(t.at)}d`, 'transfers']));
-  ships.filter(x => x.status !== 'shipped' && DS.includes(x.store)).forEach(x => att.push([x.status === 'pull' ? 'bad' : 'warn', `${x.store}: ${x.label} sold, ${x.status === 'pull' ? 'not packed yet' : 'not shipped yet'}`, 'swappa']));
-  const nl = leads.filter(l => l.status === 'new' && (!l.store || DS.includes(l.store))).length; if (nl) att.push(['acc', `${nl} new website ${nl === 1 ? 'lead' : 'leads'}`, 'inbox']);
+  bbAll.filter(b => b.payoutStatus === 'requested' && AS.includes(b.store)).forEach(b => att.push(['bad', `Payout waiting: ${b.bbId} ${cents(b.paid)} by ${b.payout}`, 'closeout']));
+  trs.filter(t => t.status === 'transit' && (AS.includes(t.from) || AS.includes(t.to))).forEach(t => att.push(['warn', `Transfer T${t.number} ${t.from} → ${t.to} in transit ${daysOld(t.at)}d`, 'transfers']));
+  ships.filter(x => x.status !== 'shipped' && AS.includes(x.store)).forEach(x => att.push([x.status === 'pull' ? 'bad' : 'warn', `${x.store}: ${x.label} sold, ${x.status === 'pull' ? 'not packed yet' : 'not shipped yet'}`, 'swappa']));
+  const nl = AS.length ? leads.filter(l => l.status === 'new').length : 0; if (nl) att.push(['acc', `${nl} new website ${nl === 1 ? 'lead' : 'leads'}`, 'inbox']);
   const C = custById(custs);
   const per = DS.map(s => {
     const b = bbs.filter(x => x.store === s), d = devs.filter(x => x.store === s && x.status !== 'sold'), inv = invs.filter(i => i.store === s);
@@ -2664,8 +2666,11 @@ async function viewDashboard(el){
   const lineup = tix.filter(t => DS.includes(t.store) && ['new','progress','board'].includes(t.status)).sort((a, b) => (a.status === 'board') - (b.status === 'board') || new Date(a.createdAt) - new Date(b.createdAt));
   const late = tix.filter(t => DS.includes(t.store) && t.status === 'parts' && daysOld(t.createdAt) >= 5);
   const bar = v => `<div style="height:8px;background:var(--soft);border-radius:4px;overflow:hidden"><div style="height:100%;width:${Math.min(100, v / DAILY_GOAL * 100)}%;background:${v >= DAILY_GOAL ? 'var(--ok)' : 'var(--accent)'}"></div></div>`;
+  const QA = [['customer', 'New customer', 'Add someone to the system'], ['ticket', 'New ticket', 'Check in a repair'], ['buyback', 'New buyback', 'Test, pay and label a device'],
+    ['appraisal', 'New appraisal', 'Price a device for a seller'], ['quote', 'New quote', 'Repair price + phone script']];
   el.innerHTML = `<div class="stack">
-    ${att.length ? `<div class="panel stack"><h3>Needs attention</h3><div class="stack" style="gap:6px">${att.map(([k, t, tab]) => `<button data-att="${tab}" style="text-align:left;justify-content:flex-start;min-height:40px"><span class="pill ${k}" style="margin-right:8px">!</span>${esc(t)}</button>`).join('')}</div></div>` : ''}
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">${QA.map(([k, l, d]) => `<button class="qa" data-qa="${k}" style="min-height:76px;text-align:left;align-items:flex-start;flex-direction:column;justify-content:center;gap:2px;border-radius:12px"><b style="font-size:16px;display:block">+ ${l}</b><span class="small muted" style="display:block;font-weight:400">${d}</span></button>`).join('')}</div>
+    ${can(3) && att.length ? `<div class="panel stack"><h3>Needs attention</h3><div class="stack" style="gap:6px">${att.map(([k, t, tab]) => `<button data-att="${tab}" style="text-align:left;justify-content:flex-start;min-height:40px"><span class="pill ${k}" style="margin-right:8px">!</span>${esc(t)}</button>`).join('')}</div></div>` : ''}
     <div class="grid ${per.length > 1 ? 'g3' : ''}">${per.map(p => `<div class="panel stack">
       <div class="row" style="justify-content:space-between"><h3>${STORES[p.s]}</h3><span class="pill ${p.on.length ? 'ok' : 'bad'}">${p.on.length ? esc(p.on.join(', ')) : 'nobody on'}</span></div>
       <div class="stack" style="gap:6px"><div class="row" style="justify-content:space-between"><span class="label">Gross margin today</span><span class="num">${money(p.gm)} / ${money(DAILY_GOAL)}</span></div>${bar(p.gm)}<span class="small muted">${money(p.sales)} sales · ${p.nInv} ${p.nInv === 1 ? 'invoice' : 'invoices'}</span></div>
@@ -2677,8 +2682,8 @@ async function viewDashboard(el){
       </div></div>`).join('')}</div>
     <div class="grid g2" style="align-items:start">
       <div class="panel stack"><h3>Repair lineup</h3><p class="muted small" style="margin:0">Everything a tech can work on now, oldest first. Board level last.</p>
-        <div class="tbl"><table><thead><tr><th>#</th><th>Customer</th><th>Repair</th><th>Store</th><th>Status</th></tr></thead><tbody>
-        ${lineup.map(t => `<tr class="click" data-t="${t.id}"><td class="num">${t.number}</td><td>${esc(C[t.customerId]?.name || '')}</td><td>${esc(t.subject)}</td><td>${t.store}</td><td>${stPill(t.status)}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">Nothing waiting. Nice.</td></tr>'}
+        <div class="tbl"><table><thead><tr><th>#</th><th>Customer</th><th>Repair</th><th>Status</th></tr></thead><tbody>
+        ${lineup.map(t => `<tr class="click" data-t="${t.id}"><td class="num">${t.number}</td><td>${esc(C[t.customerId]?.name || '')}</td><td>${esc(t.subject)}</td><td>${stPill(t.status)}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">Nothing waiting. Nice.</td></tr>'}
         </tbody></table></div>
         ${late.length ? `<div class="banner bad small"><b>Parts late:</b> ${late.map(t => `#${t.number} ${esc(C[t.customerId]?.name || '')} (${daysOld(t.createdAt)}d)`).join(', ')}. Someone needs to check the Sentrix order.</div>` : ''}
       </div>
@@ -2687,6 +2692,11 @@ async function viewDashboard(el){
     </div></div>`;
   el.querySelectorAll('tr[data-t]').forEach(tr => tr.onclick = () => go('ticket', {ticketId: tr.dataset.t}));
   el.querySelectorAll('[data-att]').forEach(b => b.onclick = () => (b.dataset.att === 'swappa' && (S.sw.tab = 'ship'), go(b.dataset.att)));
+  el.querySelectorAll('[data-qa]').forEach(b => b.onclick = () => { const k = b.dataset.qa;
+    if (k === 'customer') customerSheet(null, c => go('customer', {customerId: c.id}));
+    else if (k === 'ticket') go('newticket', {draft: {}});
+    else if (k === 'buyback' || k === 'appraisal') { S.bb = newBB(); go('buyback'); }
+    else if (k === 'quote') { S.quote = {cat: S.quote?.cat || 'iphone', model: null, q: '', col: null}; S.om = null; go('quote'); } });
 }
 
 /* ---------------- TIMESHEETS ---------------- */
