@@ -115,8 +115,10 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .menu{position:absolute;right:0;top:calc(100% + 4px);background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:10px;min-width:200px;padding:6px;z-index:30;display:flex;flex-direction:column}
 .menu button{border:0;text-align:left;min-height:40px}
 .menu button:hover{background:var(--soft)}
-button.qa{display:flex!important;flex-direction:column;align-items:flex-start!important;justify-content:center;gap:3px;background:var(--panel);border:1px solid var(--line);box-shadow:0 1px 2px rgba(0,0,0,.04)}
-button.qa:hover{border-color:var(--accent);background:var(--soft)}
+button.qa{display:flex!important;flex-direction:column;align-items:flex-start!important;justify-content:center;gap:3px;border:0;color:#fff;box-shadow:0 2px 6px rgba(0,0,0,.12)}
+button.qa .muted{color:rgba(255,255,255,.85)!important}
+button.qa:hover{filter:brightness(1.08)}
+button.qa[data-qa=customer]{background:#2563eb}button.qa[data-qa=ticket]{background:#7c3aed}button.qa[data-qa=buyback]{background:#059669}button.qa[data-qa=appraisal]{background:#d97706}button.qa[data-qa=quote]{background:#db2777}
 .appbar .menu button,.appbar nav .menu button{color:var(--ink);background:transparent;box-shadow:none;font-size:15px;font-weight:500;padding:8px 12px;border-radius:6px;width:100%}
 .appbar .menu button:hover{background:var(--soft);color:var(--ink)}
 .crumb{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;margin-bottom:12px}
@@ -980,7 +982,7 @@ async function renderLock(){
 
 /* auto-lock when idle */
 ['click','keydown','input'].forEach(ev => document.addEventListener(ev, () => { S.lastAct = Date.now(); }, true));
-setInterval(() => { if (S.user && Date.now() - S.lastAct > IDLE_LOCK_MS && !$('#layer').innerHTML) { renderLock(); toast('Locked after 2 minutes idle'); } }, 5000);
+setInterval(() => { if (S.user && !RSI.running && Date.now() - S.lastAct > IDLE_LOCK_MS && !$('#layer').innerHTML) { renderLock(); toast('Locked after 2 minutes idle'); } }, 5000);
 
 const NAV = [
   ['dashboard','Dashboard',0],['customers','Customers',0],['tickets','Tickets',0],['register','Register',0],['inbox','Inbox',0],['buyback','Buyback',0],
@@ -2796,7 +2798,7 @@ function rsProduct(p){ const qty = {DZ: 0, BV: 0, PT: 0}; (p.location_quantities
   return {rs_id: p.id, name: p.name, description: p.description || '', category: p.product_category || p.category_path || '', upc: p.upc_code || '', price: +p.price_retail || 0, cost: +p.price_cost || 0, qty, maintain_stock: !!p.maintain_stock, disabled: !!p.disabled}; }
 
 async function rsImportRun(tok, mode, ui){
-  const st = rsiState(); RSI.running = true; RSI.stop = false; const say = m => { RSI.log.unshift(new Date().toLocaleTimeString() + ' · ' + m); RSI.log = RSI.log.slice(0, 60); ui(); };
+  const owner = S.user; const st = rsiState(); RSI.running = true; RSI.stop = false; const say = m => { RSI.log.unshift(new Date().toLocaleTimeString() + ' · ' + m); RSI.log = RSI.log.slice(0, 60); ui(); };
   if (st.loc) Object.assign(RSI.loc, st.loc);
   const startedAt = new Date().toISOString();
   const pages = async (kind, path, key, map, params = {}) => {
@@ -2806,7 +2808,7 @@ async function rsImportRun(tok, mode, ui){
       if (!list.length) break;
       const rows = list.map(map); const clean = rows.map(({_needDetail, ...r}) => r);
       if (kind === 'tickets') { const need = [...new Set(clean.map(r => r.customer_rs_id).filter(Boolean))]; RSI.needCust = need; }
-      await Store.importRows(S.user, kind, clean);
+      await Store.importRows(owner, kind, clean);
       if (kind === 'tickets') rows.filter(r => r._needDetail).forEach(r => RSI.detail.add(r.rs_id));
       st[kind + 'Page'] = page + 1; st.loc = RSI.loc; if (mode === 'full') rsiSave(st);
       say(`${kind}: page ${page}${total ? ' of ' + total : ''} (${list.length})`);
@@ -2829,14 +2831,14 @@ async function rsImportRun(tok, mode, ui){
         while (!RSI.stop){ const j = await rsGet(tok, kind, {since_updated_at: since, page}); const list = j[kind] || []; if (!list.length) break;
           const custIds = [...new Set(list.map(x => x.customer_id).filter(Boolean))];
           const custs = []; for (const id of custIds) { try { const c = await rsGet(tok, 'customers/' + id); if (c.customer) custs.push(rsCust(c.customer)); } catch {} }
-          if (custs.length) await Store.importRows(S.user, 'customers', custs);
-          const rows = list.map(map); await Store.importRows(S.user, kind, rows.map(({_needDetail, ...r}) => r)); if (kind === 'tickets') rows.filter(r => r._needDetail).forEach(r => RSI.detail.add(r.rs_id));
+          if (custs.length) await Store.importRows(owner, 'customers', custs);
+          const rows = list.map(map); await Store.importRows(owner, kind, rows.map(({_needDetail, ...r}) => r)); if (kind === 'tickets') rows.filter(r => r._needDetail).forEach(r => RSI.detail.add(r.rs_id));
           say(`catch-up ${kind}: page ${page} (${list.length})`); if (j.meta?.total_pages && page >= j.meta.total_pages) break; page++; }
       }
-      try { let page = 1; while (!RSI.stop) { const j = await rsGet(tok, 'products', {page}); if (!(j.products || []).length) break; await Store.importRows(S.user, 'products', j.products.map(rsProduct)); say(`products: page ${page}`); if (j.meta?.total_pages && page >= j.meta.total_pages) break; page++; } } catch (e) { if (e.code === 403) say('Products skipped: ' + e.message); else throw e; }
+      try { let page = 1; while (!RSI.stop) { const j = await rsGet(tok, 'products', {page}); if (!(j.products || []).length) break; await Store.importRows(owner, 'products', j.products.map(rsProduct)); say(`products: page ${page}`); if (j.meta?.total_pages && page >= j.meta.total_pages) break; page++; } } catch (e) { if (e.code === 403) say('Products skipped: ' + e.message); else throw e; }
     }
     /* open tickets whose list entry had no notes: pull each one for its notes */
-    if (!RSI.stop && RSI.detail.size) { let n = 0; for (const id of RSI.detail) { if (RSI.stop) break; const j = await rsGet(tok, 'tickets/' + id); if (j.ticket) { const {_needDetail, ...r} = rsTicket(j.ticket); await Store.importRows(S.user, 'tickets', [r]); } if (++n % 10 === 0) say(`notes for open tickets: ${n} of ${RSI.detail.size}`); } }
+    if (!RSI.stop && RSI.detail.size) { let n = 0; for (const id of RSI.detail) { if (RSI.stop) break; const j = await rsGet(tok, 'tickets/' + id); if (j.ticket) { const {_needDetail, ...r} = rsTicket(j.ticket); await Store.importRows(owner, 'tickets', [r]); } if (++n % 10 === 0) say(`notes for open tickets: ${n} of ${RSI.detail.size}`); } }
     if (!RSI.stop) { if (mode === 'full' && !st.fullStartedAt) st.fullStartedAt = startedAt; st.lastSync = startedAt; rsiSave(st); say(RSI.stop ? 'Paused.' : 'Done.'); }
   } catch (e) { say('Stopped: ' + e.message); }
   RSI.running = false; ui();
@@ -2845,7 +2847,7 @@ function rsImportPanel(box){
   const st = rsiState(); let sum = null;
   const draw = () => { const done = k => st[k + 'Done'] ? '✓' : st[k + 'Page'] ? `page ${st[k + 'Page'] - 1}` : '—';
     box.innerHTML = `<div class="panel stack"><h2>Import from RepairShopr</h2>
-      <p class="small muted" style="margin:0">Copies every customer, every ticket (all years, with notes), every invoice and the product inventory from RepairShopr into the POS. It only reads RepairShopr; nothing there changes. Keep this tab open while it runs (about 45–60 minutes the first time). If it stops, press Start again and it picks up where it left off. Running it again never makes duplicates.</p>
+      <p class="small muted" style="margin:0">Copies every customer, every ticket (all years, with notes), every invoice and the product inventory from RepairShopr into the POS. It only reads RepairShopr; nothing there changes. Keep this tab open and on this screen while it runs (a few hours the first time; the screen won't auto-lock while it's running). If it stops, press Start again and it picks up where it left off. Running it again never makes duplicates.</p>
       <div class="field"><label class="label" for="rsi-k">RepairShopr API key (read-only; used in this tab only, never saved)</label><input id="rsi-k" type="password" autocomplete="off" placeholder="Paste the key from RepairShopr → Admin → API Tokens"></div>
       <div class="row"><button class="primary" id="rsi-full" ${RSI.running ? 'disabled' : ''}>${st.ticketsPage && !st.lastSync ? 'Continue full import' : 'Start full import'}</button><button id="rsi-catch" ${RSI.running || !st.lastSync ? 'disabled' : ''}>Catch up (changes since ${st.lastSync ? fmtDate(st.lastSync) + ' ' + fmtTime(st.lastSync) : 'last run'})</button>${RSI.running ? '<button id="rsi-stop">Pause</button>' : ''}<button id="rsi-sum">Check counts</button></div>
       <div class="small">Customers ${done('customers')} · Tickets ${done('tickets')} · Invoices ${done('invoices')} · Products ${done('products')}</div>
