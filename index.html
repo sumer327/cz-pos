@@ -466,9 +466,13 @@ const DemoStore = {
     const d = this.db(); const phone = (c.phone || '').replace(/\D/g, '');
     if (phone && d.customers.some(x => x.phone === phone && x.id !== c.id)) throw new Error('A customer with that phone number already exists. Search for them instead.');
     let row = d.customers.find(x => x.id === c.id);
-    if (!row) { row = {id: uid(), createdAt: now()}; d.customers.unshift(row); }
-    Object.assign(row, {name: c.name.trim(), phone, email: (c.email || '').trim()});
-    this.log(d, emp.id, store, 'Customer saved', row.name); this.save(d); return row;
+    if (!row && !(c.heardFrom || '').trim()) throw new Error('Ask where they heard about us.');
+    if (!row) { row = {id: uid(), createdAt: now(), store}; d.customers.unshift(row); }
+    const em = (c.email || '').trim().toLowerCase();
+    Object.assign(row, {name: c.name.trim(), phone, email: em, heardFrom: c.heardFrom || row.heardFrom || ''});
+    let won = 0; (d.leads || []).forEach(l => { if (!['won', 'lost'].includes(l.status) && ((phone && (l.phone || '').replace(/\D/g, '') === phone) || (em && (l.email || '').toLowerCase() === em))) {
+      l.status = 'won'; l.customerId = l.customerId || row.id; (l.notes = l.notes || []).unshift({at: now(), who: emp.id, text: 'Became a customer: ' + row.name}); won++; } });
+    this.log(d, emp.id, store, 'Customer saved', row.name + (won ? ` · ${won} lead(s) marked won` : '')); this.save(d); return {...row, leadsWon: won};
   },
   async tickets(){ return this.db().tickets; },
   async createTicket(emp, store, t){
@@ -824,8 +828,8 @@ const LiveStore = {
   async createPO(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
   async updatePO(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
   async receivePOLine(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
-  async leads(){ return []; },
-  async updateLead(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
+  async leads(){ const {data, error} = await this.sb.from('web_leads_v').select('*').gte('at', new Date(Date.now() - 60 * 864e5).toISOString()).order('at', {ascending: false}).limit(300); if (error) return []; return data.map(l => ({...l, notes: l.notes || []})); },
+  async updateLead(emp, id, patch, note){ return this.rpc('pos_update_lead', {p_pin: this.pinFor(emp), p_id: id, p_status: patch.status || null, p_note: note || ''}); },
   async reviews(){ return []; },
   async sendReviewNow(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
   async notes(){ return []; },
@@ -1212,17 +1216,40 @@ async function viewTicket(el){
     (L, close) => L.querySelector('#rw-go').onclick = async () => { try { const r = await Store.openRework(S.user, S.store, t.id, L.querySelector('#rw-r').value); close(); toast(`Rework #${r.number} opened`); go('ticket', {ticketId: r.id}); } catch (e) { L.querySelector('#rw-e').textContent = e.message; } }));
 }
 
+const HEARD = ['Google', 'Facebook', 'Instagram', 'TikTok', 'Website', 'Referred by friend / family', 'Returning customer', 'Walk in / drive by', 'OfferUp', 'Yelp', 'Other'];
 function customerSheet(c, after){
   sheet(`<div class="row" style="justify-content:space-between"><h3>${c?.id ? 'Edit customer' : 'New customer'}</h3><button data-close>Close</button></div>
     <div class="field"><label class="label" for="c-n">Full name</label><input id="c-n" value="${esc(c?.name || '')}" autocomplete="off"></div>
     <div class="grid g2"><div class="field"><label class="label" for="c-p">Mobile phone</label><input id="c-p" inputmode="tel" value="${esc(c?.phone || '')}" autocomplete="off"></div>
     <div class="field"><label class="label" for="c-e">Email (optional)</label><input id="c-e" type="email" value="${esc(c?.email || '')}" autocomplete="off"></div></div>
+    <div id="c-lead"></div>
+    <div class="field"><label class="label" for="c-h">How did they hear about us?${c?.id ? '' : ' (ask every new customer)'}</label><select id="c-h"><option value="">Pick one…</option>${HEARD.map(h => `<option ${c?.heardFrom === h ? 'selected' : ''}>${esc(h)}</option>`).join('')}${c?.heardFrom && !HEARD.includes(c.heardFrom) ? `<option selected>${esc(c.heardFrom)}</option>` : ''}</select></div>
     <div class="err" id="c-err" role="alert"></div><button class="primary" id="c-save">Save customer</button>`,
-  (L, close) => L.querySelector('#c-save').onclick = async () => {
-    const phone = L.querySelector('#c-p').value.replace(/\D/g, '');
-    if (phone && phone.length !== 10) { L.querySelector('#c-err').textContent = 'Phone number should be 10 digits.'; return; }
-    try { const row = await Store.saveCustomer(S.user, S.store, {id: c?.id, name: L.querySelector('#c-n').value, phone, email: L.querySelector('#c-e').value}); close(); toast('Customer saved'); after && after(row); }
-    catch (e) { L.querySelector('#c-err').textContent = e.message; }
+  (L, close) => {
+    let leads = null, hits = [];
+    const check = async () => {
+      const phone = L.querySelector('#c-p').value.replace(/\D/g, ''), em = L.querySelector('#c-e').value.trim().toLowerCase();
+      if (phone.length !== 10 && !em.includes('@')) { L.querySelector('#c-lead').innerHTML = ''; hits = []; return; }
+      leads = leads || await Store.leads().catch(() => []);
+      hits = leads.filter(l => (phone.length === 10 && (l.phone || '').replace(/\D/g, '').slice(-10) === phone) || (em.includes('@') && (l.email || '').toLowerCase() === em));
+      const open = hits.filter(l => !['won', 'lost'].includes(l.status));
+      L.querySelector('#c-lead').innerHTML = hits.length ? `<div class="banner ${open.length ? 'acc' : 'warn'} small stack" style="gap:4px"><b>This ${hits.some(l => (l.phone || '').replace(/\D/g, '').slice(-10) === phone) ? 'number' : 'email'} was a previous lead.</b>
+        ${hits.slice(0, 3).map(l => `<span>${esc(l.source || 'Lead')} · ${fmtDate(l.at)} · ${esc(l.device || '')}${l.request ? ' · ' + esc(l.request) : ''} · <b>${esc((LEAD_ST.find(x => x[0] === l.status) || [, l.status])[1])}</b></span>`).join('')}
+        ${open.length ? `<span>Saving this customer marks ${open.length === 1 ? 'it' : 'them'} <b>Won</b>.</span>` : ''}</div>` : '';
+      const h = L.querySelector('#c-h'); if (hits.length && !h.value) h.value = HEARD.includes('Website') && /widget|website/i.test(hits[0].source || '') ? 'Website' : h.value;
+      const n = L.querySelector('#c-n'); if (hits.length && !n.value.trim()) n.value = hits[0].name || '';
+    };
+    L.querySelector('#c-p').addEventListener('input', () => { if (L.querySelector('#c-p').value.replace(/\D/g, '').length === 10) check(); else if (!L.querySelector('#c-e').value.includes('@')) L.querySelector('#c-lead').innerHTML = ''; });
+    L.querySelector('#c-e').addEventListener('change', check);
+    if (c?.phone || c?.email) check();
+    L.querySelector('#c-save').onclick = async () => {
+      const phone = L.querySelector('#c-p').value.replace(/\D/g, ''); const heard = L.querySelector('#c-h').value;
+      if (phone && phone.length !== 10) { L.querySelector('#c-err').textContent = 'Phone number should be 10 digits.'; return; }
+      if (!c?.id && !heard) { L.querySelector('#c-err').textContent = 'Ask how they heard about us and pick one.'; return; }
+      try { const row = await Store.saveCustomer(S.user, S.store, {id: c?.id, name: L.querySelector('#c-n').value, phone, email: L.querySelector('#c-e').value, heardFrom: heard});
+        close(); toast(row.leadsWon ? `Customer saved · previous lead marked Won` : 'Customer saved'); after && after(row); }
+      catch (e) { L.querySelector('#c-err').textContent = e.message; }
+    };
   });
 }
 
@@ -1416,7 +1443,7 @@ async function viewInbox(el){
         try { const r = await Store.ghlSend(S.user, l.store || S.store, {customer: {name: l.name, phone: l.phone}, message: L.querySelector('#lt-msg').value}); await Store.updateLead(S.user, l.id, {status: l.status === 'new' ? 'contacted' : l.status}, 'Texted'); close(); toast(r.demo ? 'Demo: text logged, not actually sent' : 'Text sent'); viewInbox(el); } catch (e) { toast(e.message); } }); });
   box.querySelectorAll('[data-lgo]').forEach(b => b.onclick = async () => { const l = leads.find(x => x.id === b.dataset.lgo);
     let c = C.find(x => x.phone === l.phone);
-    if (!c) c = await Store.saveCustomer(S.user, S.store, {name: l.name, phone: l.phone, email: l.email});
+    if (!c) c = await Store.saveCustomer(S.user, S.store, {name: l.name, phone: l.phone, email: l.email, heardFrom: /widget|website/i.test(l.source || '') ? 'Website' : (l.source || 'Website')});
     await Store.updateLead(S.user, l.id, {status: 'coming'}, 'Customer came in');
     if (/sell|buyback/i.test(l.source + l.request)) { S.bb = newBB(); S.bb.seller.phone = l.phone; S.bb.seller.firstName = l.name.split(' ')[0]; S.bb.seller.lastName = l.name.split(' ').slice(1).join(' '); go('buyback'); }
     else go('newticket', {draft: {customerId: c.id, device: l.device, issue: issueGuess(l.device)}}); });
@@ -1515,7 +1542,7 @@ async function viewRegister(el){
   $('#rg-go').onclick = async () => {
     const ph = (S.cartPhone || '').replace(/\D/g, ''); let cust = null;
     if (ph && ph.length !== 10) { $('#rg-err').textContent = 'Phone should be 10 digits, or leave it blank.'; return; }
-    if (ph) { cust = (await Store.customerByPhone(ph)) || await Store.saveCustomer(S.user, S.store, {name: 'Walk-in ' + ph.slice(-4), phone: ph}); }
+    if (ph) { cust = (await Store.customerByPhone(ph)) || await Store.saveCustomer(S.user, S.store, {name: 'Walk-in ' + ph.slice(-4), phone: ph, heardFrom: 'Walk in / drive by'}); }
     const inv = await Store.checkout(S.user, S.store, {ticketId: null, customerId: cust?.id || null, lines: S.cart.map(l => ({desc: l.desc, cat: l.cat, price: l.price, ...(l.productId ? {productId: l.productId} : {})})), partsCost: 0, payment: $('#rg-pay').value});
     S.cart = []; S.cartPhone = ''; S.prods = null; toast(`Sale #${inv.number} · ${cents(inv.total)} recorded`); viewRegister(el);
   };
@@ -1689,7 +1716,7 @@ async function viewCustomer(el){
   const mine = tix.filter(t => t.customerId === c.id), paid = invs.filter(i => i.customerId === c.id);
   el.innerHTML = `<div class="crumb"><a id="back">Customers</a><span class="muted">›</span><b>${esc(c.name)}</b></div>
   <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr));align-items:start">
-    <div class="panel stack"><dl class="kv"><dt>Phone</dt><dd class="num">${fmtPhone(c.phone)}</dd><dt>Email</dt><dd>${esc(c.email || '—')}</dd><dt>Since</dt><dd>${fmtDate(c.createdAt)}</dd><dt>Spent</dt><dd class="num">${cents(paid.reduce((a, i) => a + i.total, 0))}</dd></dl>
+    <div class="panel stack"><dl class="kv"><dt>Phone</dt><dd class="num">${fmtPhone(c.phone)}</dd><dt>Email</dt><dd>${esc(c.email || '—')}</dd><dt>Since</dt><dd>${fmtDate(c.createdAt)}</dd><dt>Found us</dt><dd>${esc(c.heardFrom || '—')}</dd><dt>Spent</dt><dd class="num">${cents(paid.reduce((a, i) => a + i.total, 0))}</dd></dl>
       <div class="row"><button class="primary" id="cv-nt">+ New ticket</button><button id="cv-sale">Quick sale</button><button id="cv-edit">Edit</button></div></div>
     <div class="stack">
       <div class="tbl"><table><thead><tr><th>#</th><th>Subject</th><th>Status</th><th>Created</th></tr></thead><tbody>
