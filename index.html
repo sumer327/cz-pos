@@ -2704,7 +2704,7 @@ const RS_API = 'https://cellularzone.repairshopr.com/api/v1/';
 const RS_ST = {'new': 'new', 'in progress': 'progress', 'awaiting approval': 'approval', 'awaiting device': 'device', 'scheduled': 'scheduled', 'waiting for parts': 'parts',
   'waiting on customer': 'customer', 'customer reply': 'reply', 'board level': 'board', 'resolved': 'resolved'};
 const rsStore = n => /bulverde/i.test(n || '') ? 'BV' : /potranco/i.test(n || '') ? 'PT' : /babcock|zavala|dz/i.test(n || '') ? 'DZ' : null;
-const RSI = {log: [], running: false, stop: false, loc: {}, tally: {}, unknownSt: {}, unknownLoc: {}};
+const RSI = {log: [], running: false, stop: false, loc: {1163: 'BV', 1931: 'PT', 1164: 'DZ'}, tally: {}, unknownSt: {}, unknownLoc: {}};   /* RepairShopr location ids (Admin → Locations) */
 function rsiState(){ try { return JSON.parse(localStorage.getItem('czpos-rsimport') || '{}'); } catch { return {}; } }
 function rsiSave(st){ try { localStorage.setItem('czpos-rsimport', JSON.stringify(st)); } catch {} }
 async function rsGet(tok, path, params = {}){
@@ -2720,12 +2720,12 @@ async function rsGet(tok, path, params = {}){
   }
 }
 const phone10 = (...a) => { for (const x of a) { const d = String(x || '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); if (d.length === 10) return d; } return ''; };
-function rsCust(c){ const store = rsStore(c.location_name) || RSI.loc[c.location_id] || null; if (c.location_id && rsStore(c.location_name)) RSI.loc[c.location_id] = rsStore(c.location_name);
+function rsCust(c){ const store = RSI.loc[c.location_id] || rsStore(c.location_name) || null;
   return {rs_id: c.id, name: (c.fullname || [c.firstname, c.lastname].filter(Boolean).join(' ') || c.business_name || '').trim(), phone: phone10(c.mobile, c.phone), email: c.email || '',
     store, address: [c.address, c.address_2, c.city, c.state, c.zip].filter(Boolean).join(', '), notes: c.notes || '', business: c.business_name || '', created_at: c.created_at}; }
 function rsTicket(t){
   const label = String(t.status || '').trim(); let status = RS_ST[label.toLowerCase()]; if (!status) { RSI.unknownSt[label] = (RSI.unknownSt[label] || 0) + 1; status = 'progress'; }
-  let store = rsStore(t.location_name) || RSI.loc[t.location_id]; if (t.location_id && rsStore(t.location_name)) RSI.loc[t.location_id] = rsStore(t.location_name);
+  let store = RSI.loc[t.location_id] || rsStore(t.location_name);
   if (!store) { RSI.unknownLoc[t.location_id || 'none'] = (RSI.unknownLoc[t.location_id || 'none'] || 0) + 1; store = 'DZ'; }
   const props = t.properties || {}; const pk = re => { const k = Object.keys(props).find(k => re.test(k)); return k ? String(props[k] ?? '').trim() : ''; };
   const comments = Array.isArray(t.comments) ? t.comments.map(c => ({id: 'rs' + c.id, at: c.created_at, by: c.tech || '', text: ((c.subject && !/^(update|initial issue)$/i.test(c.subject) ? c.subject + ': ' : '') + String(c.body || '')).slice(0, 3000), pub: !c.hidden, sys: false}))
@@ -2734,9 +2734,9 @@ function rsTicket(t){
   return {rs_id: t.id, number: parseInt(t.number, 10) || null, customer_rs_id: t.customer_id, store, device: pk(/model|device/i), imei: pk(/imei|serial/i), passcode: pk(/pass/i),
     issue: t.problem_type || '', subject: t.subject || '', status, rs_status: label, priority: Math.min(3, Math.max(0, parseInt(t.priority, 10) || 2)),
     rs_tech: t.user?.full_name || t.user?.name || '', comments: comments || [], created_at: t.created_at, updated_at: t.updated_at, resolved_at: t.resolved_at, _needDetail: !comments && status !== 'resolved'}; }
-function rsInvoice(i){ return {rs_id: i.id, number: parseInt(i.number, 10) || null, at: i.date || i.created_at, store: rsStore(i.location_name) || RSI.loc[i.location_id] || 'DZ', ticket_rs_id: i.ticket_id, customer_rs_id: i.customer_id,
+function rsInvoice(i){ return {rs_id: i.id, number: parseInt(i.number, 10) || null, at: i.date || i.created_at, store: RSI.loc[i.location_id] || rsStore(i.location_name) || 'DZ', ticket_rs_id: i.ticket_id, customer_rs_id: i.customer_id,
   lines: (i.line_items || []).map(l => ({desc: l.name || l.item || '', price: +l.price || 0, qty: +l.quantity || 1, cat: 'RepairShopr'})), payment: '', subtotal: +i.subtotal || 0, tax: +i.tax || 0, total: +i.total || 0, paid: !!i.is_paid}; }
-function rsProduct(p){ const qty = {DZ: 0, BV: 0, PT: 0}; (p.location_quantities || []).forEach(l => { const st = RSI.loc[l.location_id]; if (st) qty[st] += +l.quantity || 0; else RSI.unknownLoc['product@' + l.location_id] = 1; });
+function rsProduct(p){ const qty = {DZ: 0, BV: 0, PT: 0}; (p.location_quantities || []).forEach(l => { const st = RSI.loc[l.location_id]; if (st) qty[st] += +l.quantity || 0; else if (+l.quantity) RSI.unknownLoc['old location ' + l.location_id + ' (stock)'] = (RSI.unknownLoc['old location ' + l.location_id + ' (stock)'] || 0) + 1; });
   if (!(p.location_quantities || []).length && p.quantity) qty.DZ += +p.quantity;
   return {rs_id: p.id, name: p.name, description: p.description || '', category: p.product_category || p.category_path || '', upc: p.upc_code || '', price: +p.price_retail || 0, cost: +p.price_cost || 0, qty, maintain_stock: !!p.maintain_stock, disabled: !!p.disabled}; }
 
