@@ -232,6 +232,11 @@ async function hashPin(pin){
 /* ============================================================
    DEMO STORE — same method names as LiveStore below
    ============================================================ */
+const DEMO_PRODUCTS = [
+  ['Tempered glass (iPhone)', 'Phone Accessory', 14.99, 1.2, [24, 18, 30]], ['Privacy tempered glass (iPhone)', 'Phone Accessory', 24.99, 2.5, [8, 5, 10]],
+  ['Clear case iPhone 15', 'Phone Accessory', 19.99, 3.1, [6, 4, 7]], ['Clear case iPhone 16 Pro Max', 'Phone Accessory', 19.99, 3.1, [5, 3, 6]],
+  ['USB-C to Lightning cable 6ft', 'Phone Accessory', 19.99, 2.2, [12, 9, 14]], ['USB-C fast charger 20W', 'Phone Accessory', 24.99, 4.0, [10, 6, 9]],
+  ['Samsung Galaxy S24 Ultra case', 'Phone Accessory', 24.99, 4.5, [3, 2, 4]], ['AirPods Pro case', 'Phone Accessory', 14.99, 2.0, [4, 2, 5]]];
 const DemoStore = {
   mode: 'demo',
   k: 'czpos-demo-v7',
@@ -438,6 +443,18 @@ const DemoStore = {
   },
   /* customers + tickets + invoices */
   async customers(){ return this.db().customers; },
+  async search(){}, async loadCustomer(){}, async loadTicket(){},
+  async customerByPhone(ph){ return this.db().customers.find(c => c.phone === ph) || null; },
+  async products(){ const d = this.db(); if (!d.products){ d.products = DEMO_PRODUCTS.map(([name, category, price, cost, q]) => ({id: uid(), name, category, price, cost, upc: '', qty: {DZ: q[0], BV: q[1], PT: q[2]}, maintainStock: true, disabled: false})); this.save(d); } return d.products; },
+  async saveProduct(emp, store, p){ const d = this.db(); await this.products(); const d2 = this.db(); let row = p.id && d2.products.find(x => x.id === p.id);
+    if (!p.name?.trim()) throw new Error('Enter the item name.');
+    if (row) Object.assign(row, {name: p.name.trim(), category: p.category || '', upc: p.upc || '', price: +p.price || 0, cost: +p.cost || 0});
+    else d2.products.push(row = {id: uid(), name: p.name.trim(), category: p.category || '', upc: p.upc || '', price: +p.price || 0, cost: +p.cost || 0, qty: {DZ: 0, BV: 0, PT: 0}, maintainStock: true, disabled: false});
+    this.log(d2, emp.id, store, 'Product saved', row.name); this.save(d2); return row; },
+  async adjustProduct(emp, store, id, qty, reason){ await this.products(); const d = this.db(); const p = d.products.find(x => x.id === id); if (!reason?.trim()) throw new Error('Give a reason for the count change.');
+    const old = p.qty[store] || 0; p.qty[store] = Math.max(0, qty); this.log(d, emp.id, store, 'Accessory count', `${p.name}: ${old} → ${p.qty[store]} (${reason})`); this.save(d); return p; },
+  async importRows(){ throw new Error('The RepairShopr import runs on the store version, not the demo.'); },
+  async importSummary(){ return null; },
   async saveCustomer(emp, store, c){
     if (!c.name?.trim()) throw new Error('Enter the customer name.');
     const d = this.db(); const phone = (c.phone || '').replace(/\D/g, '');
@@ -485,6 +502,7 @@ const DemoStore = {
       if (needsBH(t0) && !t0.bh && !t0.bhSkip) throw new Error('Record battery health (BH %) on this iPhone ticket before checking out.'); }
     const row = {id: uid(), number: d.nextInvoice++, at: now(), by: emp.id, store, ...inv, total: inv.lines.reduce((a, l) => a + l.price, 0)};
     d.invoices.unshift(row);
+    (inv.lines || []).filter(l => l.productId).forEach(l => { const p = (d.products || []).find(x => x.id === l.productId); if (p && p.maintainStock) p.qty[store] = Math.max(0, (p.qty[store] || 0) - 1); });
     const glass = inv.lines.filter(l => isGlassOnly(l.desc)).length;
     if (glass) { const t0 = inv.ticketId ? d.tickets.find(x => x.id === inv.ticketId) : null; for (let i = 0; i < glass; i++) this.refurbAdd(d, emp, store, t0?.device || 'Glass-only job', `Invoice #${row.number}` + (t0 ? ` · ticket #${t0.number}` : ''), 'Glass-only job: customer screen kept for refurb'); }
     if (inv.ticketId) { const t = d.tickets.find(x => x.id === inv.ticketId); t.status = 'resolved'; t.updatedAt = now(); t.invoiceId = row.id;
@@ -707,16 +725,47 @@ const LiveStore = {
   async savePart(actor, p){ return this.rpc('pos_save_part', {p_actor_pin: this.pinFor(actor), p_part: p}); },
   async audit(limit = 40){ const {data} = await this.sb.from('audit').select('*').order('at', {ascending: false}).limit(limit); return data || []; },
   async prices(){ const {data} = await this.sb.from('price_book').select('data').eq('id', 'current').maybeSingle(); return data?.data || {asof:'Prices not loaded yet', buyback: [], repair: {cols: [], models: []}}; },
-  async customers(){ const {data, error} = await this.sb.from('customers_v').select('*').order('createdAt', {ascending: false}).limit(5000); if (error) throw error; return data; },
-  async saveCustomer(emp, store, c){ return this.rpc('pos_save_customer', {p_pin: this.pinFor(emp), p_store: store, p_c: c}); },
-  async tickets(){ const {data, error} = await this.sb.from('tickets_v').select('*').order('number', {ascending: false}).limit(3000); if (error) throw error; return data; },
+  /* Big tables (90k+ RepairShopr tickets): load what the screens need (open + recent), and pull anything else on demand into a cache. */
+  cC: new Map(), cT: new Map(), cI: new Map(),
+  async all(q, max = 20000){ const out = []; for (let i = 0; i < max; i += 1000){ const {data, error} = await q().range(i, i + 999); if (error) throw error; out.push(...data); if (data.length < 1000) break; } return out; },
+  keep(map, rows){ (rows || []).forEach(r => map.set(r.id, r)); return rows || []; },
+  async customers(){
+    await (this._tp || this.tickets()).catch(() => {});
+    const since = new Date(Date.now() - 45*86400000).toISOString();
+    const recent = await this.all(() => this.sb.from('customers_v').select('*').gte('createdAt', since).order('createdAt', {ascending: false}), 3000);
+    this.keep(this.cC, recent);
+    const need = [...new Set([...this.cT.values()].map(t => t.customerId).filter(id => id && !this.cC.has(id)))];
+    for (let i = 0; i < need.length; i += 150){ const {data} = await this.sb.from('customers_v').select('*').in('id', need.slice(i, i + 150)); this.keep(this.cC, data); }
+    return [...this.cC.values()];
+  },
+  async search(q){ q = (q || '').trim(); if (q.length < 2) return; const d = q.replace(/\D/g, ''); const like = '%' + q.replace(/[%,()]/g, ' ') + '%';
+    const [cs, ts] = await Promise.all([
+      this.sb.from('customers_v').select('*').or(d.length >= 4 ? `phone.ilike.%${d}%,name.ilike.${like}` : `name.ilike.${like},email.ilike.${like},business.ilike.${like}`).limit(40),
+      /^\d{3,7}$/.test(q) ? this.sb.from('tickets_v').select('*').eq('number', +q).limit(5) : this.sb.from('tickets_v').select('*').ilike('subject', like).order('number', {ascending: false}).limit(30)]);
+    this.keep(this.cC, cs.data); this.keep(this.cT, ts.data);
+    const need = (ts.data || []).map(t => t.customerId).filter(id => id && !this.cC.has(id)); if (need.length) { const {data} = await this.sb.from('customers_v').select('*').in('id', need); this.keep(this.cC, data); }
+    if (cs.data?.length) { const {data} = await this.sb.from('tickets_v').select('*').in('customerId', cs.data.slice(0, 15).map(c => c.id)).order('number', {ascending: false}).limit(60); this.keep(this.cT, data); }
+  },
+  async loadCustomer(id){ const [c, t, i] = await Promise.all([this.sb.from('customers_v').select('*').eq('id', id), this.sb.from('tickets_v').select('*').eq('customerId', id).order('number', {ascending: false}).limit(500), this.sb.from('invoices_v').select('*').eq('customerId', id).order('at', {ascending: false}).limit(500)]);
+    this.keep(this.cC, c.data); this.keep(this.cT, t.data); this.keep(this.cI, i.data); },
+  async loadTicket(id){ if (this.cT.has(id)) return; const {data} = await this.sb.from('tickets_v').select('*').eq('id', id); this.keep(this.cT, data); if (data?.[0]?.customerId) await this.loadCustomer(data[0].customerId); },
+  async customerByPhone(ph){ const {data} = await this.sb.from('customers_v').select('*').eq('phone', ph).order('createdAt', {ascending: false}).limit(1); this.keep(this.cC, data); return data?.[0] || null; },
+  async products(){ return this.all(() => this.sb.from('products_v').select('*').eq('disabled', false).order('name'), 30000); },
+  async saveProduct(emp, store, p){ return this.rpc('pos_save_product', {p_pin: this.pinFor(emp), p_store: store, p_p: p}); },
+  async adjustProduct(emp, store, id, qty, reason){ return this.rpc('pos_adjust_product', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_qty: qty, p_reason: reason}); },
+  async importRows(emp, kind, rows){ return this.rpc('pos_import', {p_pin: this.pinFor(emp), p_kind: kind, p_rows: rows}); },
+  async importSummary(emp){ return this.rpc('pos_import_summary', {p_pin: this.pinFor(emp)}); },
+  async saveCustomer(emp, store, c){ const r = await this.rpc('pos_save_customer', {p_pin: this.pinFor(emp), p_store: store, p_c: c}); this.keep(this.cC, [r]); return r; },
+  async tickets(){ this._tp = (async () => { const since = new Date(Date.now() - 45*86400000).toISOString();
+    const rows = await this.all(() => this.sb.from('tickets_v').select('*').or(`status.neq.resolved,updatedAt.gte.${since}`).order('number', {ascending: false}), 20000);
+    this.keep(this.cT, rows); return [...this.cT.values()].sort((a, b) => b.number - a.number); })(); return this._tp; },
   async createTicket(emp, store, t){ return this.rpc('pos_create_ticket', {p_pin: this.pinFor(emp), p_store: store, p_t: t}); },
   async updateTicket(emp, store, id, patch){ return this.rpc('pos_update_ticket', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_patch: patch}); },
   async addComment(emp, store, id, text, pub){ return this.rpc('pos_ticket_comment', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_text: text, p_pub: pub}); },
   async useTicketPart(emp, store, id, partId){ return this.rpc('pos_ticket_part', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_part: partId}); },
   async checkout(emp, store, inv){ return this.rpc('pos_checkout', {p_pin: this.pinFor(emp), p_store: store, p_inv: inv}); },
   async invoices(from, to){ const {data, error} = await this.sb.from('invoices_v').select('*').gte('at', from.toISOString()).lt('at', to.toISOString()); if (error) throw error; return data; },
-  async allInvoices(){ const {data, error} = await this.sb.from('invoices_v').select('*').order('at', {ascending: false}).limit(3000); if (error) throw error; return data; },
+  async allInvoices(){ const {data, error} = await this.sb.from('invoices_v').select('*').order('at', {ascending: false}).limit(1000); if (error) throw error; this.keep(this.cI, data); return [...this.cI.values()].sort((a, b) => new Date(b.at) - new Date(a.at)); },
   async ghlEvents(){ const {data, error} = await this.sb.from('ghl_events_v').select('*').gte('at', new Date(Date.now() - 3*86400000).toISOString()).order('at', {ascending: false}).limit(300); if (error) throw error; return data; },
   async ghlCall(body){ const {data, error} = await this.sb.functions.invoke('ghl', {body}); if (error) { let m = error.message; try { m = (await error.context.json()).error || m; } catch {} throw new Error(m); } if (data?.error) throw new Error(data.error); return data; },
   async ghlThread(store, c){ if (!c?.phone) return []; const r = await this.ghlCall({action: 'thread', store, phone: c.phone, name: c.name}); return r.messages || []; },
@@ -1000,9 +1049,9 @@ async function viewTickets(el){
     ${rows.length ? rows.map(t => { const c = C[t.customerId] || {}; const f = ticketFlag(t); return `<tr class="click" data-id="${t.id}" tabindex="0">
       <td class="num"><a style="color:var(--accent)">${t.number}</a></td>
       <td><a style="color:var(--accent)">${esc(c.name || '—')}</a><div class="small muted num" style="white-space:nowrap">${fmtPhone(c.phone)}</div></td>
-      <td><b>${esc(t.subject)}</b>${t.example ? ' <span class="pill">example</span>' : ''}${f ? `<div><span class="pill ${f[0]}">${f[1]}</span></div>` : ''}</td>
+      <td><b>${esc(t.subject || '')}</b>${t.example ? ' <span class="pill">example</span>' : ''}${f ? `<div><span class="pill ${f[0]}">${f[1]}</span></div>` : ''}</td>
       <td><select class="stsel ${TS[t.status][2]}" data-st="${t.id}" aria-label="Status for ticket ${t.number}">${TSTATUS.map(([k, l]) => `<option value="${k}" ${t.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select></td>
-      <td><select class="techsel" data-tech="${t.id}" aria-label="Tech for ticket ${t.number}"><option value="">None assigned</option>${techs.map(e => `<option value="${e.id}" ${t.techId === e.id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select></td>
+      <td><select class="techsel" data-tech="${t.id}" aria-label="Tech for ticket ${t.number}"><option value="">${!t.techId && t.rsTech ? esc(t.rsTech) : 'None assigned'}</option>${techs.map(e => `<option value="${e.id}" ${t.techId === e.id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select></td>
       <td class="small">${PRIORITIES[t.priority ?? 2][1]}</td>
       <td class="small muted">${ago(t.updatedAt)}</td><td class="small num">${new Date(t.createdAt).toLocaleString('en-US',{month:'2-digit',day:'2-digit',year:'2-digit',hour:'numeric',minute:'2-digit'})}</td>
       <td class="small">${esc(t.issue || '')}</td><td class="small">${STORES[t.store]}</td></tr>`; }).join('')
@@ -1020,6 +1069,7 @@ async function viewTickets(el){
 async function viewTicketsKeepScroll(el){ const y = window.scrollY; await viewTickets(el); window.scrollTo(0, y); }
 
 async function viewTicket(el){
+  await Store.loadTicket(S.ticketId);
   const [all, custs, parts, reqs] = await Promise.all([Store.tickets(), Store.customers(), Store.parts(), Store.partOrders()]);
   const t = all.find(x => x.id === S.ticketId); if (!t) return go('tickets');
   const myOrders = reqs.filter(o => o.forType === 'ticket' && o.forId === t.id);
@@ -1043,7 +1093,7 @@ async function viewTicket(el){
         <h2>${esc(t.subject)}</h2>
         <div class="grid g2">
           <div class="field"><label class="label" for="t-st">Status</label><select id="t-st">${TSTATUS.map(([k, l]) => `<option value="${k}" ${t.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
-          <div class="field"><label class="label" for="t-tech">Tech</label><select id="t-tech"><option value="">None assigned</option>${techs.map(e => `<option value="${e.id}" ${t.techId === e.id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select></div>
+          <div class="field"><label class="label" for="t-tech">Tech</label><select id="t-tech"><option value="">${!t.techId && t.rsTech ? esc(t.rsTech) + ' (RepairShopr)' : 'None assigned'}</option>${techs.map(e => `<option value="${e.id}" ${t.techId === e.id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select></div>
           <div class="field"><label class="label" for="t-pri">Priority</label><select id="t-pri">${PRIORITIES.map(([k, l]) => `<option value="${k}" ${(t.priority ?? 2) === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
         </div>
         <dl class="kv">
@@ -1083,7 +1133,7 @@ async function viewTicket(el){
       <div class="row"><button id="t-addnote">Add note</button></div>
       <div class="stack" style="gap:6px"><span class="label">Calls &amp; texts with this number (GoHighLevel)</span><div id="t-ghl" class="small muted">Loading…</div></div>
       <span class="label">Ticket history</span>
-      <div class="timeline">${t.comments.map(m => `<div class="c ${m.pub ? 'pub' : ''}"><div class="small muted">${esc(staffName(m.who))} · ${new Date(m.at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}${m.pub ? ' · <b style="color:var(--accent)">to customer</b>' : ''}</div><div${m.sys ? ' class="muted"' : ''}>${esc(m.text)}</div></div>`).join('')}</div>
+      <div class="timeline">${t.comments.map(m => `<div class="c ${m.pub ? 'pub' : ''}"><div class="small muted">${esc(m.who ? staffName(m.who) : (m.by || 'RepairShopr'))} · ${new Date(m.at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}${m.pub ? ' · <b style="color:var(--accent)">to customer</b>' : ''}</div><div${m.sys ? ' class="muted"' : ''}>${esc(m.text)}</div></div>`).join('')}</div>
     </div>
   </div>`;
   const up = async patch => { try { await Store.updateTicket(S.user, S.store, t.id, patch); toast('Ticket updated'); viewTicket(el); } catch (e) { toast(e.message); } };
@@ -1149,6 +1199,7 @@ function customerSheet(c, after){
 
 async function viewNewTicket(el){
   const D = S.draft || (S.draft = {});
+  if ((D.cq || '').trim().length >= 2 && !D.customerId) await Store.search(D.cq);
   const custs = await Store.customers();
   const cust = D.customerId ? custs.find(c => c.id === D.customerId) : null;
   const q = (D.cq || '').trim().toLowerCase(), qd = q.replace(/\D/g, '');
@@ -1184,7 +1235,7 @@ async function viewNewTicket(el){
   </form>`;
   const keep = () => { if (!$('#nt-dev')) return; Object.assign(D, {device: $('#nt-dev').value, issue: $('#nt-iss').value, estimate: $('#nt-est').value, imei: $('#nt-imei').value, passcode: $('#nt-pc').value, subject: $('#nt-sub').value, notes: $('#nt-notes').value}); };
   $('#back').onclick = () => go('tickets');
-  const cq = $('#nt-cq'); if (cq) cq.oninput = () => { keep(); D.cq = cq.value; viewNewTicket(el).then(() => { const n = $('#nt-cq'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); };
+  const cq = $('#nt-cq'); let cqt; if (cq) cq.oninput = () => { clearTimeout(cqt); cqt = setTimeout(() => { keep(); D.cq = cq.value; viewNewTicket(el).then(() => { const n = $('#nt-cq'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 250); };
   el.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { keep(); D.customerId = b.dataset.c; viewNewTicket(el); });
   el.querySelectorAll('[data-g]').forEach(b => b.onclick = () => { keep(); const g = callers.find(x => String(x.id) === b.dataset.g);
     if (g.customerId) { D.customerId = g.customerId; return viewNewTicket(el); }
@@ -1345,12 +1396,18 @@ async function viewInbox(el){
 /* ---------------- REGISTER (quick sales, no ticket needed) ---------------- */
 S.cart = [];
 function upsellBox(set){ return set.upsells?.length ? `<div class="banner acc small stack" style="gap:4px"><b>Before you ring it up:</b>${set.upsells.map(u => `<span>• ${esc(u)}</span>`).join('')}</div>` : ''; }
+const prodMatch = (p, q) => { q = q.trim().toLowerCase(); if (!q) return false; if (p.upc && p.upc === q) return true; return q.split(/\s+/).every(w => (p.name + ' ' + (p.category || '') + ' ' + (p.upc || '')).toLowerCase().includes(w)); };
 async function viewRegister(el){
   const set = await Store.settings();
+  if (!S.prods || Date.now() - S.prodsAt > 120000) { S.prods = await Store.products().catch(() => []); S.prodsAt = Date.now(); }
+  const pq = (S.rgq || '').trim(); const exact = pq && S.prods.find(p => p.upc && p.upc === pq);
+  const hits = pq ? S.prods.filter(p => prodMatch(p, pq)).sort((a, b) => (b.qty?.[S.store] || 0) - (a.qty?.[S.store] || 0)).slice(0, 15) : [];
   const total = S.cart.reduce((a, l) => a + l.price * (l.qty || 1), 0);
   el.innerHTML = `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));align-items:start">
     <div class="panel stack"><h2>Register</h2>
       <p class="muted small" style="margin:0">Accessories and walk-in sales. No customer needed. Add their phone if they want a receipt or might come back.</p>
+      <div class="field"><label class="label" for="rg-q">Scan or search inventory (${S.prods.length} items)</label><input id="rg-q" value="${esc(S.rgq || '')}" placeholder="Scan the barcode, or type: clear case 15 pro" autocomplete="off"></div>
+      ${pq ? `<div class="tbl"><table><tbody>${hits.map(p => { const q = p.qty?.[S.store] || 0; return `<tr class="click" data-prod="${p.id}"><td><b>${esc(p.name)}</b><div class="small muted">${esc(p.category || '')}${p.upc ? ' · ' + esc(p.upc) : ''}</div></td><td class="r num">${cents(p.price)}</td><td class="r"><span class="pill ${q > 0 ? 'ok' : 'bad'}">${q} here</span></td></tr>`; }).join('') || '<tr><td class="muted">Nothing matches. Use "Other item" below.</td></tr>'}</tbody></table></div>` : ''}
       <div class="grid g3">${set.accessories.map(([n, p, c], i) => `<button data-acc="${i}" style="min-height:64px;text-align:left"><b>${esc(n)}</b><div class="small muted num">${cents(p)}</div></button>`).join('')}
         <button data-acc="custom" style="min-height:64px;text-align:left"><b>Other item</b><div class="small muted">Type a name and price</div></button></div>
       ${upsellBox(set)}
@@ -1375,14 +1432,20 @@ async function viewRegister(el){
         S.cart.push({desc: n, price: p, cat: L.querySelector('#ci-c').value}); close(); viewRegister(el); });
     const [n, p, c] = set.accessories[+b.dataset.acc]; S.cart.push({desc: n, price: p, cat: c}); viewRegister(el); });
   el.querySelectorAll('[data-rmc]').forEach(b => b.onclick = () => { S.cart.splice(+b.dataset.rmc, 1); viewRegister(el); });
+  const addProd = p => { if (p.maintainStock && (p.qty?.[S.store] || 0) < 1) toast(`System shows 0 ${p.name} at ${STORES[S.store]}. Added anyway; tell a manager to fix the count.`);
+    S.cart.push({desc: p.name, price: p.price, cat: /tempered|glass protector|screen protector/i.test(p.name) ? 'Tempered glass' : 'Accessory', productId: p.id}); S.rgq = ''; viewRegister(el).then(() => $('#rg-q').focus()); };
+  el.querySelectorAll('[data-prod]').forEach(tr => tr.onclick = () => addProd(S.prods.find(p => p.id === tr.dataset.prod)));
+  const rq = $('#rg-q'); let rqt; rq.oninput = () => { clearTimeout(rqt); rqt = setTimeout(() => { S.rgq = rq.value; viewRegister(el).then(() => { const n = $('#rg-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 200); };
+  rq.onkeydown = e => { if (e.key === 'Enter') { const v = rq.value.trim(); const p = S.prods.find(x => x.upc && x.upc === v) || (S.prods.filter(x => prodMatch(x, v)).length === 1 ? S.prods.find(x => prodMatch(x, v)) : null); if (p) addProd(p); } };
+  if (exact) { addProd(exact); return; }
   $('#rg-ph').oninput = e => { S.cartPhone = e.target.value; };
   $('#rg-pay').onchange = e => { $('#rg-sq').hidden = !e.target.value.startsWith('Square'); };
   $('#rg-go').onclick = async () => {
     const ph = (S.cartPhone || '').replace(/\D/g, ''); let cust = null;
     if (ph && ph.length !== 10) { $('#rg-err').textContent = 'Phone should be 10 digits, or leave it blank.'; return; }
-    if (ph) { cust = (await Store.customers()).find(c => c.phone === ph) || await Store.saveCustomer(S.user, S.store, {name: 'Walk-in ' + ph.slice(-4), phone: ph}); }
-    const inv = await Store.checkout(S.user, S.store, {ticketId: null, customerId: cust?.id || null, lines: S.cart.map(l => ({desc: l.desc, cat: l.cat, price: l.price})), partsCost: 0, payment: $('#rg-pay').value});
-    S.cart = []; S.cartPhone = ''; toast(`Sale #${inv.number} · ${cents(inv.total)} recorded`); viewRegister(el);
+    if (ph) { cust = (await Store.customerByPhone(ph)) || await Store.saveCustomer(S.user, S.store, {name: 'Walk-in ' + ph.slice(-4), phone: ph}); }
+    const inv = await Store.checkout(S.user, S.store, {ticketId: null, customerId: cust?.id || null, lines: S.cart.map(l => ({desc: l.desc, cat: l.cat, price: l.price, ...(l.productId ? {productId: l.productId} : {})})), partsCost: 0, payment: $('#rg-pay').value});
+    S.cart = []; S.cartPhone = ''; S.prods = null; toast(`Sale #${inv.number} · ${cents(inv.total)} recorded`); viewRegister(el);
   };
 }
 
@@ -1557,6 +1620,7 @@ async function viewTransfers(el){
 
 /* ---------------- CUSTOMERS ---------------- */
 async function viewCustomers(el){
+  if ((S.cq || '').trim().length >= 2) await Store.search(S.cq);
   const [custs, tix] = await Promise.all([Store.customers(), Store.tickets()]);
   const q = (S.cq || '').trim().toLowerCase(), qd = q.replace(/\D/g, '');
   const rows = (q ? custs.filter(c => c.name.toLowerCase().includes(q) || (qd.length >= 3 && (c.phone || '').includes(qd))) : custs).slice(0, 200);
@@ -1566,11 +1630,12 @@ async function viewCustomers(el){
     <div class="tbl"><table><thead><tr><th>Name</th><th>Phone</th><th class="r">Open tickets</th><th class="r">All tickets</th><th>Customer since</th></tr></thead><tbody>
     ${rows.map(c => { const mine = tix.filter(t => t.customerId === c.id); return `<tr class="click" data-c="${c.id}" tabindex="0"><td><b>${esc(c.name)}</b>${c.example ? ' <span class="pill">example</span>' : ''}</td><td class="num">${fmtPhone(c.phone)}</td><td class="r num">${mine.filter(t => t.status !== 'resolved').length}</td><td class="r num">${mine.length}</td><td class="small">${fmtDate(c.createdAt)}</td></tr>`; }).join('') || '<tr><td colspan="5" class="muted">No customers match.</td></tr>'}
     </tbody></table></div></div>`;
-  const qi = $('#cu-q'); qi.oninput = () => { S.cq = qi.value; viewCustomers(el).then(() => { const n = $('#cu-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); };
+  const qi = $('#cu-q'); let qt; qi.oninput = () => { clearTimeout(qt); qt = setTimeout(() => { S.cq = qi.value; viewCustomers(el).then(() => { const n = $('#cu-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 300); };
   $('#cu-new').onclick = () => customerSheet(null, c => go('customer', {customerId: c.id}));
   el.querySelectorAll('tr[data-c]').forEach(tr => { const o = () => go('customer', {customerId: tr.dataset.c}); tr.onclick = o; tr.onkeydown = e => { if (e.key === 'Enter') o(); }; });
 }
 async function viewCustomer(el){
+  await Store.loadCustomer(S.customerId);
   const [custs, tix, invs] = await Promise.all([Store.customers(), Store.tickets(), Store.allInvoices()]);
   const c = custs.find(x => x.id === S.customerId); if (!c) return go('customers');
   const mine = tix.filter(t => t.customerId === c.id), paid = invs.filter(i => i.customerId === c.id);
@@ -1596,10 +1661,11 @@ async function viewCustomer(el){
 /* ---------------- SEARCH + INVOICES ---------------- */
 async function viewSearch(el){
   const q = S.q.toLowerCase(), qd = q.replace(/\D/g, '');
+  el.innerHTML = '<p class="muted">Searching…</p>'; await Store.search(S.q);
   const [custs, tix, devs] = await Promise.all([Store.customers(), Store.tickets(), Store.devices()]);
   const C = custById(custs);
-  const ct = custs.filter(c => c.name.toLowerCase().includes(q) || (qd.length >= 3 && (c.phone || '').includes(qd)));
-  const tt = tix.filter(t => String(t.number) === qd || t.subject.toLowerCase().includes(q) || (qd.length >= 5 && (t.imei || '').includes(qd)) || ct.some(c => c.id === t.customerId));
+  const ct = custs.filter(c => c.name.toLowerCase().includes(q) || (qd.length >= 3 && (c.phone || '').includes(qd)) || (q.length >= 3 && (c.email || '').toLowerCase().includes(q)));
+  const tt = tix.filter(t => String(t.number) === qd || (t.subject || '').toLowerCase().includes(q) || (qd.length >= 5 && (t.imei || '').includes(qd)) || ct.some(c => c.id === t.customerId));
   const dd = devs.filter(d => (qd && String(d.stockNo) === qd) || (qd.length >= 5 && (d.imei || '').includes(qd)) || (d.bbId && d.bbId.toLowerCase() === q.replace(/\s/g, '')));
   el.innerHTML = `<div class="stack"><h2>Results for “${esc(S.q)}”</h2>
     ${tt.length ? `<div class="tbl"><table><thead><tr><th>Ticket</th><th>Subject</th><th>Customer</th><th>Status</th></tr></thead><tbody>${tt.slice(0, 50).map(t => `<tr class="click" data-t="${t.id}"><td class="num">${t.number}</td><td>${esc(t.subject)}</td><td>${esc(C[t.customerId]?.name || '')}</td><td>${stPill(t.status)}</td></tr>`).join('')}</tbody></table></div>` : ''}
@@ -1840,7 +1906,7 @@ async function viewBuyback(el){
   // returning seller: fill name from the customer list
   $('#s-phone').addEventListener('change', async () => {
     const ph = B.seller.phone.replace(/\D/g, ''); if (ph.length !== 10) return;
-    const c = (await Store.customers()).find(x => x.phone === ph);
+    const c = await Store.customerByPhone(ph);
     if (c) { const [f, ...r] = c.name.split(' '); if (!B.seller.firstName) { B.seller.firstName = f; $('#s-first').value = f; } if (!B.seller.lastName) { B.seller.lastName = r.join(' '); $('#s-last').value = B.seller.lastName; } $('#s-known').innerHTML = `<span class="pill acc">Returning customer: ${esc(c.name)}</span>`; }
   });
   const warn = () => { const v = parseFloat(B.paid);
@@ -2153,6 +2219,47 @@ function deviceSheet(d, after){
 
 /* ---------------- PARTS ---------------- */
 S.pTab = 'stock';
+S.ac = {q: '', cat: '', stockOnly: true, inStock: false};
+async function viewAccessories(box, again){
+  const A = S.ac; const all = await Store.products(); S.prods = all; S.prodsAt = Date.now();
+  const cats = [...new Set(all.map(p => p.category).filter(Boolean))].sort();
+  const rows = all.filter(p => (!A.stockOnly || p.maintainStock) && (!A.cat || p.category === A.cat) && (!A.inStock || (p.qty?.[S.store] || 0) > 0) && (!A.q.trim() || prodMatch(p, A.q)));
+  const here = rows.reduce((a, p) => a + (p.qty?.[S.store] || 0), 0), atCost = rows.reduce((a, p) => a + (p.qty?.[S.store] || 0) * (p.cost || 0), 0);
+  const shown = rows.slice(0, 300);
+  box.innerHTML = `<div class="stack">
+    <div class="row" style="justify-content:space-between"><h2>Accessories &amp; products</h2>${can(2) ? '<button class="primary" id="ac-new">+ New item</button>' : ''}</div>
+    <div class="grid g3">
+      <div class="field"><label class="label" for="ac-q">Search or scan</label><input id="ac-q" value="${esc(A.q)}" placeholder="Name or barcode" autocomplete="off"></div>
+      <div class="field"><label class="label" for="ac-cat">Category</label><select id="ac-cat"><option value="">All categories</option>${cats.map(c => `<option ${A.cat === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div>
+      <div class="field"><span class="label">Show</span><label class="row small" style="gap:6px"><input type="checkbox" id="ac-in" ${A.inStock ? 'checked' : ''} style="width:auto;min-height:0"> Only in stock at ${STORES[S.store]}</label><label class="row small" style="gap:6px"><input type="checkbox" id="ac-all" ${A.stockOnly ? '' : 'checked'} style="width:auto;min-height:0"> Include non-stock items (labor, discounts)</label></div>
+    </div>
+    <p class="small muted" style="margin:0">${rows.length} items · ${here} on the shelf at ${STORES[S.store]}${can(2) ? ` · ${money(atCost)} at cost` : ''}. Counts go down automatically when sold on the Register.</p>
+    <div class="tbl"><table><thead><tr><th>Item</th><th>Category</th><th class="r">Price</th>${can(2) ? '<th class="r">Cost</th>' : ''}<th class="r">${S.store}</th>${can(3) ? Object.keys(STORES).filter(k => k !== S.store).map(k => `<th class="r">${k}</th>`).join('') : ''}<th></th></tr></thead><tbody>
+    ${shown.map(p => { const q = p.qty?.[S.store] || 0; return `<tr><td><b>${esc(p.name)}</b>${p.upc ? `<div class="mono small muted">${esc(p.upc)}</div>` : ''}</td><td class="small">${esc(p.category || '')}</td><td class="r num">${cents(p.price)}</td>${can(2) ? `<td class="r num">${cents(p.cost)}</td>` : ''}
+      <td class="r num"><b style="color:${p.maintainStock && q < 1 ? 'var(--bad)' : 'inherit'}">${p.maintainStock ? q : '—'}</b></td>${can(3) ? Object.keys(STORES).filter(k => k !== S.store).map(k => `<td class="r num">${p.maintainStock ? (p.qty?.[k] || 0) : '—'}</td>`).join('') : ''}
+      <td class="r" style="white-space:nowrap">${can(2) && p.maintainStock ? `<button data-acfix="${p.id}" style="min-height:32px;padding:3px 10px">Fix count</button>` : ''}${can(2) ? ` <button data-acedit="${p.id}" style="min-height:32px;padding:3px 10px">Edit</button>` : ''}</td></tr>`; }).join('') || '<tr><td colspan="8" class="muted">Nothing matches.</td></tr>'}
+    </tbody></table></div>${rows.length > shown.length ? `<p class="small muted">Showing the first 300. Search to narrow it down.</p>` : ''}</div>`;
+  const qi = box.querySelector('#ac-q'); let t; qi.oninput = () => { clearTimeout(t); t = setTimeout(() => { A.q = qi.value; again().then(() => { const n = $('#ac-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 250); };
+  box.querySelector('#ac-cat').onchange = e => { A.cat = e.target.value; again(); };
+  box.querySelector('#ac-in').onchange = e => { A.inStock = e.target.checked; again(); };
+  box.querySelector('#ac-all').onchange = e => { A.stockOnly = !e.target.checked; again(); };
+  const edit = p => sheet(`<div class="row" style="justify-content:space-between"><h3>${p ? 'Edit item' : 'New item'}</h3><button data-close>Close</button></div>
+    <div class="field"><label class="label" for="ae-n">Name</label><input id="ae-n" value="${esc(p?.name || '')}"></div>
+    <div class="grid g2"><div class="field"><label class="label" for="ae-c">Category</label><input id="ae-c" list="ae-cats" value="${esc(p?.category || 'Phone Accessory')}"><datalist id="ae-cats">${cats.map(c => `<option value="${esc(c)}">`).join('')}</datalist></div>
+    <div class="field"><label class="label" for="ae-u">Barcode (optional)</label><input id="ae-u" value="${esc(p?.upc || '')}"></div>
+    <div class="field"><label class="label" for="ae-p">Price</label><input id="ae-p" inputmode="decimal" value="${p?.price ?? ''}"></div><div class="field"><label class="label" for="ae-co">Cost</label><input id="ae-co" inputmode="decimal" value="${p?.cost ?? ''}"></div></div>
+    <div class="err" id="ae-e" role="alert"></div><button class="primary" id="ae-go">Save</button>`,
+    (L, close) => L.querySelector('#ae-go').onclick = async () => { try { await Store.saveProduct(S.user, S.store, {id: p?.id, name: L.querySelector('#ae-n').value, category: L.querySelector('#ae-c').value.trim(), upc: L.querySelector('#ae-u').value.trim(), price: parseFloat(L.querySelector('#ae-p').value) || 0, cost: parseFloat(L.querySelector('#ae-co').value) || 0}); close(); toast('Saved'); again(); } catch (e) { L.querySelector('#ae-e').textContent = e.message; } });
+  box.querySelector('#ac-new') && (box.querySelector('#ac-new').onclick = () => edit(null));
+  box.querySelectorAll('[data-acedit]').forEach(b => b.onclick = () => edit(all.find(p => p.id === b.dataset.acedit)));
+  box.querySelectorAll('[data-acfix]').forEach(b => b.onclick = () => { const p = all.find(x => x.id === b.dataset.acfix);
+    sheet(`<div class="row" style="justify-content:space-between"><h3>Fix count · ${esc(p.name)}</h3><button data-close>Close</button></div>
+      <div class="grid g2"><div class="field"><label class="label" for="af-q">Count on the shelf at ${STORES[S.store]} (system says ${p.qty?.[S.store] || 0})</label><input id="af-q" inputmode="numeric"></div>
+      <div class="field"><label class="label" for="af-r">Reason</label><input id="af-r" placeholder="Shelf count, damaged, received"></div></div>
+      <div class="err" id="af-e" role="alert"></div><button class="primary" id="af-go">Save count</button>`,
+      (L, close) => L.querySelector('#af-go').onclick = async () => { const q = parseInt(L.querySelector('#af-q').value, 10); if (isNaN(q)) { L.querySelector('#af-e').textContent = 'Enter the count.'; return; }
+        try { await Store.adjustProduct(S.user, S.store, p.id, q, L.querySelector('#af-r').value.trim()); close(); toast('Count saved'); again(); } catch (e) { L.querySelector('#af-e').textContent = e.message; } }); });
+}
 async function viewParts(el){
   const [parts, reqs, pos] = await Promise.all([Store.parts(), Store.partOrders(), Store.pos()]);
   const low = parts.filter(p => (p.qty[S.store] || 0) < p.dq);
@@ -2162,10 +2269,12 @@ async function viewParts(el){
       <button data-pt="stock" aria-pressed="${S.pTab === 'stock'}">Stock</button>
       <button data-pt="orders" aria-pressed="${S.pTab === 'orders'}">Sentrix orders${openReq.length || openPOs.length ? ` (${openReq.length + openPOs.length})` : ''}</button>
       <button data-pt="rma" aria-pressed="${S.pTab === 'rma'}">RMA &amp; refurb</button>
-      <button data-pt="lookups" aria-pressed="${S.pTab === 'lookups'}">Sentrix lookups</button></div><div id="pbox"></div></div>`;
+      <button data-pt="lookups" aria-pressed="${S.pTab === 'lookups'}">Sentrix lookups</button>
+      <button data-pt="acc" aria-pressed="${S.pTab === 'acc'}">Accessories</button></div><div id="pbox"></div></div>`;
   el.querySelectorAll('[data-pt]').forEach(x => x.onclick = () => { S.pTab = x.dataset.pt; viewParts(el); });
   const box = $('#pbox');
   if (S.pTab === 'orders') return viewOrders(box, parts, reqs, pos, () => viewParts(el));
+  if (S.pTab === 'acc') return viewAccessories(box, () => viewParts(el));
   if (S.pTab === 'rma') return viewRmaRefurb(box, parts, () => viewParts(el));
   if (S.pTab === 'lookups') { const lks = await Store.lookups();
     box.innerHTML = `<div class="stack"><p class="muted small" style="margin:0">Every "Find it on Sentrix" and "Price it for me" request. Claude answers them from MobileSentrix; answers are reused for a week so repeat parts are instant. Parts that come up often should go on the price sheet.</p>
@@ -2588,10 +2697,124 @@ async function viewHours(el){
 }
 
 /* ---------------- STAFF ---------------- */
+/* ---------------- REPAIRSHOPR IMPORT (owner) ----------------
+   Runs in this browser tab: reads RepairShopr's API with a read-only key the owner pastes (kept in memory only, never saved),
+   and writes each page into the POS database through pos_import (owner PIN). Resumable; safe to run again (rows match on RepairShopr id). */
+const RS_API = 'https://cellularzone.repairshopr.com/api/v1/';
+const RS_ST = {'new': 'new', 'in progress': 'progress', 'awaiting approval': 'approval', 'awaiting device': 'device', 'scheduled': 'scheduled', 'waiting for parts': 'parts',
+  'waiting on customer': 'customer', 'customer reply': 'reply', 'board level': 'board', 'resolved': 'resolved'};
+const rsStore = n => /bulverde/i.test(n || '') ? 'BV' : /potranco/i.test(n || '') ? 'PT' : /babcock|zavala|dz/i.test(n || '') ? 'DZ' : null;
+const RSI = {log: [], running: false, stop: false, loc: {}, tally: {}, unknownSt: {}, unknownLoc: {}};
+function rsiState(){ try { return JSON.parse(localStorage.getItem('czpos-rsimport') || '{}'); } catch { return {}; } }
+function rsiSave(st){ try { localStorage.setItem('czpos-rsimport', JSON.stringify(st)); } catch {} }
+async function rsGet(tok, path, params = {}){
+  const u = new URL(RS_API + path); Object.entries(params).forEach(([k, v]) => v != null && u.searchParams.set(k, v));
+  for (let tries = 0; ; tries++){
+    let r; try { r = await fetch(u, {headers: {Authorization: 'Bearer ' + tok, Accept: 'application/json'}}); } catch (e) { if (tries < 5) { await new Promise(z => setTimeout(z, 5000)); continue; } throw e; }
+    if (r.status === 429 || r.status >= 500) { if (tries < 8) { await new Promise(z => setTimeout(z, 15000)); continue; } }
+    if (r.status === 401) throw new Error('RepairShopr rejected the API key (401). Check it was pasted in full.');
+    if (r.status === 403) throw Object.assign(new Error(`The API key isn't allowed to read ${path.split('/')[0]} (403). Add that permission to the key in RepairShopr.`), {code: 403});
+    if (!r.ok) throw new Error(`RepairShopr ${path} → ${r.status}`);
+    await new Promise(z => setTimeout(z, 340));   /* stay under ~180 requests a minute */
+    return r.json();
+  }
+}
+const phone10 = (...a) => { for (const x of a) { const d = String(x || '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); if (d.length === 10) return d; } return ''; };
+function rsCust(c){ const store = rsStore(c.location_name) || RSI.loc[c.location_id] || null; if (c.location_id && rsStore(c.location_name)) RSI.loc[c.location_id] = rsStore(c.location_name);
+  return {rs_id: c.id, name: (c.fullname || [c.firstname, c.lastname].filter(Boolean).join(' ') || c.business_name || '').trim(), phone: phone10(c.mobile, c.phone), email: c.email || '',
+    store, address: [c.address, c.address_2, c.city, c.state, c.zip].filter(Boolean).join(', '), notes: c.notes || '', business: c.business_name || '', created_at: c.created_at}; }
+function rsTicket(t){
+  const label = String(t.status || '').trim(); let status = RS_ST[label.toLowerCase()]; if (!status) { RSI.unknownSt[label] = (RSI.unknownSt[label] || 0) + 1; status = 'progress'; }
+  let store = rsStore(t.location_name) || RSI.loc[t.location_id]; if (t.location_id && rsStore(t.location_name)) RSI.loc[t.location_id] = rsStore(t.location_name);
+  if (!store) { RSI.unknownLoc[t.location_id || 'none'] = (RSI.unknownLoc[t.location_id || 'none'] || 0) + 1; store = 'DZ'; }
+  const props = t.properties || {}; const pk = re => { const k = Object.keys(props).find(k => re.test(k)); return k ? String(props[k] ?? '').trim() : ''; };
+  const comments = Array.isArray(t.comments) ? t.comments.map(c => ({id: 'rs' + c.id, at: c.created_at, by: c.tech || '', text: ((c.subject && !/^(update|initial issue)$/i.test(c.subject) ? c.subject + ': ' : '') + String(c.body || '')).slice(0, 3000), pub: !c.hidden, sys: false}))
+    .sort((a, b) => new Date(b.at) - new Date(a.at)) : null;
+  RSI.tally[t.id] = status === 'resolved' ? null : store + '|' + label;
+  return {rs_id: t.id, number: parseInt(t.number, 10) || null, customer_rs_id: t.customer_id, store, device: pk(/model|device/i), imei: pk(/imei|serial/i), passcode: pk(/pass/i),
+    issue: t.problem_type || '', subject: t.subject || '', status, rs_status: label, priority: Math.min(3, Math.max(0, parseInt(t.priority, 10) || 2)),
+    rs_tech: t.user?.full_name || t.user?.name || '', comments: comments || [], created_at: t.created_at, updated_at: t.updated_at, resolved_at: t.resolved_at, _needDetail: !comments && status !== 'resolved'}; }
+function rsInvoice(i){ return {rs_id: i.id, number: parseInt(i.number, 10) || null, at: i.date || i.created_at, store: rsStore(i.location_name) || RSI.loc[i.location_id] || 'DZ', ticket_rs_id: i.ticket_id, customer_rs_id: i.customer_id,
+  lines: (i.line_items || []).map(l => ({desc: l.name || l.item || '', price: +l.price || 0, qty: +l.quantity || 1, cat: 'RepairShopr'})), payment: '', subtotal: +i.subtotal || 0, tax: +i.tax || 0, total: +i.total || 0, paid: !!i.is_paid}; }
+function rsProduct(p){ const qty = {DZ: 0, BV: 0, PT: 0}; (p.location_quantities || []).forEach(l => { const st = RSI.loc[l.location_id]; if (st) qty[st] += +l.quantity || 0; else RSI.unknownLoc['product@' + l.location_id] = 1; });
+  if (!(p.location_quantities || []).length && p.quantity) qty.DZ += +p.quantity;
+  return {rs_id: p.id, name: p.name, description: p.description || '', category: p.product_category || p.category_path || '', upc: p.upc_code || '', price: +p.price_retail || 0, cost: +p.price_cost || 0, qty, maintain_stock: !!p.maintain_stock, disabled: !!p.disabled}; }
+
+async function rsImportRun(tok, mode, ui){
+  const st = rsiState(); RSI.running = true; RSI.stop = false; const say = m => { RSI.log.unshift(new Date().toLocaleTimeString() + ' · ' + m); RSI.log = RSI.log.slice(0, 60); ui(); };
+  if (st.loc) Object.assign(RSI.loc, st.loc);
+  const startedAt = new Date().toISOString();
+  const pages = async (kind, path, key, map, params = {}) => {
+    let page = mode === 'full' ? (st[kind + 'Page'] || 1) : 1; let total = null;
+    while (!RSI.stop){
+      const j = await rsGet(tok, path, {...params, page}); const list = j[key] || []; total = j.meta?.total_pages || total;
+      if (!list.length) break;
+      const rows = list.map(map); const clean = rows.map(({_needDetail, ...r}) => r);
+      if (kind === 'tickets') { const need = [...new Set(clean.map(r => r.customer_rs_id).filter(Boolean))]; RSI.needCust = need; }
+      await Store.importRows(S.user, kind, clean);
+      if (kind === 'tickets') rows.filter(r => r._needDetail).forEach(r => RSI.detail.add(r.rs_id));
+      st[kind + 'Page'] = page + 1; st.loc = RSI.loc; if (mode === 'full') rsiSave(st);
+      say(`${kind}: page ${page}${total ? ' of ' + total : ''} (${list.length})`);
+      if (total && page >= total) break; page++;
+    }
+    if (!RSI.stop && mode === 'full') { st[kind + 'Done'] = true; rsiSave(st); }
+  };
+  RSI.detail = new Set();
+  try {
+    if (mode === 'full'){
+      if (!st.customersDone) await pages('customers', 'customers', 'customers', rsCust);
+      if (!RSI.stop && !st.ticketsDone) await pages('tickets', 'tickets', 'tickets', rsTicket);
+      if (!RSI.stop && !st.invoicesDone) await pages('invoices', 'invoices', 'invoices', rsInvoice);
+      if (!RSI.stop && !st.productsDone) { try { await pages('products', 'products', 'products', rsProduct); } catch (e) { if (e.code === 403) say('Products skipped: ' + e.message); else throw e; } }
+    } else {
+      const since = st.lastSync || st.fullStartedAt; if (!since) throw new Error('Run the full import first.');
+      /* catch-up: tickets and invoices changed since the last run, plus any customer they point to */
+      for (const [kind, map] of [['tickets', rsTicket], ['invoices', rsInvoice]]) {
+        let page = 1;
+        while (!RSI.stop){ const j = await rsGet(tok, kind, {since_updated_at: since, page}); const list = j[kind] || []; if (!list.length) break;
+          const custIds = [...new Set(list.map(x => x.customer_id).filter(Boolean))];
+          const custs = []; for (const id of custIds) { try { const c = await rsGet(tok, 'customers/' + id); if (c.customer) custs.push(rsCust(c.customer)); } catch {} }
+          if (custs.length) await Store.importRows(S.user, 'customers', custs);
+          const rows = list.map(map); await Store.importRows(S.user, kind, rows.map(({_needDetail, ...r}) => r)); if (kind === 'tickets') rows.filter(r => r._needDetail).forEach(r => RSI.detail.add(r.rs_id));
+          say(`catch-up ${kind}: page ${page} (${list.length})`); if (j.meta?.total_pages && page >= j.meta.total_pages) break; page++; }
+      }
+      try { let page = 1; while (!RSI.stop) { const j = await rsGet(tok, 'products', {page}); if (!(j.products || []).length) break; await Store.importRows(S.user, 'products', j.products.map(rsProduct)); say(`products: page ${page}`); if (j.meta?.total_pages && page >= j.meta.total_pages) break; page++; } } catch (e) { if (e.code === 403) say('Products skipped: ' + e.message); else throw e; }
+    }
+    /* open tickets whose list entry had no notes: pull each one for its notes */
+    if (!RSI.stop && RSI.detail.size) { let n = 0; for (const id of RSI.detail) { if (RSI.stop) break; const j = await rsGet(tok, 'tickets/' + id); if (j.ticket) { const {_needDetail, ...r} = rsTicket(j.ticket); await Store.importRows(S.user, 'tickets', [r]); } if (++n % 10 === 0) say(`notes for open tickets: ${n} of ${RSI.detail.size}`); } }
+    if (!RSI.stop) { if (mode === 'full' && !st.fullStartedAt) st.fullStartedAt = startedAt; st.lastSync = startedAt; rsiSave(st); say(RSI.stop ? 'Paused.' : 'Done.'); }
+  } catch (e) { say('Stopped: ' + e.message); }
+  RSI.running = false; ui();
+}
+function rsImportPanel(box){
+  const st = rsiState(); let sum = null;
+  const draw = () => { const done = k => st[k + 'Done'] ? '✓' : st[k + 'Page'] ? `page ${st[k + 'Page'] - 1}` : '—';
+    box.innerHTML = `<div class="panel stack"><h2>Import from RepairShopr</h2>
+      <p class="small muted" style="margin:0">Copies every customer, every ticket (all years, with notes), every invoice and the product inventory from RepairShopr into the POS. It only reads RepairShopr; nothing there changes. Keep this tab open while it runs (about 45–60 minutes the first time). If it stops, press Start again and it picks up where it left off. Running it again never makes duplicates.</p>
+      <div class="field"><label class="label" for="rsi-k">RepairShopr API key (read-only; used in this tab only, never saved)</label><input id="rsi-k" type="password" autocomplete="off" placeholder="Paste the key from RepairShopr → Admin → API Tokens"></div>
+      <div class="row"><button class="primary" id="rsi-full" ${RSI.running ? 'disabled' : ''}>${st.ticketsPage && !st.lastSync ? 'Continue full import' : 'Start full import'}</button><button id="rsi-catch" ${RSI.running || !st.lastSync ? 'disabled' : ''}>Catch up (changes since ${st.lastSync ? fmtDate(st.lastSync) + ' ' + fmtTime(st.lastSync) : 'last run'})</button>${RSI.running ? '<button id="rsi-stop">Pause</button>' : ''}<button id="rsi-sum">Check counts</button></div>
+      <div class="small">Customers ${done('customers')} · Tickets ${done('tickets')} · Invoices ${done('invoices')} · Products ${done('products')}</div>
+      ${Object.keys(RSI.unknownSt).length ? `<div class="banner warn small">Statuses not in the POS list (shown as In Progress until mapped): ${Object.entries(RSI.unknownSt).map(([k, v]) => esc(k) + ' (' + v + ')').join(', ')}</div>` : ''}
+      ${Object.keys(RSI.unknownLoc).length ? `<div class="banner warn small">Locations not matched to a store (filed under Babcock): ${Object.entries(RSI.unknownLoc).map(([k, v]) => esc(k) + ' (' + v + ')').join(', ')}</div>` : ''}
+      ${sum ? `<div class="tbl"><table><thead><tr><th>In the POS now</th><th class="r">Count</th></tr></thead><tbody>${['customers', 'tickets', 'invoices', 'products'].map(k => `<tr><td>${k}</td><td class="r num">${sum[k]}</td></tr>`).join('')}</tbody></table></div>
+        <div class="tbl"><table><thead><tr><th>Open tickets by status</th>${Object.keys(STORES).map(k => `<th class="r">${STORES[k]}</th>`).join('')}</tr></thead><tbody>
+        ${[...new Set(Object.values(sum.open || {}).flatMap(o => Object.keys(o)))].sort().map(lbl => `<tr><td>${esc(lbl)}</td>${Object.keys(STORES).map(k => `<td class="r num">${sum.open?.[k]?.[lbl] || 0}</td>`).join('')}</tr>`).join('')}
+        <tr><td><b>All open</b></td>${Object.keys(STORES).map(k => `<td class="r num"><b>${Object.values(sum.open?.[k] || {}).reduce((a, b) => a + b, 0)}</b></td>`).join('')}</tr></tbody></table></div>` : ''}
+      <div class="small mono" style="max-height:220px;overflow:auto;background:var(--soft);border-radius:8px;padding:8px">${RSI.log.map(esc).join('<br>') || 'Not started.'}</div></div>`;
+    const key = () => { const k = box.querySelector('#rsi-k').value.trim(); if (!k) { toast('Paste the RepairShopr API key first.'); return null; } RSI.key = k; return k; };
+    if (RSI.key) box.querySelector('#rsi-k').value = RSI.key;
+    box.querySelector('#rsi-full').onclick = () => { const k = key(); if (k) rsImportRun(k, 'full', () => { Object.assign(st, rsiState()); draw(); }); };
+    box.querySelector('#rsi-catch').onclick = () => { const k = key(); if (k) rsImportRun(k, 'catch', () => { Object.assign(st, rsiState()); draw(); }); };
+    box.querySelector('#rsi-stop') && (box.querySelector('#rsi-stop').onclick = () => { RSI.stop = true; toast('Pausing after this page…'); });
+    box.querySelector('#rsi-sum').onclick = async () => { try { sum = await Store.importSummary(S.user); draw(); } catch (e) { toast(e.message); } };
+  };
+  draw();
+}
+
 async function viewStaff(el){
   S.staff = await Store.employees();
   const set = await Store.settings();
-  el.innerHTML = `<div class="stack">
+  el.innerHTML = `<div class="stack">${Store.mode !== 'demo' && can(3) ? '<div id="rsi-box"></div>' : ''}
     <div class="panel stack"><h2>Settings</h2>
       <div class="grid g2">
         <div class="field"><label class="label" for="st-link">Google review link</label><input id="st-link" value="${esc(set.reviewLink)}"></div>
@@ -2629,6 +2852,7 @@ async function viewStaff(el){
       try { await Store.saveEmployee(S.user, {id: e?.id, name, role: L.querySelector('#e-r').value, store: L.querySelector('#e-s').value, active: L.querySelector('#e-a').value === '1', pin: pin || null}); close(); toast('Saved'); viewStaff(el); }
       catch (x) { L.querySelector('#e-err').textContent = x.message; }
     });
+  $('#rsi-box') && rsImportPanel($('#rsi-box'));
   $('#s-add').onclick = () => edit(null);
   $('#st-save').onclick = async () => {
     const acc = $('#st-acc').value.split('\n').map(l => l.split('|').map(x => x.trim())).filter(a => a[0]);
