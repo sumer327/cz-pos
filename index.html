@@ -528,6 +528,8 @@ const DemoStore = {
   async allInvoices(){ return this.db().invoices; },
   /* GoHighLevel (demo: simulated, nothing is sent) */
   async callSources(){ return this.db().callSources || []; },
+  async rsSync(){ return null; },
+  async rsSyncNow(){ throw new Error('Automatic sync runs on the store version, not the demo.'); },
   async glassWarranties(phone){ const d = this.db(); const ids = d.customers.filter(c => c.phone === phone).map(c => c.id); return (d.glass || []).filter(w => ids.includes(w.customerId)); },
   async saveCallSource(emp, cs){ const d = this.db(); d.callSources = (d.callSources || []).filter(x => x.number !== cs.number); if (!cs.delete) d.callSources.push({number: cs.number, label: cs.label, paid: !!cs.paid, store: cs.store || null}); this.save(d); return true; },
   async ghlEvents(){ const d = this.db(); const C = d.customers; const M = Object.fromEntries((d.callSources || []).map(x => [x.number, x])); return d.ghl.filter(e => e.kind !== 'other').map(e => ({...e, source: M[e.calledNumber]?.label || e.source, paid: M[e.calledNumber] ? M[e.calledNumber].paid : e.paid, customerId: C.find(c => c.phone && c.phone === e.phone)?.id || null})); },
@@ -805,6 +807,8 @@ const LiveStore = {
   async ghlEvents(){ const {data, error} = await this.sb.from('ghl_events_v').select('*').gte('at', new Date(Date.now() - 3*86400000).toISOString()).order('at', {ascending: false}).limit(300); if (error) throw error; return data; },
   async glassWarranties(phone){ const {data, error} = await this.sb.from('glass_warranties_v').select('*').eq('phone', phone).order('soldAt', {ascending: false}); if (error) throw error; return data; },
   async callSources(){ const {data, error} = await this.sb.from('call_sources').select('*').order('label'); if (error) return []; return data; },
+  async rsSync(){ const {data} = await this.sb.from('rs_sync').select('*').eq('id', 1).maybeSingle(); return data || null; },
+  async rsSyncNow(){ const {data, error} = await this.sb.functions.invoke('rs-sync', {body: {}}); if (error) throw new Error((data && data.error) || error.message); return data; },
   async saveCallSource(emp, cs){ return this.rpc('pos_save_call_source', {p_pin: this.pinFor(emp), p_number: cs.number, p_label: cs.label || '', p_paid: !!cs.paid, p_store: cs.store || '', p_delete: !!cs.delete}); },
   async ghlCall(body){ const {data, error} = await this.sb.functions.invoke('ghl', {body}); if (error) { let m = error.message; try { m = (await error.context.json()).error || m; } catch {} throw new Error(m); } if (data?.error) throw new Error(data.error); return data; },
   async ghlThread(store, c){ if (!c?.phone) return []; const r = await this.ghlCall({action: 'thread', store, phone: c.phone, name: c.name}); return r.messages || []; },
@@ -2928,13 +2932,15 @@ async function rsImportRun(tok, mode, ui){
   RSI.running = false; ui();
 }
 function rsImportPanel(box){
-  const st = rsiState(); let sum = null;
+  const st = rsiState(); let sum = null; let auto; Store.rsSync().then(a => { auto = a; draw(); }).catch(() => {});
   const draw = () => { const done = k => st[k + 'Done'] ? '✓' : st[k + 'Page'] ? `page ${st[k + 'Page'] - 1}` : '—';
     box.innerHTML = `<div class="panel stack"><h2>Import from RepairShopr</h2>
       <p class="small muted" style="margin:0">Copies every customer, every ticket (all years, with notes), every invoice and the product inventory from RepairShopr into the POS. It only reads RepairShopr; nothing there changes. Keep this tab open and on this screen while it runs (a few hours the first time; the screen won't auto-lock while it's running). If it stops, press Start again and it picks up where it left off. Running it again never makes duplicates.</p>
       <div class="field"><label class="label" for="rsi-k">RepairShopr API key (read-only; used in this tab only, never saved)</label><input id="rsi-k" type="password" autocomplete="off" placeholder="Paste the key from RepairShopr → Admin → API Tokens"></div>
       <div class="row"><button class="primary" id="rsi-full" ${RSI.running ? 'disabled' : ''}>${st.ticketsPage && !st.lastSync ? 'Continue full import' : 'Start full import'}</button><button id="rsi-catch" ${RSI.running || !st.lastSync ? 'disabled' : ''}>Catch up (changes since ${st.lastSync ? fmtDate(st.lastSync) + ' ' + fmtTime(st.lastSync) : 'last run'})</button>${RSI.running ? '<button id="rsi-stop">Pause</button>' : ''}<button id="rsi-sum">Check counts</button></div>
       <div class="small">Customers ${done('customers')} · Tickets ${done('tickets')} · Invoices ${done('invoices')} · Products ${done('products')}</div>
+      ${auto !== undefined ? `<div class="banner ${auto && /^OK/.test(auto.last_result || '') ? '' : 'warn'} small"><b>Automatic catch-up (every hour):</b> ${auto ? (auto.last_run ? 'last ran ' + fmtDate(auto.last_run) + ' ' + fmtTime(auto.last_run) + ' · ' + esc(auto.last_result || '') : 'set up, waiting for its first run.') : 'not set up yet.'}
+        ${auto ? ' <button id="rsi-now" style="min-height:32px;padding:2px 10px;margin-left:6px">Run now</button>' : ''}</div>` : ''}
       ${Object.keys(RSI.unknownSt).length ? `<div class="banner warn small">Statuses not in the POS list (shown as In Progress until mapped): ${Object.entries(RSI.unknownSt).map(([k, v]) => esc(k) + ' (' + v + ')').join(', ')}</div>` : ''}
       ${Object.keys(RSI.unknownLoc).length ? `<div class="banner warn small">Locations not matched to a store (filed under Babcock): ${Object.entries(RSI.unknownLoc).map(([k, v]) => esc(k) + ' (' + v + ')').join(', ')}</div>` : ''}
       ${sum ? `<div class="tbl"><table><thead><tr><th>In the POS now</th><th class="r">Count</th></tr></thead><tbody>${['customers', 'tickets', 'invoices', 'products'].map(k => `<tr><td>${k}</td><td class="r num">${sum[k]}</td></tr>`).join('')}</tbody></table></div>
@@ -2947,6 +2953,7 @@ function rsImportPanel(box){
     box.querySelector('#rsi-full').onclick = () => { const k = key(); if (k) rsImportRun(k, 'full', () => { Object.assign(st, rsiState()); draw(); }); };
     box.querySelector('#rsi-catch').onclick = () => { const k = key(); if (k) rsImportRun(k, 'catch', () => { Object.assign(st, rsiState()); draw(); }); };
     box.querySelector('#rsi-stop') && (box.querySelector('#rsi-stop').onclick = () => { RSI.stop = true; toast('Pausing after this page…'); });
+    box.querySelector('#rsi-now') && (box.querySelector('#rsi-now').onclick = async ev => { ev.target.disabled = true; ev.target.textContent = 'Running…'; try { const r = await Store.rsSyncNow(); toast(r && r.skipped ? 'Already running.' : 'Catch-up done.'); } catch (x) { toast(x.message); } auto = await Store.rsSync().catch(() => auto); draw(); });
     box.querySelector('#rsi-sum').onclick = async () => { try { sum = await Store.importSummary(S.user); draw(); } catch (e) { toast(e.message); } };
   };
   draw();
