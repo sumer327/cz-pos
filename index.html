@@ -671,8 +671,8 @@ const DemoStore = {
   async notes(){ return this.db().notes; },
   async readNotes(emp, ids){ const d = this.db(); d.notes.forEach(n => { if (ids.includes(n.id) && !n.readBy.includes(emp.id)) n.readBy.push(emp.id); }); this.save(d); },
   /* ---------- Swappa + shipping ---------- */
-  async swappaList(emp, store, id, price, url){ const d = this.db(); const dv = d.devices.find(x => x.id === id); if (!(price > 0)) throw new Error('Enter the Swappa price.');
-    dv.status = 'swappa'; dv.swappa = {price, url: url || '', listedAt: now(), drops: []}; (dv.log = dv.log || []).unshift({at: now(), who: emp.id, text: `Listed on Swappa at ${cents(price)}`}); this.log(d, emp.id, store, 'Swappa listed', `#${dv.stockNo} ${dv.model} ${cents(price)}`); this.save(d); return dv; },
+  async swappaList(emp, store, id, price, url, code){ const d = this.db(); const dv = d.devices.find(x => x.id === id); if (!(price > 0)) throw new Error('Enter the Swappa price.');
+    dv.status = 'swappa'; dv.swappa = {price, url: url || '', code: code || '', listedAt: now(), drops: []}; (dv.log = dv.log || []).unshift({at: now(), who: emp.id, text: `Listed on Swappa at ${cents(price)}`}); this.log(d, emp.id, store, 'Swappa listed', `#${dv.stockNo} ${dv.model} ${cents(price)}`); this.save(d); return dv; },
   async swappaDrop(emp, store, id, price){ const d = this.db(); const dv = d.devices.find(x => x.id === id); if (!(price > 0 && price < dv.swappa.price)) throw new Error('New price must be lower than ' + cents(dv.swappa.price) + '.');
     dv.swappa.drops.unshift({at: now(), from: dv.swappa.price, to: price, by: emp.id}); dv.swappa.price = price; this.log(d, emp.id, store, 'Swappa price drop', `#${dv.stockNo} → ${cents(price)}`); this.save(d); return dv; },
   async swappaSold(emp, store, id, salePrice, buyer){ const d = this.db(); const dv = d.devices.find(x => x.id === id);
@@ -801,11 +801,11 @@ const LiveStore = {
   async sendReviewNow(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
   async notes(){ return []; },
   async readNotes(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
-  async swappaList(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
-  async swappaDrop(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
-  async swappaSold(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
-  async ships(){ return []; },
-  async updateShip(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
+  async swappaList(emp, store, id, price, url, code){ return this.rpc('pos_swappa_list', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_price: price, p_url: url || '', p_code: code || ''}); },
+  async swappaDrop(emp, store, id, price){ return this.rpc('pos_swappa_drop', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_price: price}); },
+  async swappaSold(emp, store, id, price, buyer){ return this.rpc('pos_swappa_sold', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_price: price, p_buyer: buyer || ''}); },
+  async ships(){ const {data, error} = await this.sb.from('ships_v').select('*').order('at', {ascending: false}).limit(300); if (error) throw error; return data; },
+  async updateShip(emp, store, id, patch){ return this.rpc('pos_update_ship', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_status: patch.status, p_tracking: patch.tracking || ''}); },
   async signIn(email, password){ const {error} = await this.sb.auth.signInWithPassword({email, password}); if (error) throw error; }
 };
 
@@ -2092,7 +2092,7 @@ async function viewSwappa(el){
   if (W.tab === 'listed') body = `
     <div class="statusbar" role="group" aria-label="Filter listings"><button data-swf="all" aria-pressed="${W.f === 'all'}">All (${listed.length})</button><button data-swf="due" aria-pressed="${W.f === 'due'}">Due for a price drop (${listed.filter(r => r.due).length})</button><button data-swf="old" aria-pressed="${W.f === 'old'}">Listed 14+ days (${listed.filter(r => r.days >= 14).length})</button></div>
     <div class="tbl"><table><thead><tr><th>Stock #</th><th>Device</th>${W.store === 'all' ? '<th>Store</th>' : ''}<th class="r">Price</th><th class="r">Cost</th><th class="r">Est. margin</th><th>Listed</th><th>Last drop</th><th></th></tr></thead><tbody>
-    ${shown.map(({d, x, days, last, due, cost, margin}) => `<tr><td class="num">${d.stockNo}</td><td><b>${esc(d.model)}</b> <span class="muted">${esc(d.storage)} · ${esc(d.carrier)}</span>${d.example ? ' <span class="pill">example</span>' : ''}${x.url ? ` <a href="${esc(x.url)}" target="_blank" rel="noopener" class="small">Swappa ↗</a>` : ''}</td>${W.store === 'all' ? `<td>${d.store}</td>` : ''}
+    ${shown.map(({d, x, days, last, due, cost, margin}) => `<tr><td class="num">${d.stockNo}</td><td><b>${esc(d.model)}</b> <span class="muted">${esc(d.storage)} · ${esc(d.carrier)}</span>${d.example ? ' <span class="pill">example</span>' : ''}${x.code || x.url ? ` <a href="${esc(x.url || 'https://swappa.com/listing/view/' + x.code)}" target="_blank" rel="noopener" class="small mono">${esc(x.code || 'Swappa')} ↗</a>` : ''}</td>${W.store === 'all' ? `<td>${d.store}</td>` : ''}
       <td class="r num">${cents(x.price)}</td><td class="r num">${money(cost)}</td><td class="r num" style="color:${margin < 65 ? 'var(--bad)' : 'inherit'}">${money(margin)}</td>
       <td class="small"><span class="${days >= 14 ? 'pill bad' : days >= 7 ? 'pill warn' : ''}">${days}d</span></td>
       <td class="small">${last ? `${fmtDate(last.at)} (${cents(last.from)} → ${cents(last.to)})` : '<span class="muted">never</span>'}${due ? ' <span class="pill warn">due</span>' : ''}</td>
@@ -2124,8 +2124,8 @@ async function viewSwappa(el){
   el.querySelectorAll('[data-swf]').forEach(b => b.onclick = () => { W.f = b.dataset.swf; again(); });
   el.querySelectorAll('[data-list]').forEach(b => b.onclick = () => { const d = ready.find(x => x.id === b.dataset.list);
     sheet(`<div class="row" style="justify-content:space-between"><h3>Listed on Swappa · #${d.stockNo}</h3><button data-close>Close</button></div><p class="muted small" style="margin:0">${esc(d.model)} ${esc(d.storage)} · ${esc(d.carrier)} · cost ${money((+d.cost || 0) + (+d.partsCost || 0))}</p>
-      <div class="field"><label class="label" for="ls-p">Swappa price</label><input id="ls-p" inputmode="decimal"></div><div class="field"><label class="label" for="ls-u">Swappa listing link (optional)</label><input id="ls-u" placeholder="https://swappa.com/listing/…"></div><div class="err" id="ls-e" role="alert"></div><button class="primary" id="ls-go">Save listing</button>`,
-      (L, close) => L.querySelector('#ls-go').onclick = async () => { try { await Store.swappaList(S.user, S.store, d.id, parseFloat(L.querySelector('#ls-p').value), L.querySelector('#ls-u').value.trim()); close(); toast('Listing saved'); W.tab = 'listed'; again(); } catch (e) { L.querySelector('#ls-e').textContent = e.message; } }); });
+      <div class="field"><label class="label" for="ls-p">Swappa price</label><input id="ls-p" inputmode="decimal"></div><div class="grid g2"><div class="field"><label class="label" for="ls-c">Swappa listing code</label><input id="ls-c" placeholder="LALV21983" autocapitalize="characters"></div><div class="field"><label class="label" for="ls-u">Listing link (optional)</label><input id="ls-u" placeholder="https://swappa.com/listing/…"></div></div><div class="err" id="ls-e" role="alert"></div><button class="primary" id="ls-go">Save listing</button>`,
+      (L, close) => L.querySelector('#ls-go').onclick = async () => { try { await Store.swappaList(S.user, S.store, d.id, parseFloat(L.querySelector('#ls-p').value), L.querySelector('#ls-u').value.trim(), L.querySelector('#ls-c').value.trim().toUpperCase()); close(); toast('Listing saved'); W.tab = 'listed'; again(); } catch (e) { L.querySelector('#ls-e').textContent = e.message; } }); });
   el.querySelectorAll('[data-drop]').forEach(b => b.onclick = () => { const d = listedAll.find(x => x.id === b.dataset.drop);
     sheet(`<div class="row" style="justify-content:space-between"><h3>Lower price · #${d.stockNo}</h3><button data-close>Close</button></div><div class="field"><label class="label" for="dp-p">New Swappa price (now ${cents(sw(d).price)})</label><input id="dp-p" inputmode="decimal"></div><div class="err" id="dp-e" role="alert"></div><button class="primary" id="dp-go">Save new price</button>`,
       (L, close) => L.querySelector('#dp-go').onclick = async () => { try { await Store.swappaDrop(S.user, S.store, d.id, parseFloat(L.querySelector('#dp-p').value)); close(); toast('Price drop logged. Change it on Swappa too.'); again(); } catch (e) { L.querySelector('#dp-e').textContent = e.message; } }); });
