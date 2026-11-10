@@ -2843,15 +2843,20 @@ const rsStore = n => /bulverde/i.test(n || '') ? 'BV' : /potranco/i.test(n || ''
 const RSI = {log: [], running: false, stop: false, loc: {1163: 'BV', 1931: 'PT', 1164: 'DZ'}, tally: {}, unknownSt: {}, unknownLoc: {}};   /* RepairShopr location ids (Admin → Locations) */
 function rsiState(){ try { return JSON.parse(localStorage.getItem('czpos-rsimport') || '{}'); } catch { return {}; } }
 function rsiSave(st){ try { localStorage.setItem('czpos-rsimport', JSON.stringify(st)); } catch {} }
+/* Chrome slows timers in a background tab to about once a minute, which made the import look stuck.
+   Waiting through a worker keeps the pace when the tab isn't in front. */
+const rsSleep = (() => { try { const w = new Worker(URL.createObjectURL(new Blob(['onmessage = e => setTimeout(() => postMessage(e.data[0]), e.data[1])'], {type: 'text/javascript'})));
+  const wait = new Map(); let n = 0; w.onmessage = e => { const f = wait.get(e.data); wait.delete(e.data); f && f(); };
+  return ms => new Promise(r => { const id = ++n; wait.set(id, r); w.postMessage([id, ms]); }); } catch { return ms => new Promise(r => setTimeout(r, ms)); } })();
 async function rsGet(tok, path, params = {}){
   const u = new URL(RS_API + path); Object.entries(params).forEach(([k, v]) => v != null && u.searchParams.set(k, v));
   for (let tries = 0; ; tries++){
-    let r; try { r = await fetch(u, {headers: {Authorization: 'Bearer ' + tok, Accept: 'application/json'}}); } catch (e) { if (tries < 5) { await new Promise(z => setTimeout(z, 5000)); continue; } throw e; }
-    if (r.status === 429 || r.status >= 500) { if (tries < 8) { await new Promise(z => setTimeout(z, 15000)); continue; } }
+    let r; try { r = await fetch(u, {headers: {Authorization: 'Bearer ' + tok, Accept: 'application/json'}}); } catch (e) { if (tries < 5) { await rsSleep(5000); continue; } throw e; }
+    if (r.status === 429 || r.status >= 500) { if (tries < 8) { await rsSleep(15000); continue; } }
     if (r.status === 401) throw new Error('RepairShopr rejected the API key (401). Check it was pasted in full.');
     if (r.status === 403) throw Object.assign(new Error(`The API key isn't allowed to read ${path.split('/')[0]} (403). Add that permission to the key in RepairShopr.`), {code: 403});
     if (!r.ok) throw new Error(`RepairShopr ${path} → ${r.status}`);
-    await new Promise(z => setTimeout(z, 340));   /* stay under ~180 requests a minute */
+    await rsSleep(340);   /* stay under ~180 requests a minute */
     return r.json();
   }
 }
