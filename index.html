@@ -2631,7 +2631,11 @@ async function loadRepairPrices(){
 }
 const rqDevice = (k, m) => k === 'watch' ? 'Apple Watch ' + m.n : k === 'computer' ? (m.g === 'Mac' ? 'Mac' : 'PC') : k === 'pixel' && !/pixel/i.test(m.n) ? 'Pixel ' + m.n : k === 'samsung' && !/galaxy|note/i.test(m.n) ? 'Galaxy ' + m.n : m.n;
 const rqIssue = (k, m) => ({iphone: 'iPhone Repair', samsung: 'Smartphone Repair', pixel: 'Smartphone Repair', moto: 'Smartphone Repair', watch: 'Smartphone Repair', ipod: 'Smartphone Repair', ipad: 'iPad Repair', surface: 'Tablet Repair', console: 'Game Console Repair'})[k] || (m.g === 'Mac' ? 'Macbook Repair' : 'Computer Repair');
-const rqRepairName = (k, m, col) => k === 'computer' ? m.n : /glass only/i.test(col) && /^(GOOD|BETTER|BEST)\s/.test(col) ? 'Glass Only (' + col.split(' ')[0].toLowerCase() + ')' : col.replace(/^(GOOD|BETTER|BEST)\s+/, '');
+/* Good / Better / Best always says which screen it is: Good = aftermarket LCD, Better = premium OLED, Best = genuine OEM */
+const RQ_TIER = {GOOD: ['Good', 'Aftermarket LCD'], BETTER: ['Better', 'Premium OLED'], BEST: ['Best', 'Genuine OEM']};
+const rqColLabel = col => { const t = /^(GOOD|BETTER|BEST)\s+(.*)$/.exec(col); if (!t) return col; const [tier, q] = RQ_TIER[t[1]];
+  return /glass only/i.test(t[2]) ? `Glass Only · ${tier} (${q})` : `Screen · ${tier} (${/genuine/i.test(t[2]) ? (/apple/i.test(t[2]) ? 'Genuine Apple OEM' : q) : t[2]})`; };
+const rqRepairName = (k, m, col) => k === 'computer' ? m.n : rqColLabel(col).replace(/^Screen · /, 'Screen Replacement · ').replace(' · ', ' – ');
 const rqMatch = (x, q) => { const hay = (rqDevice(x.k, x.m) + ' ' + x.m.g + ' ' + x.c.name + ' ' + x.m.n + (x.m.g === 'Mac' ? ' macbook imac' : x.m.g === 'PC' ? ' laptop windows' : '')).toLowerCase().replace(/playstation\s*/g, 'ps').replace(/series\s*/g, 'series ');
   const qq = q.replace(/playstation\s*/g, 'ps').replace(/\bxbox\s+/, 'xbox ').replace(/\bs(\d{2})\b/, 'galaxy s$1');
   return qq.split(' ').every(w => hay.includes(w)) || q.split(' ').every(w => hay.includes(w)); };
@@ -2670,7 +2674,7 @@ async function viewQuote(el){
       ${m ? `<h3>${esc(dev)}${m.g && Q.cat !== 'computer' ? ` <span class="muted small">${esc(m.g)}</span>` : ''}</h3>
       ${sel ? `<div class="script">Phone script: "Yes, we can fix that. ${esc(Q.cat === 'computer' ? rqRepairName(Q.cat, m, sel[0]) : rqRepairName(Q.cat, m, sel[0]) + ' on the ' + dev)} comes with a 6-month warranty, and the cost is <b>${esc(sel[1])}</b>." Then ask if they can come in today.</div>` : ''}
       <div class="tbl"><table><thead><tr><th>Repair</th><th class="r">Price</th><th></th></tr></thead><tbody>
-      ${priced.map(([c, v, i]) => `<tr data-qcol="${i}" style="cursor:pointer${Q.col === i ? ';background:var(--warn-soft)' : ''}"><td>${esc(Q.cat === 'computer' ? m.n : c)}</td><td class="r num">${esc(v)}</td><td class="r"><button data-tk="${i}" style="min-height:34px;padding:4px 10px">Start ticket</button></td></tr>`).join('')}
+      ${priced.map(([c, v, i]) => `<tr data-qcol="${i}" style="cursor:pointer${Q.col === i ? ';background:var(--warn-soft)' : ''}"><td>${esc(Q.cat === 'computer' ? m.n : rqColLabel(c))}</td><td class="r num">${esc(v)}</td><td class="r"><button data-tk="${i}" style="min-height:34px;padding:4px 10px">Start ticket</button></td></tr>`).join('')}
       </tbody></table></div>
       <p class="muted small" style="margin:0">Tap a row to put it in the phone script. Start ticket fills in the device, repair and price. You pick the customer.</p>`
       : `<p class="muted">${q ? 'Tap a match' : 'Pick a model'} to see every price and the phone script.</p>`}
