@@ -304,10 +304,10 @@ const DemoStore = {
       partsCost: 360, payment: 'Acima', total: 568.99}];
     const mins = m => new Date(Date.now() - m*60000).toISOString();
     const ghl = [
-      {id: uid(), at: mins(12), store:'PT', phone:'2105550231', name:'Jose Martinez', kind:'call', duration: 94, body: null, example: true},
+      {id: uid(), at: mins(12), store:'PT', phone:'2105550231', name:'Jose Martinez', kind:'call', duration: 94, body: null, source: 'Google Ads (paid)', paid: true, example: true},
       {id: uid(), at: mins(35), store:'PT', phone: maria.phone, name: maria.name, kind:'sms', body: 'Hi is my ipad ready yet?', example: true},
-      {id: uid(), at: mins(80), store:'BV', phone:'2105550277', name: null, kind:'missed', body: null, example: true},
-      {id: uid(), at: mins(140), store:'PT', phone: derrick.phone, name: derrick.name, kind:'call', duration: 41, body: null, example: true},
+      {id: uid(), at: mins(80), store:'BV', phone:'2105550277', name: null, kind:'missed', body: null, source: 'Google Business Profile (organic)', paid: false, example: true},
+      {id: uid(), at: mins(140), store:'PT', phone: derrick.phone, name: derrick.name, kind:'call', duration: 41, body: null, source: 'Google organic', paid: false, example: true},
       {id: uid(), at: mins(400), store:'DZ', phone:'2105550299', name:'Brittany Lee', kind:'voicemail', body: null, example: true}
     ];
     const audit = [{id: uid(), at: ago(0, 9), who: sam.id, store:'PT', action:'Demo data loaded', detail:'Example staff, customers, tickets, devices and parts'}];
@@ -523,7 +523,9 @@ const DemoStore = {
   async invoices(from, to){ return this.db().invoices.filter(i => new Date(i.at) >= from && new Date(i.at) < to); },
   async allInvoices(){ return this.db().invoices; },
   /* GoHighLevel (demo: simulated, nothing is sent) */
-  async ghlEvents(){ const d = this.db(); const C = d.customers; return d.ghl.map(e => ({...e, customerId: C.find(c => c.phone && c.phone === e.phone)?.id || null})); },
+  async callSources(){ return this.db().callSources || []; },
+  async saveCallSource(emp, cs){ const d = this.db(); d.callSources = (d.callSources || []).filter(x => x.number !== cs.number); if (!cs.delete) d.callSources.push({number: cs.number, label: cs.label, paid: !!cs.paid, store: cs.store || null}); this.save(d); return true; },
+  async ghlEvents(){ const d = this.db(); const C = d.customers; const M = Object.fromEntries((d.callSources || []).map(x => [x.number, x])); return d.ghl.filter(e => e.kind !== 'other').map(e => ({...e, source: M[e.calledNumber]?.label || e.source, paid: M[e.calledNumber] ? M[e.calledNumber].paid : e.paid, customerId: C.find(c => c.phone && c.phone === e.phone)?.id || null})); },
   async ghlThread(store, c){
     const d = this.db();
     const ins = d.ghl.filter(e => e.phone === c.phone).map(e => ({at: e.at, direction: 'inbound', type: e.kind === 'sms' ? 'SMS' : 'CALL', body: e.body || '', status: e.kind, duration: e.duration}));
@@ -796,6 +798,8 @@ const LiveStore = {
   async invoices(from, to){ const {data, error} = await this.sb.from('invoices_v').select('*').gte('at', from.toISOString()).lt('at', to.toISOString()); if (error) throw error; return data; },
   async allInvoices(){ const {data, error} = await this.sb.from('invoices_v').select('*').order('at', {ascending: false}).limit(1000); if (error) throw error; this.keep(this.cI, data); return [...this.cI.values()].sort((a, b) => new Date(b.at) - new Date(a.at)); },
   async ghlEvents(){ const {data, error} = await this.sb.from('ghl_events_v').select('*').gte('at', new Date(Date.now() - 3*86400000).toISOString()).order('at', {ascending: false}).limit(300); if (error) throw error; return data; },
+  async callSources(){ const {data, error} = await this.sb.from('call_sources').select('*').order('label'); if (error) return []; return data; },
+  async saveCallSource(emp, cs){ return this.rpc('pos_save_call_source', {p_pin: this.pinFor(emp), p_number: cs.number, p_label: cs.label || '', p_paid: !!cs.paid, p_store: cs.store || '', p_delete: !!cs.delete}); },
   async ghlCall(body){ const {data, error} = await this.sb.functions.invoke('ghl', {body}); if (error) { let m = error.message; try { m = (await error.context.json()).error || m; } catch {} throw new Error(m); } if (data?.error) throw new Error(data.error); return data; },
   async ghlThread(store, c){ if (!c?.phone) return []; const r = await this.ghlCall({action: 'thread', store, phone: c.phone, name: c.name}); return r.messages || []; },
   async ghlSend(emp, store, {customer, ticketId, message}){ return this.ghlCall({action: 'send', pin: this.pinFor(emp), store, phone: customer?.phone, name: customer?.name, message, ticketId}); },
@@ -1378,20 +1382,26 @@ S.cf = {store: 'mine'};
 async function viewCalls(el){
   const [ev, tix, custs] = await Promise.all([Store.ghlEvents(), Store.tickets(), Store.customers()]);
   const C = custById(custs);
-  const rows = ev.filter(g => S.cf.store === 'all' || !g.store || g.store === (S.cf.store === 'mine' ? S.store : S.cf.store));
+  const inStore = ev.filter(g => S.cf.store === 'all' || !g.store || g.store === (S.cf.store === 'mine' ? S.store : S.cf.store));
+  const isCall = g => g.kind !== 'sms'; const F = S.cf.src || 'all';
+  const rows = inStore.filter(g => F === 'all' || (F === 'texts' ? g.kind === 'sms' : isCall(g) && (F === 'paid' ? g.paid : F === 'organic' ? (g.source && !g.paid) : !g.source)));
+  const calls = inStore.filter(isCall); const nPaid = calls.filter(g => g.paid).length, nOrg = calls.filter(g => g.source && !g.paid).length, nUnk = calls.filter(g => !g.source).length;
   el.innerHTML = `<div class="stack">
-    <div class="row" style="justify-content:space-between"><div><h2>Calls &amp; texts</h2><p class="muted small" style="margin:0">Live from GoHighLevel. Match the caller to a customer when they walk in, then start or open their ticket.</p></div>
+    <div class="row" style="justify-content:space-between"><div><h2>Calls &amp; texts</h2><p class="muted small" style="margin:0">Phone calls and texts to the store numbers, live from GoHighLevel. Facebook and Instagram messages stay in GoHighLevel. Each call shows where it came from (Google Ads vs Google organic) based on the tracking number they dialed.</p></div>
       ${can(3) ? `<select id="cf-store" aria-label="Store" style="width:auto"><option value="mine">${STORES[S.store]}</option><option value="all">All stores</option>${Object.entries(STORES).filter(([k]) => k !== S.store).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>` : ''}</div>
-    <div class="tbl"><table><thead><tr><th>When</th><th>Type</th><th>Caller</th><th>Customer</th><th>Open tickets</th><th></th></tr></thead><tbody>
+    <div class="statusbar" role="group" aria-label="Filter calls"><button data-cs="all" aria-pressed="${F === 'all'}">Everything (${inStore.length})</button><button data-cs="paid" aria-pressed="${F === 'paid'}">Paid calls (${nPaid})</button><button data-cs="organic" aria-pressed="${F === 'organic'}">Organic calls (${nOrg})</button><button data-cs="unknown" aria-pressed="${F === 'unknown'}">Source unknown (${nUnk})</button><button data-cs="texts" aria-pressed="${F === 'texts'}">Texts (${inStore.length - calls.length})</button></div>
+    <div class="tbl"><table><thead><tr><th>When</th><th>Type</th><th>Source</th><th>Caller</th><th>Customer</th><th>Open tickets</th><th></th></tr></thead><tbody>
     ${rows.map(g => { const cu = g.customerId ? C[g.customerId] : null; const open = cu ? tix.filter(t => t.customerId === cu.id && t.status !== 'resolved') : [];
       return `<tr><td class="small num" style="white-space:nowrap">${fmtTime(g.at)}<div class="muted">${ago(g.at)}</div></td>
       <td><span class="pill ${KIND_PILL[g.kind]}">${KIND[g.kind] || g.kind}${g.kind === 'call' && g.duration ? ' · ' + Math.max(1, Math.round(g.duration / 60)) + 'm' : ''}</span>${g.example ? ' <span class="pill">example</span>' : ''}${g.body ? `<div class="small" style="margin-top:4px">“${esc(g.body)}”</div>` : ''}</td>
+      <td>${g.kind === 'sms' ? '<span class="muted small">—</span>' : g.source ? `<span class="pill ${g.paid ? 'warn' : 'ok'}">${esc(g.source)}</span>` : '<span class="pill">Unknown</span>'}</td>
       <td>${esc(g.name || 'Unknown')}<div class="small muted num">${fmtPhone(g.phone)} · ${g.store || ''}</div></td>
       <td>${cu ? `<a data-cu="${cu.id}" style="color:var(--accent);cursor:pointer">${esc(cu.name)}</a>` : '<span class="muted small">Not a customer yet</span>'}</td>
       <td>${open.map(t => `<a data-t="${t.id}" style="cursor:pointer;display:inline-block;margin:2px 4px 2px 0">#${t.number} ${stPill(t.status)}</a>`).join('') || '<span class="muted small">—</span>'}</td>
-      <td class="r"><button data-nt="${g.id}" style="min-height:34px;padding:4px 10px">${open.length ? 'New ticket' : 'Start ticket'}</button></td></tr>`; }).join('') || '<tr><td colspan="6" class="muted">No calls or texts in the last 3 days.</td></tr>'}
+      <td class="r"><button data-nt="${g.id}" style="min-height:34px;padding:4px 10px">${open.length ? 'New ticket' : 'Start ticket'}</button></td></tr>`; }).join('') || '<tr><td colspan="7" class="muted">Nothing here in the last 3 days.</td></tr>'}
     </tbody></table></div></div>`;
   $('#cf-store') && ($('#cf-store').value = S.cf.store, $('#cf-store').onchange = e => { S.cf.store = e.target.value; viewCalls(el); });
+  el.querySelectorAll('[data-cs]').forEach(b => b.onclick = () => { S.cf.src = b.dataset.cs; viewCalls(el); });
   el.querySelectorAll('[data-cu]').forEach(a => a.onclick = () => go('customer', {customerId: a.dataset.cu}));
   el.querySelectorAll('a[data-t]').forEach(a => a.onclick = () => go('ticket', {ticketId: a.dataset.t}));
   el.querySelectorAll('[data-nt]').forEach(b => b.onclick = () => { const g = rows.find(x => String(x.id) === b.dataset.nt);
@@ -2895,10 +2905,27 @@ function rsImportPanel(box){
   draw();
 }
 
+const CALL_SRC = [['Google Ads (paid)', true], ['Google Business Profile (organic)', false], ['Website (organic)', false], ['Facebook / Instagram ads', true], ['Other paid ad', true], ['Main store number', false]];
+async function callSourcesPanel(box){
+  const list = await Store.callSources();
+  box.innerHTML = `<div class="panel stack"><h2>Call tracking numbers</h2>
+    <p class="small muted" style="margin:0">Each tracking number in GoHighLevel goes in one place: the Google Ads call ads, the Google Business Profile listing, the website, and so on. List them here and every inbound call in the Inbox gets tagged paid or organic. Calls to numbers not listed fall back to GoHighLevel's own source info, or show "Unknown".</p>
+    <div class="tbl"><table><thead><tr><th>Number</th><th>Used on</th><th>Store</th><th></th></tr></thead><tbody>
+    ${list.map(x => `<tr><td class="num">${fmtPhone(x.number)}</td><td><span class="pill ${x.paid ? 'warn' : 'ok'}">${esc(x.label)}</span></td><td>${x.store ? STORES[x.store] : 'All'}</td><td class="r"><button data-csd="${x.number}" style="min-height:32px;padding:3px 10px">Remove</button></td></tr>`).join('') || '<tr><td colspan="4" class="muted">No numbers yet.</td></tr>'}
+    </tbody></table></div>
+    <div class="grid g3"><div class="field"><label class="label" for="cs-n">Tracking number</label><input id="cs-n" inputmode="tel" placeholder="210 555 0100"></div>
+      <div class="field"><label class="label" for="cs-l">Used on</label><select id="cs-l">${CALL_SRC.map(([l]) => `<option>${esc(l)}</option>`).join('')}</select></div>
+      <div class="field"><label class="label" for="cs-s">Store</label><select id="cs-s"><option value="">All stores</option>${Object.entries(STORES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div></div>
+    <div class="err" id="cs-e" role="alert"></div><button id="cs-add" style="align-self:flex-start">Add number</button></div>`;
+  box.querySelector('#cs-add').onclick = async () => { const n = box.querySelector('#cs-n').value.replace(/\D/g, '').slice(-10); const l = box.querySelector('#cs-l').value;
+    if (n.length !== 10) { box.querySelector('#cs-e').textContent = 'Enter the 10-digit tracking number.'; return; }
+    try { await Store.saveCallSource(S.user, {number: n, label: l, paid: (CALL_SRC.find(x => x[0] === l) || [, false])[1], store: box.querySelector('#cs-s').value}); toast('Tracking number saved'); callSourcesPanel(box); } catch (e) { box.querySelector('#cs-e').textContent = e.message; } };
+  box.querySelectorAll('[data-csd]').forEach(b => b.onclick = async () => { try { await Store.saveCallSource(S.user, {number: b.dataset.csd, delete: true}); callSourcesPanel(box); } catch (e) { toast(e.message); } });
+}
 async function viewStaff(el){
   S.staff = await Store.employees();
   const set = await Store.settings();
-  el.innerHTML = `<div class="stack">${Store.mode !== 'demo' && can(3) ? '<div id="rsi-box"></div>' : ''}
+  el.innerHTML = `<div class="stack">${Store.mode !== 'demo' && can(3) ? '<div id="rsi-box"></div>' : ''}${can(3) ? '<div id="cs-box"></div>' : ''}
     <div class="panel stack"><h2>Settings</h2>
       <div class="grid g2">
         <div class="field"><label class="label" for="st-link">Google review link</label><input id="st-link" value="${esc(set.reviewLink)}"></div>
@@ -2937,6 +2964,7 @@ async function viewStaff(el){
       catch (x) { L.querySelector('#e-err').textContent = x.message; }
     });
   $('#rsi-box') && rsImportPanel($('#rsi-box'));
+  $('#cs-box') && callSourcesPanel($('#cs-box'));
   $('#s-add').onclick = () => edit(null);
   $('#st-save').onclick = async () => {
     const acc = $('#st-acc').value.split('\n').map(l => l.split('|').map(x => x.trim())).filter(a => a[0]);
