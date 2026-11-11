@@ -616,6 +616,34 @@ const DemoStore = {
   },
   async invoices(from, to){ return this.db().invoices.filter(i => new Date(i.at) >= from && new Date(i.at) < to); },
   async allInvoices(){ return this.db().invoices; },
+  async findInvoices(emp, q){ const d = this.db(); const dg = String(q || '').replace(/\D/g, ''); if (!dg) return [];
+    const C = Object.fromEntries(d.customers.map(c => [c.id, c])), T = Object.fromEntries(d.tickets.map(t => [t.id, t]));
+    return d.invoices.filter(i => !i.refundOf && ((dg.length <= 7 && (String(i.number) === dg || String(T[i.ticketId]?.number) === dg)) || (dg.length === 10 && C[i.customerId]?.phone === dg)))
+      .sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 25).map(i => ({...i, customerName: C[i.customerId]?.name || null, customerPhone: C[i.customerId]?.phone || null, ticketNo: T[i.ticketId]?.number || null})); },
+  async refund(emp, store, ref, approver){ const d = this.db(); const o = d.invoices.find(i => i.id === ref.invoiceId);
+    if (!o) throw new Error("That sale wasn't found."); if (o.refundOf) throw new Error("That's already a refund.");
+    if (RANK[emp.role] < 2 && !(approver && RANK[approver.role] >= 2)) throw new Error('A manager PIN is needed to approve a refund.');
+    if (!ref.method) throw new Error('Pick how the money goes back to the customer.'); if (!ref.reason) throw new Error('Pick a reason for the refund.');
+    if (!ref.lines?.length) throw new Error("Tick what they're returning.");
+    o.refunded = o.refunded || []; let sub = 0, taxable = 0, pc = 0; const lines = [];
+    ref.lines.forEach(r => { const ol = o.lines[r.idx]; if (!ol) throw new Error("That item isn't on the sale.");
+      if (o.refunded.some(x => x.idx === r.idx)) throw new Error(`"${ol.desc}" was already refunded.`);
+      const amt = Math.round(+r.amount * 100) / 100; if (!(amt > 0)) throw new Error(`Enter how much to refund for "${ol.desc}".`);
+      if (amt > (+ol.price) * (ol.qty || 1) + 0.001) throw new Error(`You can't refund more than was paid for "${ol.desc}".`);
+      sub += amt; if (isTaxable(ol)) taxable += amt;
+      lines.push({desc: 'Refund: ' + ol.desc, cat: 'Refund', price: -amt, refundIdx: r.idx, ...(ol.productId ? {productId: ol.productId} : {}), ...(ol.deviceId ? {deviceId: ol.deviceId} : {}), ...(r.restock ? {restock: true} : {})});
+      if (r.restock && ol.productId) { const pr = (d.products || []).find(x => x.id === ol.productId); if (pr) { if (pr.maintainStock) pr.qty[store] = (pr.qty[store] || 0) + 1; pc += +pr.cost || 0; } }
+      if (r.restock && ol.deviceId) { const dv = d.devices.find(x => x.id === ol.deviceId); if (dv) { Object.assign(dv, {status: 'hot', store, soldPrice: null, soldAt: null, channel: null, updatedAt: now()}); pc += (+dv.cost || 0) + (+dv.partsCost || 0);
+        (dv.log = dv.log || []).unshift({at: now(), who: emp.id, text: `Returned · refund on invoice #${o.number} · back in hot stock`}); } }
+      if (ol.glass) { const k = (d.glass || []).findIndex(w => w.invoiceId === o.id && w.kind === ol.glass); if (k >= 0) d.glass.splice(k, 1); } });
+    const taxBack = d.invoices.filter(i => i.refundOf === o.id).reduce((a, i) => a - (i.tax || 0), 0);
+    const tax = Math.min(Math.round(taxable * TAX_RATE * 100) / 100, Math.max(0, (o.tax || 0) - taxBack)); sub = Math.round(sub * 100) / 100; const total = Math.round((sub + tax) * 100) / 100;
+    const row = {id: uid(), number: d.nextInvoice++, at: now(), by: emp.id, store, ticketId: o.ticketId || null, customerId: o.customerId || null, lines, subtotal: -sub, tax: -tax, total: -total,
+      payment: ref.method, payments: [{method: ref.method, amount: -total}], partsCost: -pc, refundOf: o.id, refundReason: ref.reason + (ref.note ? ' · ' + ref.note : ''), approvedBy: (approver || emp).id};
+    ref.lines.forEach(r => o.refunded.push({idx: r.idx, amount: Math.round(+r.amount * 100) / 100, refundId: row.id, refundNo: row.number}));
+    d.invoices.unshift(row);
+    if (o.ticketId) { const t = d.tickets.find(x => x.id === o.ticketId); if (t) (t.comments = t.comments || []).unshift({id: uid(), at: now(), by: emp.id, text: `Refunded ${cents(total)} · ${ref.method} · refund #${row.number} (from invoice #${o.number}). Reason: ${row.refundReason}`, pub: false, sys: true}); }
+    this.log(d, emp.id, store, 'Refund', `#${row.number} from invoice #${o.number} · ${cents(total)} · ${ref.method} · ${ref.reason}`); this.save(d); return row; },
   /* GoHighLevel (demo: simulated, nothing is sent) */
   async callSources(){ return this.db().callSources || []; },
   async rsSync(){ return null; },
@@ -904,6 +932,9 @@ const LiveStore = {
   async atlasPayout(emp, id, amount){ return this.rpc('pos_atlas_payout', {p_pin: this.pinFor(emp), p_id: id, p_amount: amount}); },
   async ticketInvoices(id){ const {data, error} = await this.sb.from('invoices_v').select('*').eq('ticketId', id).order('at', {ascending: false}); if (error) throw error; this.keep(this.cI, data); return data; },
   async invoices(from, to){ const {data, error} = await this.sb.from('invoices_v').select('*').gte('at', from.toISOString()).lt('at', to.toISOString()); if (error) throw error; return data; },
+  async findInvoices(emp, q){ return (await this.rpc('pos_find_invoices', {p_pin: this.pinFor(emp), p_q: q})) || []; },
+  async refund(emp, store, ref, approver){ const r = await this.rpc('pos_refund', {p_pin: this.pinFor(emp), p_store: store, p_ref: ref, p_approver_pin: approver && approver.id !== emp.id ? this.pinFor(approver) : null});
+    this.keep(this.cI, [r]); const o = await this.sb.from('invoices_v').select('*').eq('id', ref.invoiceId).maybeSingle(); if (o.data) this.keep(this.cI, [o.data]); if (r.ticketId) { this.cT.delete(r.ticketId); await this.loadTicket(r.ticketId).catch(() => {}); } return r; },
   async allInvoices(){ const {data, error} = await this.sb.from('invoices_v').select('*').order('at', {ascending: false}).limit(1000); if (error) throw error; this.keep(this.cI, data); return [...this.cI.values()].sort((a, b) => new Date(b.at) - new Date(a.at)); },
   async ghlEvents(){ const {data, error} = await this.sb.from('ghl_events_v').select('*').gte('at', new Date(Date.now() - 3*86400000).toISOString()).order('at', {ascending: false}).limit(300); if (error) throw error; return data; },
   async glassWarranties(phone){ const {data, error} = await this.sb.from('glass_warranties_v').select('*').eq('phone', phone).order('soldAt', {ascending: false}); if (error) throw error; return data; },
@@ -1217,10 +1248,16 @@ const HELP_KB = [
   'Go to **Quote** and search the device.',
   'Pick the repair. Screens show Good (aftermarket LCD), Better (premium OLED) and Best (genuine Apple OEM).',
   'Tap **Start ticket** to check it in with that price.']},
- {t: 'Refund or return',  k: 'refund return money back give back cancel sale void exchange undo', s: [
-  'Refunds aren\'t in the POS yet. Get a manager before you give any money back.',
-  'The manager refunds a card on the Square iPad, or cash from the drawer.',
-  'Write a note on the customer\'s ticket (or the Register close-out note) with what was refunded and why.']},
+ {t: 'Refund or return', k: 'refund return money back give back cancel sale void exchange undo returned brought back', s: [
+  'Go to **Register** and tap **↩ Return / refund** (or open the ticket and tap **Refund** next to the invoice).',
+  'Type the receipt #, ticket # or the customer\'s phone, tap **Find**, and tap the sale.',
+  'Tick what they\'re bringing back. Change the amount on the right for a partial refund. Leave **Goes back on the shelf** ticked if it\'s sellable.',
+  'Pick the reason and how the money goes back. Card: refund it on the **Square iPad first**.',
+  'Tap **Refund $X**. Sales reps: a manager types their PIN to approve.',
+  'Cash refund? Hand it back from the drawer. Print or text the refund receipt.']},
+ {t: 'Exchange an item', k: 'exchange swap different case wrong size trade item', s: [
+  'Refund the item they\'re bringing back (see Refund or return).',
+  'Ring up the new item on the **Register** as a normal sale.']},
  {t: 'Rework or warranty repair', k: 'rework warranty came back broken again redo comeback', s: [
   'Open the old ticket and tap **Open rework ticket**.',
   'Repairs have a 6-month warranty from the payment date.']},
@@ -1409,7 +1446,7 @@ async function viewTicket(el){
   const ch = t.charges || []; const due = ch.filter(x => !x.invoiceId);
   const diagCr = ch.filter(x => x.cat === 'Diagnostic' && x.invoiceId && !x.creditedOn); const crNow = chSum(due.filter(x => REPAIR_CATS.includes(x.cat))) >= chSum(diagCr) ? chSum(diagCr) : 0;
   const dueSum = chSum(due) - crNow + taxOf([...due, ...(crNow ? [{cat: 'Diagnostic credit', price: -crNow}] : [])]); const netCharged = chSum(ch) - chSum(ch.filter(x => x.creditedOn)) - crNow;
-  const tInv = await Store.ticketInvoices(t.id).catch(() => []); const paidSum = tInv.reduce((a, i) => a + (+i.total || 0), 0);
+  const tInv = await Store.ticketInvoices(t.id).catch(() => []); const paidSum = tInv.reduce((a, i) => a + Math.max(0, +i.total || 0), 0), refSum = -tInv.reduce((a, i) => a + Math.min(0, +i.total || 0), 0);
   const isOpen = t.status !== 'resolved';
   const first = (c.name || '').split(' ')[0];
   const readyMsg = `Hi ${first}, this is Cellular Zone ${STORES[t.store]}. Your ${t.device} is ready for pickup. We're open Mon–Sat 10–8, Sun 11–6. Thank you!`;
@@ -1452,9 +1489,9 @@ async function viewTicket(el){
         ${ch.length ? `<div class="tbl"><table><tbody>${ch.map(x => `<tr><td>${esc(x.desc)}<div class="small muted">${esc(x.cat)}${x.glass ? ' · lifetime warranty' : ''} · ${esc(staffName(x.by))} · ${fmtDate(x.at)}</div></td><td class="r num">${cents(x.price)}</td>
           <td class="r" style="white-space:nowrap">${x.invoiceId ? `<span class="pill ok">Paid · #${esc(x.invoiceNo)}</span>${x.creditedOn ? ` <span class="pill acc">credited on #${esc(x.creditedOn)}</span>` : ''}` : isOpen ? `<span class="pill warn">Due</span> <button data-rmch="${x.id}" aria-label="Remove ${esc(x.desc)}" style="min-height:30px;padding:2px 8px">✕</button>` : '<span class="pill bad">Unpaid</span>'}</td></tr>`).join('')}</tbody></table></div>`
           : `<p class="muted small" style="margin:0">${isOpen ? 'Nothing charged yet. Add the diagnostic, the repair, glass or a case here, then take payment. Charge the diagnostic up front and the repair at pickup: each payment makes its own invoice.' : 'No charges on this ticket.'}</p>`}
-        ${ch.length || tInv.length ? `<div class="row" style="justify-content:space-between;gap:12px;flex-wrap:wrap"><span class="small">Charged <b class="num">${cents(netCharged)}</b> + tax · Paid <b class="num">${cents(paidSum)}</b>${crNow ? ` · <span style="color:var(--ok)">${cents(crNow)} diagnostic comes off the repair</span>` : ch.some(x => x.creditedOn) ? ' · diagnostic credited' : diagCr.length ? ` · <span class="muted">${cents(chSum(diagCr))} diagnostic comes off once the repair is added</span>` : ''}</span><span>Balance due <b class="num" style="font-size:20px">${cents(dueSum)}</b>${due.some(isTaxable) ? ' <span class="small muted">with tax</span>' : ''}</span></div>` : ''}
+        ${ch.length || tInv.length ? `<div class="row" style="justify-content:space-between;gap:12px;flex-wrap:wrap"><span class="small">Charged <b class="num">${cents(netCharged)}</b> + tax · Paid <b class="num">${cents(paidSum)}</b>${refSum ? ` · <span style="color:var(--bad)">Refunded ${cents(refSum)}</span>` : ''}${crNow ? ` · <span style="color:var(--ok)">${cents(crNow)} diagnostic comes off the repair</span>` : ch.some(x => x.creditedOn) ? ' · diagnostic credited' : diagCr.length ? ` · <span class="muted">${cents(chSum(diagCr))} diagnostic comes off once the repair is added</span>` : ''}</span><span>Balance due <b class="num" style="font-size:20px">${cents(dueSum)}</b>${due.some(isTaxable) ? ' <span class="small muted">with tax</span>' : ''}</span></div>` : ''}
         ${isOpen && due.length ? `<button class="primary" id="ch-pay" style="min-height:48px">Take payment · ${cents(dueSum)}</button>` : ''}
-        ${tInv.length ? `<div class="small stack" style="gap:2px"><span class="label">Invoices on this ticket</span>${tInv.map(i => `<span class="row" style="justify-content:space-between;gap:8px"><span class="num">#${i.number} · ${cents(i.total)} · ${esc(i.payment || '')} · ${fmtDate(i.at)} ${fmtTime(i.at)} · ${esc((i.lines || []).map(l => l.desc).join(', '))}</span><button data-rcpt="${i.id}" style="min-height:30px;padding:2px 10px">Receipt</button></span>`).join('')}</div>` : ''}
+        ${tInv.length ? `<div class="small stack" style="gap:2px"><span class="label">Invoices on this ticket</span>${tInv.map(i => `<span class="row" style="justify-content:space-between;gap:8px"><span class="num">#${i.number} · ${cents(i.total)} · ${esc(i.payment || '')} · ${fmtDate(i.at)} ${fmtTime(i.at)} · ${esc((i.lines || []).map(l => l.desc).join(', '))}</span><span class="row" style="gap:4px;flex:none"><button data-rcpt="${i.id}" style="min-height:30px;padding:2px 10px">Receipt</button>${i.total > 0 && !i.refundOf ? `<button data-rfnd="${i.id}" style="min-height:30px;padding:2px 10px">Refund</button>` : ''}</span></span>`).join('')}</div>` : ''}
       </div>
       <div class="panel stack">
         <div class="row" style="justify-content:space-between"><h3>Customer</h3><button id="t-cust">Open customer</button></div>
@@ -1510,7 +1547,8 @@ async function viewTicket(el){
       ${ch.length ? '' : `<button id="nt-diag" style="min-height:48px">Collect diagnostic ${cents(diagFor(t.device, set))} now</button>`}`,
       (L, close) => { L.querySelector('#nt-lbl').onclick = () => printTicketLabel(t, c);
         L.querySelector('#nt-diag') && (L.querySelector('#nt-diag').onclick = () => { close(); addCh({desc: 'Diagnostic · ' + t.device, cat: 'Diagnostic', price: diagFor(t.device, set)}, true); }); }); }
-  el.querySelectorAll('[data-rcpt]').forEach(b => b.onclick = () => receiptSheet(tInv.find(i => i.id === b.dataset.rcpt), {c, t}));
+  el.querySelectorAll('[data-rcpt]').forEach(b => b.onclick = () => receiptSheet(tInv.find(i => i.id === b.dataset.rcpt), {c, t, after: () => viewTicket(el)}));
+  el.querySelectorAll('[data-rfnd]').forEach(b => b.onclick = () => refundSheet(tInv.find(i => i.id === b.dataset.rfnd), () => viewTicket(el)));
   el.querySelectorAll('[data-rmch]').forEach(b => b.onclick = async () => { try { await Store.ticketCharge(S.user, S.store, t.id, null, b.dataset.rmch); toast('Charge removed'); viewTicket(el); } catch (e) { toast(e.message); } });
   $('#t-cust').onclick = () => go('customer', {customerId: c.id});
   $('#pc-show') && ($('#pc-show').onclick = () => { $('#pc').textContent = $('#pc').dataset.v; $('#pc-show').remove(); });
@@ -1684,6 +1722,7 @@ function receiptHTML(r){
   return `<div style="font:13px/1.45 -apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111;max-width:320px;margin:0 auto">
     <div style="text-align:center"><div style="font-size:18px;font-weight:700">Cellular Zone</div><div>${esc(STORES[r.store] || '')}</div><div>${esc(si.addr || '')}</div><div>${esc(si.phone || '')} · cellularzonesa.com</div></div>
     <hr style="border:0;border-top:1px dashed #999;margin:10px 0">
+    ${r.total < 0 ? '<div style="text-align:center;font-size:16px;font-weight:700;letter-spacing:.08em">REFUND</div>' : ''}
     <div>Receipt #${esc(r.number)}<span style="float:right">${new Date(r.at).toLocaleString('en-US', {month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'})}</span></div>
     ${r.customer ? `<div>Customer: ${esc(r.customer)}</div>` : ''}${r.ticket ? `<div>Ticket #${esc(r.ticket)}${r.device ? ' · ' + esc(r.device) : ''}</div>` : ''}
     <hr style="border:0;border-top:1px dashed #999;margin:10px 0">
@@ -1692,7 +1731,7 @@ function receiptHTML(r){
     <div style="display:flex;justify-content:space-between"><span>Subtotal</span><span>${cents(sub)}</span></div>
     <div style="display:flex;justify-content:space-between"><span>Sales tax (8.25%)</span><span>${cents(tax)}</span></div>
     <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:700"><span>Total</span><span>${cents(r.total)}</span></div>
-    ${(r.payments?.length > 1 ? r.payments : [{method: r.payment, amount: r.total}]).map(p => `<div style="display:flex;justify-content:space-between"><span>${r.payments?.length > 1 ? esc(p.method) : 'Paid with'}</span><span>${r.payments?.length > 1 ? cents(p.amount) : esc(p.method || '')}</span></div>`).join('')}
+    ${(r.payments?.length > 1 ? r.payments : [{method: r.payment, amount: r.total}]).map(p => `<div style="display:flex;justify-content:space-between"><span>${r.payments?.length > 1 ? esc(p.method) : (r.total < 0 ? 'Refunded to' : 'Paid with')}</span><span>${r.payments?.length > 1 ? cents(p.amount) : esc(p.method || '')}</span></div>`).join('')}
     ${r.cashBack > 0 ? `<div style="display:flex;justify-content:space-between"><span>Trade-in credit given back in cash</span><span>${cents(r.cashBack)}</span></div>` : ''}
     ${r.creditLeft > 0 ? `<div style="display:flex;justify-content:space-between"><span>Trade-in credit still on file</span><span>${cents(r.creditLeft)}</span></div>` : ''}
     <hr style="border:0;border-top:1px dashed #999;margin:10px 0">
@@ -1721,13 +1760,17 @@ async function receiptSheet(inv, ctx = {}){
     ticket: t?.number || null, device: t?.device || null, customer: (c.name || '').split(' ')[0]};
   const link = Store.mode === 'demo' ? null : Store.receiptLink(inv.id);
   const first = (c.name || '').split(' ')[0];
-  const textMsg = `Hi${first ? ' ' + first : ''}, thanks for choosing Cellular Zone ${STORES[inv.store]}! Receipt #${inv.number}: ${cents(inv.total)} paid${link ? '. View it here: ' + link : ''}`;
-  sheet(`<div class="row" style="justify-content:space-between"><h3>${ctx.justPaid ? 'Paid · ' + cents(inv.total) : 'Receipt #' + inv.number}</h3><button data-close>Done</button></div>
+  const isRef = inv.total < 0;
+  const textMsg = isRef ? `Hi${first ? ' ' + first : ''}, your Cellular Zone ${STORES[inv.store]} refund of ${cents(-inv.total)} (${inv.payment}) is done. Refund receipt #${inv.number}${link ? ': ' + link : ''}`
+    : `Hi${first ? ' ' + first : ''}, thanks for choosing Cellular Zone ${STORES[inv.store]}! Receipt #${inv.number}: ${cents(inv.total)} paid${link ? '. View it here: ' + link : ''}`;
+  sheet(`<div class="row" style="justify-content:space-between"><h3>${ctx.justPaid ? (isRef ? 'Refunded · ' + cents(-inv.total) : 'Paid · ' + cents(inv.total)) : 'Receipt #' + inv.number}</h3><button data-close>Done</button></div>
+    ${ctx.refund ? `<div class="banner ${ctx.refund.method === 'Cash' ? 'warn' : 'ok'}" style="font-size:16px">${ctx.refund.method === 'Cash' ? `<b>Give the customer ${cents(-inv.total)} cash</b> from the register drawer.` : `Refund recorded: ${cents(-inv.total)} back by ${esc(ctx.refund.method)}.`} Refund for receipt #${ctx.refund.orig}.</div>` : ''}
     ${ctx.justPaid ? `<div class="small muted">Invoice #${inv.number} · ${esc(inv.payment)}${ctx.note ? ' · ' + esc(ctx.note) : ''}</div>` : ''}
     ${ctx.cashBack > 0 ? `<div class="banner warn" style="font-size:16px"><b>Give the customer ${cents(ctx.cashBack)} cash back</b> from the buyback fund (the rest of their trade-in credit).</div>` : ''}
     ${ctx.creditLeft > 0 ? `<div class="banner ok small">${cents(ctx.creditLeft)} trade-in credit stays on file. It comes up automatically next time you enter their phone in the Register.</div>` : ''}
     <div style="background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:14px;max-height:340px;overflow:auto">${receiptHTML(r)}</div>
     <button class="primary" id="rc-print" style="min-height:48px">Print receipt</button>
+    ${!ctx.justPaid && !isRef && !inv.refundOf ? '<button id="rc-refund" style="min-height:44px">↩ Refund / return items from this sale</button>' : ''}
     <div class="grid g2" style="align-items:end"><div class="field"><label class="label" for="rc-ph">Text to</label><input id="rc-ph" inputmode="tel" value="${esc(fmtPhone(c.phone) === '—' ? '' : c.phone || '')}" placeholder="Customer's mobile"></div><button id="rc-text" style="min-height:44px">Text receipt</button></div>
     <div class="grid g2" style="align-items:end"><div class="field"><label class="label" for="rc-em">Email to</label><input id="rc-em" type="email" value="${esc(c.email || '')}" placeholder="name@email.com"></div><button id="rc-email" style="min-height:44px">Email receipt</button></div>
     <div class="small" id="rc-msg" role="status"></div>`, (L, close) => {
@@ -1735,6 +1778,7 @@ async function receiptSheet(inv, ctx = {}){
     const fallback = why => `${esc(why)}${link ? ` <a href="#" id="rc-copy" style="color:var(--accent)">Copy the receipt link</a> to send it yourself.` : ''}`;
     const bindCopy = () => { const a = L.querySelector('#rc-copy'); if (a) a.onclick = async e => { e.preventDefault(); try { await navigator.clipboard.writeText(link); toast('Receipt link copied'); } catch { prompt('Copy the receipt link:', link); } }; };
     L.querySelector('#rc-print').onclick = () => printReceipt(r);
+    const rf = L.querySelector('#rc-refund'); if (rf) rf.onclick = () => { close(); refundSheet(inv, ctx.after); };
     L.querySelector('#rc-text').onclick = async e => { const ph = L.querySelector('#rc-ph').value.replace(/\D/g, '').slice(-10);
       if (ph.length !== 10) return msg('Enter a 10-digit mobile number.', true);
       e.target.disabled = true; e.target.textContent = 'Sending…';
@@ -1750,6 +1794,83 @@ async function receiptSheet(inv, ctx = {}){
       catch (x) { const mail = `mailto:${encodeURIComponent(em)}?subject=${encodeURIComponent('Your Cellular Zone receipt #' + inv.number)}&body=${encodeURIComponent(textMsg)}`;
         msg(`Couldn't email it from the POS: ${esc(x.message)}. <a href="${mail}" style="color:var(--accent)">Open it in this computer's email app</a>${link ? ' or <a href="#" id="rc-copy" style="color:var(--accent)">copy the receipt link</a>' : ''}.`, true); bindCopy(); }
       e.target.disabled = false; e.target.textContent = 'Email receipt'; };
+  });
+}
+/* ---------------- REFUNDS & RETURNS ---------------- */
+const REFUND_REASONS = ['Defective / not working', 'Changed their mind', 'Wrong item', "Repair didn't fix it", 'Price adjustment', 'Charged by mistake', 'Other'];
+const refundMethodFor = inv => { const p = String(inv.payment || ''); const m = PAYMENTS.find(x => p.endsWith(x)) || PAYMENTS.find(x => p.startsWith(x.split(' ')[0])); return m || 'Cash'; };
+/* step 1: find the sale (receipt #, ticket # or the customer's phone) */
+function refundFind(after){
+  sheet(`<div class="row" style="justify-content:space-between"><h3>Return / refund</h3><button data-close>Close</button></div>
+    <p class="small muted" style="margin:0">Find the sale. Type the receipt #, the ticket #, or the customer's phone number.</p>
+    <form id="rf-f" class="row" style="gap:8px;align-items:end"><div class="field" style="flex:1"><label class="label" for="rf-q">Receipt #, ticket # or phone</label><input id="rf-q" inputmode="numeric" autocomplete="off" placeholder="300123 or 210-555-1234"></div><button class="primary" style="min-height:44px">Find</button></form>
+    <div id="rf-res" class="stack" style="gap:6px"></div>`, (L, close) => {
+    const box = L.querySelector('#rf-res'); setTimeout(() => L.querySelector('#rf-q').focus(), 30);
+    L.querySelector('#rf-f').onsubmit = async e => { e.preventDefault(); const q = L.querySelector('#rf-q').value.trim(); const dg = q.replace(/\D/g, '');
+      if (!dg || (dg.length > 7 && dg.length !== 10)) { box.innerHTML = '<div class="err">Type a receipt or ticket number, or a 10-digit phone number.</div>'; return; }
+      box.innerHTML = '<p class="muted small">Looking…</p>';
+      try { const list = await Store.findInvoices(S.user, dg);
+        box.innerHTML = list.length ? `<div class="tbl"><table><tbody>${list.map(i => { const left = (i.lines || []).filter((l, k) => +l.price > 0 && !(i.refunded || []).some(x => x.idx === k)).length;
+          return `<tr class="click" data-rfi="${i.id}"><td><b>#${i.number}</b> · ${fmtDate(i.at)} · ${esc(STORES[i.store] || i.store)}<div class="small muted">${esc(i.customerName || 'Walk-in')}${i.ticketNo ? ' · ticket #' + i.ticketNo : ''} · ${esc((i.lines || []).map(l => l.desc).join(', ').slice(0, 90))}</div></td>
+            <td class="r num">${cents(i.total)}<div class="small">${left ? esc(i.payment || '') : '<span class="pill">fully refunded</span>'}</div></td></tr>`; }).join('')}</tbody></table></div>`
+          : '<p class="muted">No sales found for that. Check the number, or try their phone number.</p>';
+        box.querySelectorAll('[data-rfi]').forEach(tr => tr.onclick = () => { close(); refundSheet(list.find(i => i.id === tr.dataset.rfi), after); });
+      } catch (x) { box.innerHTML = `<div class="err">${esc(x.message)}</div>`; } };
+  });
+}
+/* step 2: pick what comes back, how much, and how the money goes back */
+function refundSheet(inv, after, preset){
+  if (!inv) return; if (inv.refundOf || inv.total < 0) { toast("That's a refund already."); return; }
+  const done = idx => (inv.refunded || []).find(x => x.idx === idx);
+  const rows = (inv.lines || []).map((l, idx) => ({l, idx, full: Math.round((+l.price || 0) * (l.qty || 1) * 100) / 100, done: done(idx)}));
+  const open = rows.filter(r => !r.done && r.full > 0);
+  if (!open.length) { toast('Everything on this sale was already refunded.'); return; }
+  const taxBackSoFar = Math.round(rows.filter(r => r.done && isTaxable(r.l)).reduce((a, r) => a + r.done.amount, 0) * TAX_RATE * 100) / 100;
+  const taxLeft = Math.max(0, (inv.tax || 0) - taxBackSoFar);
+  const st = preset || {pick: new Set(open.length === 1 ? [open[0].idx] : []), amt: Object.fromEntries(open.map(r => [r.idx, r.full])), back: Object.fromEntries(open.filter(r => r.l.productId || r.l.deviceId).map(r => [r.idx, true])), method: refundMethodFor(inv), reason: '', note: '', err: ''};
+  sheet(`<div class="row" style="justify-content:space-between"><h3>Refund · receipt #${inv.number}</h3><button data-close>Cancel</button></div>
+    <div class="small muted">${fmtDate(inv.at)} ${fmtTime(inv.at)} · ${esc(STORES[inv.store] || inv.store)} · paid ${cents(inv.total)} with ${esc(inv.payment || '—')}${inv.rsId ? ' · RepairShopr sale' : ''}</div>
+    <div><span class="label">1 · What are they returning?</span>
+    <div class="tbl"><table><tbody>${rows.map(r => r.done ? `<tr><td class="muted">${esc(r.l.desc)}</td><td class="r"><span class="pill">refunded #${r.done.refundNo || ''}</span></td></tr>`
+      : r.full <= 0 ? '' : `<tr><td><label class="row" style="gap:8px;align-items:flex-start;flex-wrap:nowrap"><input type="checkbox" data-rp="${r.idx}" ${st.pick.has(r.idx) ? 'checked' : ''} style="width:auto;min-height:0;margin-top:3px;flex:none"><span style="flex:1;min-width:0">${esc(r.l.desc)}<div class="small muted">${esc(r.l.cat || '')} · paid ${cents(r.full)}${r.l.glass ? ' · its lifetime glass warranty ends' : ''}</div>
+        ${r.l.productId || r.l.deviceId ? `<label class="row small" style="gap:6px;margin-top:4px"><input type="checkbox" data-rb="${r.idx}" ${st.back[r.idx] ? 'checked' : ''} style="width:auto;min-height:0"> ${r.l.deviceId ? 'Phone goes back to hot stock' : 'Goes back on the shelf'}</label>` : ''}</span></label></td>
+        <td class="r" style="width:110px"><input data-ra="${r.idx}" inputmode="decimal" value="${(+st.amt[r.idx]).toFixed(2)}" aria-label="Refund amount for ${esc(r.l.desc)}" style="text-align:right"></td></tr>`).join('')}</tbody></table></div>
+    <p class="small muted" style="margin:4px 0 0">Refunding less (like a partial refund)? Change the amount on the right.</p></div>
+    <div class="grid g2"><div class="field"><label class="label" for="rf-why">2 · Reason</label><select id="rf-why"><option value="">Pick one…</option>${REFUND_REASONS.map(x => `<option ${st.reason === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></div>
+      <div class="field"><label class="label" for="rf-m">3 · Money goes back by</label><select id="rf-m">${PAYMENTS.map(x => `<option ${x === st.method ? 'selected' : ''}>${x}</option>`).join('')}</select></div></div>
+    <div class="field"><label class="label" for="rf-n">Note <span class="muted">(what happened)</span></label><input id="rf-n" value="${esc(st.note)}" placeholder="e.g. case didn't fit, customer brought it back unopened"></div>
+    <div id="rf-sum"></div>
+    <div class="err" id="rf-e" role="alert">${esc(st.err || '')}</div>
+    <button class="primary" id="rf-go" style="min-height:52px;font-size:16px">Refund</button>
+    ${RANK[S.user.role] < 2 ? '<p class="small muted" style="margin:0;text-align:center">A manager enters their PIN to approve.</p>' : ''}`, (L, close) => {
+    const calc = () => { const sel = open.filter(r => st.pick.has(r.idx)); const sub = Math.round(sel.reduce((a, r) => a + (+st.amt[r.idx] || 0), 0) * 100) / 100;
+      const tax = Math.min(Math.round(sel.filter(r => isTaxable(r.l)).reduce((a, r) => a + (+st.amt[r.idx] || 0), 0) * TAX_RATE * 100) / 100, taxLeft);
+      return {sel, sub, tax, total: Math.round((sub + tax) * 100) / 100}; };
+    const draw = () => { const c = calc(); const m = L.querySelector('#rf-m').value;
+      const how = m === 'Cash' ? `Hand the customer <b>${cents(c.total)}</b> from the register drawer.` : /^Square/.test(m) ? `Refund <b>${cents(c.total)}</b> on the <b>Square iPad first</b> (Transactions → find the sale → Issue refund), then tap Refund here.`
+        : m === 'Acima' ? `Process the return with Acima first, then tap Refund here.` : `Send <b>${cents(c.total)}</b> back by ${esc(m)}, then tap Refund here.`;
+      L.querySelector('#rf-sum').innerHTML = c.sel.length ? `<div class="panel stack" style="gap:4px;padding:12px">
+        <div class="row" style="justify-content:space-between"><span>Items</span><span class="num">${cents(c.sub)}</span></div>
+        <div class="row" style="justify-content:space-between"><span>Sales tax back</span><span class="num">${cents(c.tax)}</span></div>
+        <div class="row" style="justify-content:space-between;font-size:20px;font-weight:700"><span>Refund</span><span class="num">${cents(c.total)}</span></div>
+        <div class="banner warn small" style="margin-top:6px">${how}</div></div>` : '';
+      const go = L.querySelector('#rf-go'); go.textContent = c.sel.length ? `Refund ${cents(c.total)}` : 'Tick what they\'re returning'; go.disabled = !c.sel.length; };
+    L.querySelectorAll('[data-rp]').forEach(b => b.onchange = () => { const k = +b.dataset.rp; b.checked ? st.pick.add(k) : st.pick.delete(k); draw(); });
+    L.querySelectorAll('[data-rb]').forEach(b => b.onchange = () => { st.back[+b.dataset.rb] = b.checked; });
+    L.querySelectorAll('[data-ra]').forEach(b => b.oninput = () => { const k = +b.dataset.ra; st.amt[k] = parseFloat(String(b.value).replace(/[$,]/g, '')) || 0; if (!st.pick.has(k) && st.amt[k] > 0) { st.pick.add(k); L.querySelector(`[data-rp="${k}"]`).checked = true; } draw(); });
+    L.querySelector('#rf-m').onchange = draw; draw();
+    L.querySelector('#rf-go').onclick = async () => { const err = L.querySelector('#rf-e'); err.textContent = ''; const c = calc();
+      const why = L.querySelector('#rf-why').value, note = L.querySelector('#rf-n').value.trim(), m = L.querySelector('#rf-m').value;
+      const bad = c.sel.find(r => !(st.amt[r.idx] > 0) || st.amt[r.idx] > r.full + 0.001);
+      if (bad) { err.textContent = `Refund amount for "${bad.l.desc}" has to be between $0.01 and ${cents(bad.full)}.`; return; }
+      if (!why) { err.textContent = 'Pick a reason.'; return; }
+      if (why === 'Other' && !note) { err.textContent = 'Write a short note saying what happened.'; return; }
+      Object.assign(st, {reason: why, note, method: m, err: ''});
+      const ref = {invoiceId: inv.id, method: m, reason: why, note, lines: c.sel.map(x => ({idx: x.idx, amount: Math.round(st.amt[x.idx] * 100) / 100, restock: !!st.back[x.idx]}))};
+      const submit = async approver => { try { const r = await Store.refund(S.user, S.store, ref, approver); after && after(); receiptSheet(r, {justPaid: true, refund: {method: m, orig: inv.number}}); }
+        catch (x) { st.err = x.message; refundSheet(inv, after, st); } };
+      if (RANK[S.user.role] < 2) { const approver = await askPin(`Manager PIN to approve refunding ${cents(c.total)}`, 2); if (!approver) return refundSheet(inv, after, st); return submit(approver); }
+      const btn = L.querySelector('#rf-go'); btn.disabled = true; btn.textContent = 'Refunding…'; close(); submit(null); };
   });
 }
 const chSum = list => list.reduce((a, x) => a + (+x.price || 0), 0);
@@ -2110,7 +2231,7 @@ async function viewRegister(el){
   if (ph10.length !== 10) { TR.phone = ''; TR.credits = []; }
   const tk = tradeCalc(TR.credits, total, TR);
   el.innerHTML = `<div id="rg-day" style="margin-bottom:14px"></div><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));align-items:start">
-    <div class="panel stack"><h2>Register</h2>
+    <div class="panel stack"><div class="row" style="justify-content:space-between"><h2>Register</h2><button id="rg-refund" style="min-height:40px">↩ Return / refund</button></div>
       <p class="muted small" style="margin:0">Accessories and walk-in sales. No customer needed. Add their phone if they want a receipt or might come back.</p>
       <div class="stack" style="gap:6px"><span class="label">Tempered glass (any model) · lifetime warranty</span>
         <div class="grid g3"><button data-gl="regular" style="min-height:64px;text-align:left"><b>Tempered glass</b><div class="small muted num">${cents(GLASS.regular)}</div></button>
@@ -2154,6 +2275,7 @@ async function viewRegister(el){
     if (b.dataset.acc === 'phone') return manual('', 'Phone sale');
     const [n, p, c] = set.accessories[+b.dataset.acc]; S.cart.push({desc: n, price: p, cat: c}); viewRegister(el); });
   el.querySelectorAll('[data-rmc]').forEach(b => b.onclick = () => { S.cart.splice(+b.dataset.rmc, 1); viewRegister(el); });
+  $('#rg-refund').onclick = () => refundFind(() => { S.prods = null; S.rgDevs = null; viewRegister(el); });
   el.querySelectorAll('[data-edp]').forEach(b => b.onclick = () => { const l = S.cart[+b.dataset.edp];
     sheet(`<div class="row" style="justify-content:space-between"><h3>Change price</h3><button data-close>Close</button></div><p class="small muted" style="margin:0">${esc(l.desc)}</p>
       <div class="field"><label class="label" for="ep-p">Price (before tax)</label><input id="ep-p" inputmode="decimal" value="${l.price}"></div><div class="err" id="ep-e" role="alert"></div><button class="primary" id="ep-go">Save</button>`, (L, close) => {
@@ -2411,8 +2533,9 @@ async function viewInvoices(el){
   el.innerHTML = `<div class="stack"><div class="row" style="justify-content:space-between"><h2>Invoices</h2>
     ${can(3) ? `<select id="iv-store" aria-label="Store" style="width:auto"><option value="">${STORES[S.store]}</option><option value="all">All stores</option>${Object.entries(STORES).filter(([k]) => k !== S.store).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>` : ''}</div>
     <div class="tbl"><table><thead><tr><th>#</th><th>Customer</th><th>Items</th><th>Paid with</th><th class="r">Total</th><th class="r">Gross profit</th><th>Date</th><th>By</th></tr></thead><tbody>
-    ${rows.map(i => `<tr><td class="num">${i.number}</td><td>${esc(C[i.customerId]?.name || 'Walk-in')}</td><td class="small">${i.lines.map(l => `${esc(l.desc)} <span class="muted">(${esc(l.cat)})</span>`).join('<br>')}</td><td class="small">${esc(i.payment)}</td><td class="r num">${cents(i.total)}</td><td class="r num">${cents(i.total - (i.partsCost || 0))}</td><td class="small">${fmtDate(i.at)} ${fmtTime(i.at)}</td><td class="small">${esc(staffName(i.by))}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No invoices yet.</td></tr>'}
+    ${rows.map(i => `<tr><td class="num"><button data-ivr="${i.id}" style="min-height:30px;padding:2px 8px" title="Receipt / refund">${i.number}</button>${i.total < 0 ? ' <span class="pill bad">refund</span>' : (i.refunded || []).length ? ' <span class="pill warn">refunded</span>' : ''}</td><td>${esc(C[i.customerId]?.name || 'Walk-in')}</td><td class="small">${i.lines.map(l => `${esc(l.desc)} <span class="muted">(${esc(l.cat)})</span>`).join('<br>')}</td><td class="small">${esc(i.payment)}</td><td class="r num">${cents(i.total)}</td><td class="r num">${cents(i.total - (i.partsCost || 0))}</td><td class="small">${fmtDate(i.at)} ${fmtTime(i.at)}</td><td class="small">${esc(staffName(i.by))}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No invoices yet.</td></tr>'}
     </tbody></table></div></div>`;
+  el.querySelectorAll('[data-ivr]').forEach(b => b.onclick = () => receiptSheet(rows.find(i => i.id === b.dataset.ivr), {after: () => viewInvoices(el)}));
   $('#iv-store') && ($('#iv-store').value = S.invStore || '', $('#iv-store').onchange = e => { S.invStore = e.target.value; viewInvoices(el); });
 }
 
