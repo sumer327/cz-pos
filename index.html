@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794435732";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794436140";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -3841,13 +3841,13 @@ async function viewInventory(el){
       <div class="row" style="gap:6px;flex-wrap:wrap">${DEV_CATS.map(([k, l, f]) => { const n = catCount(f); return n || ['all', 'iphone-unl', 'samsung-unl', 'ipad', 'mac'].includes(k) || F.cat === k ? chipBtn('dcat', k, l, n, F.cat === k) : ''; }).join('')}</div>
       <div class="row" style="gap:6px;flex-wrap:wrap;align-items:center"><span class="label" style="margin-right:4px">Show</span>${DEV_STATUS.map(([k, l, f]) => chipBtn('dst', k, l, stCount(f), F.status === k)).join('')}</div>
     </div>
-    <div class="tbl"><table><thead><tr><th>Stock #</th><th>Device</th><th>Grade</th><th>Store</th><th>Status</th><th class="r">Cost</th><th class="r">Sold</th><th class="r">Profit</th><th>Age</th></tr></thead><tbody>
-    ${rows.length ? rows.map(d => { const h = nextStatusHint(d); const profit = d.soldPrice ? d.soldPrice - d.cost : null; return `<tr class="click" data-id="${d.id}" tabindex="0">
+    <div class="tbl"><table><thead><tr><th>Stock #</th><th>Device</th><th>Grade</th><th>Store</th><th>Status</th><th class="r">Cost</th><th class="r">Price</th><th class="r">Profit</th><th>Age</th></tr></thead><tbody>
+    ${rows.length ? rows.map(d => { const h = nextStatusHint(d); const sold = ['sold', 'atlas'].includes(d.status) && d.soldPrice; const ret = d.listPrice || d.swappa?.price || null; const profit = sold ? d.soldPrice - d.cost : ret && +d.cost ? ret - d.cost : null; return `<tr class="click" data-id="${d.id}" tabindex="0">
       <td class="num">${d.stockNo ?? '—'}</td><td><b>${esc(d.model)}</b> <span class="muted">${esc([d.storage, d.carrier].filter(Boolean).join(' · '))}</span>${/IMEI \+ cost needed/.test(d.notes || '') ? ' <span class="pill warn">IMEI + cost needed</span>' : ''}${d.example ? ' <span class="pill">example</span>' : ''}<div class="mono small muted">${esc(d.imei || '')}</div></td>
       <td>${esc((CONDS.find(c => c[0] === d.cond) || [,''])[1])}</td><td>${d.store}</td>
       <td><span class="pill ${d.status === 'sold' ? 'ok' : d.status === 'hot' ? 'acc' : ''}">${STATUS_LABEL[d.status]}</span>${d.transferId ? ' <span class="pill warn">In transit</span>' : ''}${h ? ` <span class="pill ${h[0]}">${h[1]}</span>` : ''}</td>
-      <td class="r num">${money(d.cost)}</td><td class="r num">${d.soldPrice ? money(d.soldPrice) : '—'}</td>
-      <td class="r num" style="color:${profit == null ? 'inherit' : profit >= 0 ? 'var(--ok)' : 'var(--bad)'}">${profit == null ? '—' : money(profit)}</td>
+      <td class="r num">${money(d.cost)}</td><td class="r num">${sold ? `${money(d.soldPrice)}<div class="small muted">sold</div>` : ret ? money(ret) : '<span class="muted">—</span>'}</td>
+      <td class="r num" style="color:${profit == null ? 'inherit' : profit >= 0 ? 'var(--ok)' : 'var(--bad)'}">${profit == null ? '—' : money(profit)}${profit != null && !sold ? '<div class="small muted">if sold at price</div>' : ''}</td>
       <td class="num small">${daysOld(d.createdAt)}d</td></tr>`; }).join('') : '<tr><td colspan="8" class="muted">Nothing matches. Devices appear here the moment a buyback is completed.</td></tr>'}
     </tbody></table></div></div>`;
   $('#iv-st') && ($('#iv-st').value = F.store);
@@ -3871,6 +3871,7 @@ function deviceSheet(d, after){
     <div class="grid g2"><div class="field"><label class="label" for="d-imei">IMEI / serial</label><input id="d-imei" value="${esc(d.imei || '')}" inputmode="numeric" autocomplete="off" placeholder="Dial *#06# or check Settings"></div>
       ${can(2) || COST_OPEN ? `<div class="field"><label class="label" for="d-cost">Our cost</label><input id="d-cost" inputmode="decimal" value="${+d.cost ? d.cost : ''}" placeholder="What we paid"></div>` : ''}</div>
     <div class="field"><label class="label" for="d-s">Move to</label><select id="d-s">${STATUSES.map(([k, l]) => `<option value="${k}" ${d.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    <div class="field" id="d-ret-f"><label class="label" for="d-ret">Retail price (in store, before tax)</label><input id="d-ret" inputmode="decimal" value="${d.listPrice ?? ''}" placeholder="What it sells for"></div>
     <div class="field" id="d-list-f"><label class="label" for="d-list">Swappa list price</label><input id="d-list" inputmode="decimal" value="${d.swappa?.price ?? d.listPrice ?? ''}"></div>
     <div class="grid g2" id="d-sold-f">
       <div class="field"><label class="label" for="d-sold">Sold for</label><input id="d-sold" inputmode="decimal" value="${d.soldPrice ?? ''}"></div>
@@ -3883,12 +3884,13 @@ function deviceSheet(d, after){
       L.querySelector('#d-lbl').onclick = () => labelSheet(d);
       L.querySelector('#d-bos2') && (L.querySelector('#d-bos2').onclick = () => bosSheet(d.buybackId, d.id));
       L.querySelector('#d-rep2') && (L.querySelector('#d-rep2').onclick = () => { close(); go('repair', {deviceId: d.id}); });
-      const sync = () => { const s = L.querySelector('#d-s').value; L.querySelector('#d-list-f').hidden = s !== 'swappa'; L.querySelector('#d-sold-f').hidden = !['sold','atlas'].includes(s); };
+      const sync = () => { const s = L.querySelector('#d-s').value; L.querySelector('#d-list-f').hidden = s !== 'swappa'; L.querySelector('#d-ret-f').hidden = ['sold', 'atlas'].includes(s); L.querySelector('#d-sold-f').hidden = !['sold','atlas'].includes(s); };
       L.querySelector('#d-s').onchange = sync; sync();
       L.querySelector('#d-save').onclick = async () => {
         const status = L.querySelector('#d-s').value; const patch = {status, notes: L.querySelector('#d-n').value.trim()};
         const im = L.querySelector('#d-imei').value.trim(); if (im !== (d.imei || '')) patch.imei = im;
         const ci = L.querySelector('#d-cost'); if (ci && ci.value.trim() !== '') { const cv = parseFloat(ci.value.replace(/[$,]/g, '')); if (!(cv >= 0)) { L.querySelector('#d-err').textContent = 'Cost should be a number.'; return; } if (cv !== +d.cost) patch.cost = cv; }
+        const rt = L.querySelector('#d-ret').value.replace(/[$,\s]/g, ''); if (rt !== '' && !['sold', 'atlas'].includes(status)) { const rv = parseFloat(rt); if (!(rv > 0)) { L.querySelector('#d-err').textContent = 'Retail price should be a number.'; return; } if (rv !== +d.listPrice) patch.listPrice = rv; }
         if (im && (patch.imei !== undefined || patch.cost !== undefined) && /IMEI \+ cost needed/.test(patch.notes) && (im && (patch.cost ?? +d.cost) > 0)) patch.notes = patch.notes.replace(/\s*·?\s*IMEI \+ cost needed/, '').trim();
         if (status === 'swappa' && d.status !== 'swappa') { const p = parseFloat(L.querySelector('#d-list').value); if (!(p > 0)) { L.querySelector('#d-err').textContent = 'Enter the Swappa list price.'; return; }
           await Store.swappaList(S.user, S.store, d.id, p); close(); toast('Listed on Swappa'); return after(); }
