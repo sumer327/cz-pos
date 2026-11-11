@@ -2679,16 +2679,37 @@ function bbNeeds(B){
   return n;
 }
 function bbModels(){ const seen = new Set(), out = []; for (const r of S.prices.buyback) if (!seen.has(r.m)) { seen.add(r.m); out.push(r.m); } return out; }
+/* the Counter Appraisal tool (sumer327.github.io/cz-counter) runs inside the Buyback tab; its "Buy it" button hands the offer to the POS */
+const COUNTER_URL = location.origin + '/cz-counter/?pos=1';
+const niceModel = m => { m = String(m || '').trim(); if (m && m === m.toUpperCase()) m = m.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+  return m.replace(/\bIphone\b/gi, 'iPhone').replace(/\bIpad\b/gi, 'iPad').replace(/\bImac\b/gi, 'iMac').replace(/\bMacbook\b/gi, 'MacBook').replace(/\bIpod\b/gi, 'iPod')
+    .replace(/\b(se|xr|xs|ps5|ps4|gb|tb|wifi|gps|lte|oled|fe)\b/gi, w => w.toUpperCase()).replace(/\bPro Max\b/g, 'Pro Max'); };
+const CARRIER_NAME = {Unlocked: 'Unlocked', ATT: 'AT&T', OTHER: 'Verizon / T-Mobile / Cricket', 'ATT Financed': 'AT&T (financed)', 'Carrier Locked': 'Carrier locked / financed'};
+window.addEventListener('message', e => {
+  if (e.origin !== location.origin || !e.data) return;
+  if (e.data.type === 'cz-height') { const f = $('#bb-counter'); if (f) f.style.height = Math.max(640, Math.min(2400, +e.data.h + 20)) + 'px'; }
+  if (e.data.type === 'cz-appraisal' && S.tab === 'buyback' && S.bb && !S.bbDone) { const a = e.data.appraisal || {};
+    Object.assign(S.bb, {appraisal: a, model: niceModel(a.model), storage: String(a.storage || '').toUpperCase().replace(/\s+/g, ''), carrier: CARRIER_NAME[a.carrierRaw] || a.carrier || '', cond: a.cond || 'used'});
+    window.scrollTo(0, 0); viewBuyback($('#main')); }
+});
 async function viewBuyback(el){
   if (S.bbDone) return viewBuybackDone(el);
   const B = S.bb; const P = S.prices;
+  if (!B.appraisal) { const open0 = await Store.openPunch(S.user.id);
+    el.innerHTML = `${!open0 ? '<div class="banner bad" style="margin-bottom:12px">Clock in before buying devices. Buybacks are tied to who is on the clock.</div>' : ''}
+      <div class="panel stack" style="padding:10px"><div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><h2 style="margin:0">1 · What are they selling?</h2>
+        <span class="small muted">Pick the device and condition, then tap the green <b>Buy it</b> button to test it, add the seller and pay.</span></div>
+        <iframe id="bb-counter" src="${COUNTER_URL}" title="Counter appraisal" style="width:100%;height:900px;border:1px solid var(--line);border-radius:var(--r);background:#fff"></iframe>
+        <div class="small muted">Asks for the counter passcode the first time on each computer. <a href="${COUNTER_URL.replace('?pos=1', '')}" target="_blank" rel="noopener" style="color:var(--accent)">Open it in its own tab</a></div></div>`;
+    return; }
+  const A = B.appraisal;
   const open = await Store.openPunch(S.user.id);
   const models = bbModels();
   const rowsFor = m => P.buyback.filter(r => r.m === m);
   const carriers = B.model ? [...new Set(rowsFor(B.model).map(r => r.c))] : [];
   const storages = B.model && B.carrier ? [...new Set(rowsFor(B.model).filter(r => r.c === B.carrier).map(r => r.s))] : [];
-  const row = B.model && B.carrier && B.storage ? rowsFor(B.model).find(r => r.c === B.carrier && r.s === B.storage) : null;
-  const max = row && B.cond ? row[B.cond] : null;
+  const row = {swappa: A.swappa, atlas: A.atlas, retail: A.retail};
+  const max = +A.max || 0;
   const stock = B.model ? (await Store.devices()).filter(d => d.model.toUpperCase() === B.model.toUpperCase() && d.status !== 'sold') : [];
   const q = B.q.trim().toLowerCase();
   const list = q ? models.filter(m => m.toLowerCase().includes(q)).slice(0, 18) : models.slice(-18).reverse();
@@ -2701,15 +2722,13 @@ async function viewBuyback(el){
   <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(340px,1fr));align-items:start">
     <div class="stack">
       <div class="panel stack">
-        <div class="row" style="justify-content:space-between"><h2>1 · Device</h2>${B.model ? '<button id="bb-clear">Start over</button>' : ''}</div>
-        <div class="field"><label class="label" for="bb-q">Search model</label><input id="bb-q" value="${esc(B.q)}" placeholder="e.g. 14 pro max" autocomplete="off"></div>
-        ${!B.model ? `<div class="choices">${list.map(m => `<button data-m="${esc(m)}">${esc(m)}</button>`).join('')}</div>` : `<div class="row"><span class="pill acc" style="font-size:14px">${esc(B.model)}</span></div>`}
-        ${B.model ? `<div class="field"><span class="label">Carrier</span><div class="choices">${carriers.map(c => `<button data-c="${esc(c)}" aria-pressed="${B.carrier === c}">${esc(c)}</button>`).join('')}</div></div>` : ''}
-        ${B.carrier ? `<div class="field"><span class="label">Storage</span><div class="choices">${storages.map(x => `<button data-st="${esc(x)}" aria-pressed="${B.storage === x}">${esc(x)}</button>`).join('')}</div></div>` : ''}
-        ${B.storage ? `<div class="field"><span class="label">Condition</span><div class="choices">${CONDS.map(([k, l]) => `<button data-cd="${k}" aria-pressed="${B.cond === k}" ${row && row[k] == null ? 'disabled' : ''}>${l}${row && row[k] != null ? ` <span class="mono small">${money(row[k])}</span>` : ''}</button>`).join('')}</div></div>` : ''}
+        <div class="row" style="justify-content:space-between"><h2>1 · Device</h2><span class="row" style="gap:6px"><button id="bb-change">Change device</button><button id="bb-clear">Start over</button></span></div>
+        <div class="stack" style="gap:4px"><div style="font-size:18px;font-weight:700">${esc(B.model)} ${esc(B.storage || '')}</div>
+          <div class="small muted">${esc([B.carrier, A.condLabel].filter(Boolean).join(' · '))}</div>
+          ${(A.lines || []).length > 1 ? `<div class="small mono">${A.lines.map(([k, v]) => `${esc(k)} ${v < 0 ? '−' + money(-v) : money(v)}`).join(' · ')} = <b>${money(max)}</b></div>` : ''}</div>
         ${B.model ? `<div class="grid g2"><div class="field"><label class="label" for="bb-imei">IMEI / serial</label><input id="bb-imei" data-b="imei" value="${esc(B.imei)}" inputmode="numeric" autocomplete="off"></div>
           <div class="field"><label class="label" for="bb-color">Color</label><input id="bb-color" data-b="color" value="${esc(B.color)}" placeholder="Graphite" autocomplete="off"></div></div>` : ''}
-        <p class="muted small" style="margin:0">Prices: ${esc(P.asof)}. No Face ID = Damaged. Other repairs: take the part cost off the max.</p>
+        <p class="muted small" style="margin:0">Wrong device or condition? Tap <b>Change device</b> and appraise it again.</p>
       </div>
       ${B.model ? `<div class="panel stack">
         <div class="row" style="justify-content:space-between"><h2>2 · Test it</h2><span class="pill ${answered === CHECKS.length ? 'ok' : ''}">${answered} of ${CHECKS.length} done</span></div>
@@ -2729,6 +2748,7 @@ async function viewBuyback(el){
           <div class="cell"><div class="label">Swappa avg</div><div class="v">${money(row.swappa)}</div></div>
           <div class="cell"><div class="label">Atlas payout</div><div class="v">${money(row.atlas)}</div></div>
           <div class="cell"><div class="label">Retail</div><div class="v">${money(row.retail)}</div></div></div>
+          ${A.start && A.start < max ? `<div class="small">Open at <b>${money(A.start)}</b>, never go above <b>${money(max)}</b> without a manager.</div>` : ''}
           <div class="small muted">In stock now: <b>${stock.length}</b>${stock.length ? ' · ' + Object.keys(STORES).map(x => `${x} ${stock.filter(d => d.store === x).length}`).join(' · ') : ''}</div>`
         : '<p class="muted">Pick model, carrier, storage and condition to see the max buy.</p>'}
       </div>
@@ -2769,7 +2789,7 @@ async function viewBuyback(el){
     </div>
   </div>`;
   const re = () => viewBuyback(el).then(() => {});
-  const qi = $('#bb-q'); qi.oninput = () => { B.q = qi.value; if (B.model) Object.assign(B, {model:null, carrier:null, storage:null, cond:null}); viewBuyback(el).then(() => { const n = $('#bb-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); };
+  $('#bb-change').onclick = () => { Object.assign(B, {appraisal: null, model: null, carrier: null, storage: null, cond: null}); re(); };
   $('#bb-clear') && ($('#bb-clear').onclick = () => { S.bb = newBB(); re(); });
   el.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { B.model = b.dataset.m; B.carrier = B.storage = B.cond = null; const cs = [...new Set(rowsFor(B.model).map(r => r.c))]; if (cs.length === 1) B.carrier = cs[0]; re(); });
   el.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { B.carrier = b.dataset.c; B.storage = B.cond = null; re(); });
