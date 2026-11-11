@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794436140";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794437557";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -410,6 +410,7 @@ const DemoStore = {
     this.save(d); return {device, buyback: bb};
   },
   async buyback(id){ return this.db().buybacks.find(b => b.id === id); },
+  async buybackPayTo(emp, store, id, to){ if (!String(to || '').trim()) throw new Error('Enter where the payment goes.'); const d = this.db(); const b = d.buybacks.find(x => x.id === id); b.payoutTo = to.trim(); this.save(d); return b; },
   async repairUpdate(emp, store, id, patch, note){
     const d = this.db(); const row = d.devices.find(x => x.id === id); const msgs = [];
     if (patch.repairStatus && patch.repairStatus !== row.repairStatus) msgs.push('Repair status: ' + REPAIR_LABEL[patch.repairStatus]);
@@ -934,7 +935,8 @@ const LiveStore = {
   },
   async buybacks(from, to){ const {data, error} = await this.sb.from('buybacks_v').select('*').gte('at', from.toISOString()).lt('at', to.toISOString()); if (error) throw error; return data; },
   async devices(){ const {data, error} = await this.sb.from('devices_v').select('*').order('createdAt', {ascending: false}).limit(2000); if (error) throw error; return data; },
-  async buyback(id){ const {data} = await this.sb.from('buybacks_v').select('*').eq('id', id).maybeSingle(); return data; },
+  async buyback(id){ const {data} = await this.sb.from('buybacks_v').select('*').eq('id', id).maybeSingle(); if (data && !data.payoutTo) data.payoutTo = data.seller?.payoutTo || ''; return data; },
+  async buybackPayTo(emp, store, id, to){ return this.rpc('pos_buyback_payto', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_to: to}); },
   async repairUpdate(emp, store, id, patch, note){ return this.rpc('pos_repair_update', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_patch: patch, p_note: note || null}); },
   async deviceUsePart(emp, store, id, partId){ return this.rpc('pos_device_part', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_part: partId}); },
   async partOrders(){ const {data, error} = await this.sb.from('part_orders_v').select('*').order('createdAt', {ascending: false}).limit(500); if (error) throw error; return data; },
@@ -3349,7 +3351,8 @@ function billOfSaleHTML(bb, dv, emp){
       <tr><td class="k">Device</td><td>${esc(dv.model)} ${esc(dv.storage || '')}${dv.color ? ' · ' + esc(dv.color) : ''}</td><td class="k">Carrier</td><td>${esc(dv.carrier || '')}</td></tr>
       <tr><td class="k">IMEI / serial</td><td>${esc(dv.imei)}</td><td class="k">Condition</td><td>${esc(grade)}${dv.battery ? ' · battery ' + dv.battery + '%' : ''}</td></tr>
       <tr><td class="k">Test results</td><td colspan="3">${fails.length ? 'Failed: ' + esc(fails.join('; ')) : 'Passed all counter tests'}</td></tr></table>
-    <h2>Payment</h2><table><tr><td class="k">Purchase price</td><td><b>${cents(bb.paid)}</b></td><td class="k">Paid by</td><td>${esc(bb.payout)}${bb.payoutTo ? ' to ' + esc(bb.payoutTo) : ''}</td></tr></table>
+    <h2>Payment</h2><table><tr><td class="k">Purchase price</td><td><b>${cents(bb.paid)}</b></td><td class="k">Paid by</td><td><b>${esc(bb.payout)}</b></td></tr>
+      ${SAM_PAYS.includes(bb.payout) ? `<tr><td class="k">${esc(bb.payout)} to</td><td colspan="3"><b>${esc(bb.payoutTo || bb.seller?.payoutTo || '____________________________')}</b>${bb.payoutTo || bb.seller?.payoutTo ? '' : ' (seller writes it in)'}</td></tr>` : ''}</table>
     <div class="cert"><b>Seller's statement.</b> I certify that I am the legal owner of the device described above, that I am at least 18 years old, that the device is not stolen, lost, or reported as such, and that it is free of any lien or unpaid balance except as disclosed to the store in writing. I have removed my accounts and personal data, or I authorize Cellular Zone to erase them. I sell and transfer full ownership of this device to Cellular Zone for the price above, which I have received in full. I understand that the information I gave may be shared with law enforcement on request.</div>
     <div class="sig"><div class="line">Seller signature</div><div class="line">Date</div><div class="line">Store employee: ${esc(emp?.name || '')}</div><div class="line">Employee signature</div></div>`;
   return {css, body};
@@ -3358,11 +3361,14 @@ async function bosSheet(bbId, dvId){
   const [bb, devs] = await Promise.all([Store.buyback(bbId), Store.devices()]); const dv = devs.find(x => x.id === dvId);
   if (!bb || !dv) { toast('Bill of sale not found.'); return; }
   const emp = S.staff.find(e => e.id === bb.by); const h = billOfSaleHTML(bb, dv, emp);
+  const needTo = SAM_PAYS.includes(bb.payout) && !(bb.payoutTo || bb.seller?.payoutTo);
   sheet(`<div class="row" style="justify-content:space-between"><h3>Bill of sale #${bb.receiptNo}</h3><button data-close>Close</button></div>
     <iframe title="Bill of sale preview" style="width:100%;height:60vh;border:1px solid var(--line);border-radius:8px;background:#fff" srcdoc="${esc(`<!doctype html><html><head><meta charset=utf-8><style>${h.css}body{padding:24px}</style></head><body>${h.body}</body></html>`)}"></iframe>
+    ${needTo ? `<div class="banner warn small row" style="gap:8px;align-items:flex-end"><div class="field" style="margin:0;flex:1;min-width:200px"><label class="label" for="bos-to">${esc(payToLabel(bb.payout))} (not saved on this buy yet)</label><input id="bos-to" placeholder="Phone, email or $cashtag"></div><button id="bos-tosave">Save</button></div>` : ''}
     <div class="row"><button class="primary" id="bos-print">Print bill of sale</button><button id="bos-label">Print label</button></div>
     <p class="small muted" style="margin:0">Print two: one for the seller, one signed copy for the store file.</p>`,
-  (L) => { L.querySelector('#bos-print').onclick = () => printHTML('Bill of sale ' + bb.receiptNo, h.body, h.css); L.querySelector('#bos-label').onclick = () => labelSheet(dv); });
+  (L) => { L.querySelector('#bos-print').onclick = () => printHTML('Bill of sale ' + bb.receiptNo, h.body, h.css); L.querySelector('#bos-label').onclick = () => labelSheet(dv);
+    L.querySelector('#bos-tosave') && (L.querySelector('#bos-tosave').onclick = async () => { try { await Store.buybackPayTo(S.user, S.store, bb.id, L.querySelector('#bos-to').value); toast('Saved'); bosSheet(bbId, dvId); } catch (e) { toast(e.message); } }); });
 }
 
 /* ---------------- BUYBACK: appraise → test → seller → pay → bill of sale + label ---------------- */
