@@ -2689,7 +2689,7 @@ window.addEventListener('message', e => {
   if (e.origin !== location.origin || !e.data) return;
   if (e.data.type === 'cz-height') { const f = $('#bb-counter'); if (f) f.style.height = Math.max(640, Math.min(2400, +e.data.h + 20)) + 'px'; }
   if (e.data.type === 'cz-appraisal' && S.tab === 'buyback' && S.bb && !S.bbDone) { const a = e.data.appraisal || {};
-    Object.assign(S.bb, {appraisal: a, model: niceModel(a.model), storage: String(a.storage || '').toUpperCase().replace(/\s+/g, ''), carrier: CARRIER_NAME[a.carrierRaw] || a.carrier || '', cond: a.cond || 'used'});
+    Object.assign(S.bb, {appraisal: a, model: niceModel(a.model), storage: String(a.storage || '').toUpperCase().replace(/\s+/g, ''), carrier: CARRIER_NAME[a.carrierRaw] || a.carrier || '', cond: a.cond || 'used', ...(a.paid > 0 ? {paid: String(a.paid)} : {})});
     window.scrollTo(0, 0); viewBuyback($('#main')); }
 });
 async function viewBuyback(el){
