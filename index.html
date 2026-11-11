@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794422770";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794422934";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -1835,7 +1835,7 @@ function printIntake(t, c){
     ${row('Repair', esc(t.subject || ''))}${t.estimate > 0 ? row('Quoted price', cents(t.estimate) + ' + tax') : ''}
     ${paid.length ? hr + '<div style="font-weight:700">Paid at drop-off</div>' + paid.map(x => row(esc(x.desc), cents(x.price))).join('') : ''}
     ${due.length ? hr + '<div style="font-weight:700">Due at pickup</div>' + due.map(x => row(esc(x.desc), cents(x.price))).join('') + '<div style="font-size:11px">Plus tax where it applies.</div>' : ''}
-    ${hr}<div style="font-size:12px">We'll text you when it's ready. Bring this receipt or your photo ID to pick it up.</div>
+    ${hr}<div style="font-size:12px">We'll text you when it's ready.</div>
     <div style="font-size:12px;margin-top:4px">Repairs carry a 6-month warranty from the day they're paid. Please keep a backup of your data.</div>
     <div style="text-align:center;margin-top:10px">${barcodeSVG(t.number, 36)}</div>
     <div style="text-align:center;font-size:12px;margin-top:6px">Thank you for choosing Cellular Zone!</div></div>`;
