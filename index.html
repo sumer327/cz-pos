@@ -1002,7 +1002,7 @@ const S = {
   store: ls.get('czpos-store', null),
   user: null, tab: 'clock', prices: null, staff: [], lastAct: Date.now(),
   bb: {q:'', model:null, carrier:null, storage:null, cond:null},
-  inv: {status:'active', store:'mine', q:''},
+  inv: {status:'active', store:'mine', q:'', cat:'all'},
   quote: {cat:'iphone', model:null, q:'', col:null},
   week: null
 };
@@ -1522,19 +1522,24 @@ async function viewTicket(el){
         ${myOrders.length ? `<div class="stack" style="gap:6px"><span class="label">Special orders</span>${myOrders.map(o => `<div class="row" style="justify-content:space-between;gap:8px"><span>${esc(o.name)}${o.cost ? ` <span class="small muted">· ${cents(o.cost)}</span>` : ''}${o.rush ? ' <span class="pill bad">rush</span>' : ''}</span><span class="pill ${o.status === 'received' ? 'ok' : o.status === 'ordered' ? 'acc' : 'warn'}">${PO_ST[o.status]}${o.ref ? ' · ' + esc(o.ref) : ''}</span></div>`).join('')}</div>` : ''}
       </div>
     </div>
+    <div class="stack">
     <div class="panel stack">
-      <h3>Communication</h3>
+      <h3>Notes</h3>
+      <div class="field" style="margin:0"><label class="label" for="t-note">Add a note to this ticket <span class="muted" style="text-transform:none;letter-spacing:0">(staff only, the customer never sees it)</span></label><textarea id="t-note" rows="3" placeholder="What was done, what the customer said, what's next"></textarea></div>
+      <div class="row"><button class="primary" id="t-addnote" style="min-height:44px">Add note</button></div>
+      <span class="label">Ticket history</span>
+      <div class="timeline" style="max-height:440px;overflow:auto">${t.comments.map(m => `<div class="c ${m.pub ? 'pub' : ''}"><div class="small muted">${esc(m.who ? staffName(m.who) : (m.by || 'RepairShopr'))} · ${new Date(m.at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}${m.pub ? ' · <b style="color:var(--accent)">to customer</b>' : ''}</div><div${m.sys ? ' class="muted"' : ''}>${esc(m.text)}</div></div>`).join('')}</div>
+    </div>
+    <div class="panel stack">
+      <h3>Communication to customer</h3>
       <div class="stack" style="gap:8px;background:var(--soft);border-radius:var(--r);padding:12px">
         <div class="row" style="justify-content:space-between"><span class="label">Text ${esc((c.name || 'customer').split(' ')[0])} from the ${STORES[t.store]} number</span><span class="small muted num">${fmtPhone(c.phone)}</span></div>
         <div class="row" style="gap:6px">${tpls.map((x, i) => `<button type="button" data-tpl="${i}" style="min-height:32px;padding:4px 10px;font-size:13px">${x[0]}</button>`).join('')}</div>
         <textarea id="t-sms" rows="3" aria-label="Text message" placeholder="Type a text or pick a template">${S.prefillSms ? esc(S.prefillSms) : ''}</textarea>
-        <div class="row" style="justify-content:space-between"><span class="small muted" id="t-smsn"></span><button class="primary" id="t-send" ${c.phone ? '' : 'disabled title="No phone number on file"'}>Send text</button></div>
+        <div class="row" style="justify-content:space-between"><span class="small muted" id="t-smsn"></span><button id="t-send" ${c.phone ? '' : 'disabled title="No phone number on file"'}>Send text</button></div>
       </div>
-      <div class="field"><label class="label" for="t-note">Private note</label><textarea id="t-note" rows="2" placeholder="What was done, what the customer said, what's next"></textarea></div>
-      <div class="row"><button id="t-addnote">Add note</button></div>
       <div class="stack" style="gap:6px"><span class="label">Calls &amp; texts with this number (GoHighLevel)</span><div id="t-ghl" class="small muted">Loading…</div></div>
-      <span class="label">Ticket history</span>
-      <div class="timeline">${t.comments.map(m => `<div class="c ${m.pub ? 'pub' : ''}"><div class="small muted">${esc(m.who ? staffName(m.who) : (m.by || 'RepairShopr'))} · ${new Date(m.at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}${m.pub ? ' · <b style="color:var(--accent)">to customer</b>' : ''}</div><div${m.sys ? ' class="muted"' : ''}>${esc(m.text)}</div></div>`).join('')}</div>
+    </div>
     </div>
   </div>`;
   const up = async patch => { try { await Store.updateTicket(S.user, S.store, t.id, patch); toast('Ticket updated'); viewTicket(el); } catch (e) { toast(e.message); } };
@@ -3116,15 +3121,29 @@ async function viewSwappa(el){
 }
 
 S.sw = {store: 'mine', tab: 'listed', f: 'all'};
+/* quick filters on the Devices tab */
+const devKind = d => { const m = (d.model || '').toLowerCase();
+  return /iphone/.test(m) ? 'iphone' : /galaxy|samsung|note ?\d|^s\d|xcover|^a\d/.test(m) ? 'samsung' : /ipad/.test(m) ? 'ipad' : /macbook|imac|mac mini|mac studio/.test(m) ? 'mac'
+    : /watch/.test(m) ? 'watch' : /pixel/.test(m) ? 'pixel' : /ps5|ps4|playstation|xbox|switch|steam deck|console/.test(m) ? 'console' : 'other'; };
+const isUnlocked = d => /unlock/i.test(d.carrier || '');
+const DEV_CATS = [['all', 'All devices', () => true], ['iphone-unl', 'Unlocked iPhones', d => devKind(d) === 'iphone' && isUnlocked(d)], ['iphone', 'All iPhones', d => devKind(d) === 'iphone'],
+  ['samsung-unl', 'Unlocked Samsungs', d => devKind(d) === 'samsung' && isUnlocked(d)], ['samsung', 'All Samsungs', d => devKind(d) === 'samsung'], ['ipad', 'iPads', d => devKind(d) === 'ipad'],
+  ['mac', 'MacBooks & iMacs', d => devKind(d) === 'mac'], ['watch', 'Apple Watch', d => devKind(d) === 'watch'], ['pixel', 'Pixels', d => devKind(d) === 'pixel'], ['console', 'Consoles', d => devKind(d) === 'console'], ['other', 'Other', d => devKind(d) === 'other']];
+const DEV_STATUS = [['active', 'In inventory (not sold)', d => !['sold', 'atlas'].includes(d.status)], ['sell', 'Ready to sell', d => ['hot', 'tolist', 'swappa'].includes(d.status)],
+  ['hot', 'Hot stock', d => d.status === 'hot'], ['tolist', 'To list', d => d.status === 'tolist'], ['swappa', 'On Swappa', d => d.status === 'swappa'], ['repair', 'Repair stock', d => d.status === 'repair'],
+  ['testing', 'Testing', d => d.status === 'testing'], ['wholesale', 'Wholesale', d => d.status === 'wholesale'], ['sold', 'Sold', d => ['sold', 'atlas'].includes(d.status)], ['all', 'Everything', () => true]];
 async function viewInventory(el){
-  const F = S.inv;
+  const F = S.inv; if (!DEV_STATUS.some(x => x[0] === F.status)) F.status = 'active'; if (!DEV_CATS.some(x => x[0] === F.cat)) F.cat = 'all';
   const all = await Store.devices();
   const tabs = '';
-  let rows = all.filter(d => (F.store === 'all' || d.store === (F.store === 'mine' ? S.store : F.store)));
-  rows = rows.filter(d => F.status === 'all' ? true : F.status === 'active' ? d.status !== 'sold' : d.status === F.status);
+  const here = all.filter(d => (F.store === 'all' || d.store === (F.store === 'mine' ? S.store : F.store)));
+  const stF = DEV_STATUS.find(x => x[0] === F.status)[2], catF = DEV_CATS.find(x => x[0] === F.cat)[2];
+  let rows = here.filter(d => stF(d) && catF(d));
   const q = F.q.trim().toLowerCase();
-  if (q) rows = rows.filter(d => (d.stockNo + ' ' + d.model + ' ' + d.storage + ' ' + d.carrier + ' ' + (d.imei || '')).toLowerCase().includes(q));
-  const counts = Object.fromEntries(STATUSES.map(([k]) => [k, all.filter(d => d.status === k && (F.store === 'all' || d.store === (F.store === 'mine' ? S.store : F.store))).length]));
+  if (q) rows = rows.filter(d => (d.stockNo + ' ' + d.model + ' ' + (d.storage || '') + ' ' + (d.carrier || '') + ' ' + (d.imei || '')).toLowerCase().includes(q));
+  rows.sort((a, b) => (a.model || '').localeCompare(b.model || '', undefined, {numeric: true}) || (parseInt(a.storage) || 0) - (parseInt(b.storage) || 0) || (a.stockNo || 0) - (b.stockNo || 0));
+  const catCount = f => here.filter(d => stF(d) && f(d)).length, stCount = f => here.filter(d => catF(d) && f(d)).length;
+  const chipBtn = (attr, k, l, n, on) => `<button data-${attr}="${k}" aria-pressed="${on}" style="min-height:36px;padding:4px 12px;font-size:14px${on ? ';background:var(--accent);color:var(--accent-ink);border-color:var(--accent)' : ''}">${esc(l)} <span class="num" style="opacity:.75">${n}</span></button>`;
   const atCost = rows.filter(d => d.status !== 'sold').reduce((s, d) => s + (+d.cost || 0), 0);
   el.innerHTML = `<div class="stack">${tabs}
     <div class="panel stack">
@@ -3132,28 +3151,29 @@ async function viewInventory(el){
       <div class="grid g3">
         <div class="field"><label class="label" for="iv-q">Search</label><input id="iv-q" value="${esc(F.q)}" placeholder="Model or IMEI" autocomplete="off"></div>
         ${can(3) ? `<div class="field"><label class="label" for="iv-st">Store</label><select id="iv-st"><option value="mine">This store (${S.store})</option><option value="all">All stores</option>${Object.entries(STORES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div>` : ''}
-        <div class="field"><label class="label" for="iv-s">Status</label><select id="iv-s"><option value="active">Everything not sold</option>${STATUSES.map(([k, l]) => `<option value="${k}">${l} (${counts[k]})</option>`).join('')}<option value="all">All, including sold</option></select></div>
       </div>
+      <div class="row" style="gap:6px;flex-wrap:wrap">${DEV_CATS.map(([k, l, f]) => { const n = catCount(f); return n || ['all', 'iphone-unl', 'samsung-unl', 'ipad', 'mac'].includes(k) || F.cat === k ? chipBtn('dcat', k, l, n, F.cat === k) : ''; }).join('')}</div>
+      <div class="row" style="gap:6px;flex-wrap:wrap;align-items:center"><span class="label" style="margin-right:4px">Show</span>${DEV_STATUS.map(([k, l, f]) => chipBtn('dst', k, l, stCount(f), F.status === k)).join('')}</div>
     </div>
     <div class="tbl"><table><thead><tr><th>Stock #</th><th>Device</th><th>Grade</th><th>Store</th><th>Status</th><th class="r">Cost</th><th class="r">Sold</th><th class="r">Profit</th><th>Age</th></tr></thead><tbody>
     ${rows.length ? rows.map(d => { const h = nextStatusHint(d); const profit = d.soldPrice ? d.soldPrice - d.cost : null; return `<tr class="click" data-id="${d.id}" tabindex="0">
-      <td class="num">${d.stockNo ?? '—'}</td><td><b>${esc(d.model)}</b> <span class="muted">${esc(d.storage)} · ${esc(d.carrier)}</span>${d.example ? ' <span class="pill">example</span>' : ''}<div class="mono small muted">${esc(d.imei || '')}</div></td>
+      <td class="num">${d.stockNo ?? '—'}</td><td><b>${esc(d.model)}</b> <span class="muted">${esc([d.storage, d.carrier].filter(Boolean).join(' · '))}</span>${/IMEI \+ cost needed/.test(d.notes || '') ? ' <span class="pill warn">IMEI + cost needed</span>' : ''}${d.example ? ' <span class="pill">example</span>' : ''}<div class="mono small muted">${esc(d.imei || '')}</div></td>
       <td>${esc((CONDS.find(c => c[0] === d.cond) || [,''])[1])}</td><td>${d.store}</td>
       <td><span class="pill ${d.status === 'sold' ? 'ok' : d.status === 'hot' ? 'acc' : ''}">${STATUS_LABEL[d.status]}</span>${d.transferId ? ' <span class="pill warn">In transit</span>' : ''}${h ? ` <span class="pill ${h[0]}">${h[1]}</span>` : ''}</td>
       <td class="r num">${money(d.cost)}</td><td class="r num">${d.soldPrice ? money(d.soldPrice) : '—'}</td>
       <td class="r num" style="color:${profit == null ? 'inherit' : profit >= 0 ? 'var(--ok)' : 'var(--bad)'}">${profit == null ? '—' : money(profit)}</td>
       <td class="num small">${daysOld(d.createdAt)}d</td></tr>`; }).join('') : '<tr><td colspan="8" class="muted">Nothing matches. Devices appear here the moment a buyback is completed.</td></tr>'}
     </tbody></table></div></div>`;
-  $('#iv-st') && ($('#iv-st').value = F.store); $('#iv-s').value = F.status;
+  $('#iv-st') && ($('#iv-st').value = F.store);
+  el.querySelectorAll('[data-dcat]').forEach(b => b.onclick = () => { F.cat = b.dataset.dcat; viewInventory(el); });
+  el.querySelectorAll('[data-dst]').forEach(b => b.onclick = () => { F.status = b.dataset.dst; viewInventory(el); });
   const qi = $('#iv-q'); qi.oninput = () => { F.q = qi.value; viewInventory(el).then(() => { const n = $('#iv-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); };
   $('#iv-st') && ($('#iv-st').onchange = e => { F.store = e.target.value; viewInventory(el); });
-  $('#iv-s').onchange = e => { F.status = e.target.value; viewInventory(el); };
   el.querySelectorAll('tr[data-id]').forEach(tr => { const go = () => deviceSheet(all.find(d => d.id === tr.dataset.id), () => viewInventory(el)); tr.onclick = go; tr.onkeydown = e => { if (e.key === 'Enter') go(); }; });
-  wire();
 }
 function deviceSheet(d, after){
   sheet(`
-    <div class="row" style="justify-content:space-between"><h3>#${d.stockNo ?? ''} ${esc(d.model)} ${esc(d.storage)} · ${esc(d.carrier)}</h3><button data-close>Close</button></div>
+    <div class="row" style="justify-content:space-between"><h3>#${d.stockNo ?? ''} ${esc(d.model)} ${esc([d.storage, d.carrier].filter(Boolean).join(' · '))}</h3><button data-close>Close</button></div>
     <div class="row"><button type="button" id="d-lbl">Print label</button>${d.buybackId ? '<button type="button" id="d-bos2">Bill of sale</button>' : ''}${d.status === 'repair' ? '<button type="button" id="d-rep2">Open in repair stock</button>' : ''}</div>
     <div class="grid g3 small">
       <div class="stat"><span class="label">Cost</span><span class="num">${money(d.cost)}</span></div>
@@ -3162,6 +3182,8 @@ function deviceSheet(d, after){
       <div class="stat"><span class="label">IMEI</span><span class="mono">${esc(d.imei || '—')}</span></div>
     </div>
     ${d.notes ? `<p class="small muted">${esc(d.notes)}</p>` : ''}
+    <div class="grid g2"><div class="field"><label class="label" for="d-imei">IMEI / serial</label><input id="d-imei" value="${esc(d.imei || '')}" inputmode="numeric" autocomplete="off" placeholder="Dial *#06# or check Settings"></div>
+      ${can(2) ? `<div class="field"><label class="label" for="d-cost">Our cost</label><input id="d-cost" inputmode="decimal" value="${+d.cost ? d.cost : ''}" placeholder="What we paid"></div>` : ''}</div>
     <div class="field"><label class="label" for="d-s">Move to</label><select id="d-s">${STATUSES.map(([k, l]) => `<option value="${k}" ${d.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
     <div class="field" id="d-list-f"><label class="label" for="d-list">Swappa list price</label><input id="d-list" inputmode="decimal" value="${d.swappa?.price ?? d.listPrice ?? ''}"></div>
     <div class="grid g2" id="d-sold-f">
@@ -3179,6 +3201,9 @@ function deviceSheet(d, after){
       L.querySelector('#d-s').onchange = sync; sync();
       L.querySelector('#d-save').onclick = async () => {
         const status = L.querySelector('#d-s').value; const patch = {status, notes: L.querySelector('#d-n').value.trim()};
+        const im = L.querySelector('#d-imei').value.trim(); if (im !== (d.imei || '')) patch.imei = im;
+        const ci = L.querySelector('#d-cost'); if (ci && ci.value.trim() !== '') { const cv = parseFloat(ci.value.replace(/[$,]/g, '')); if (!(cv >= 0)) { L.querySelector('#d-err').textContent = 'Cost should be a number.'; return; } if (cv !== +d.cost) patch.cost = cv; }
+        if (im && (patch.imei !== undefined || patch.cost !== undefined) && /IMEI \+ cost needed/.test(patch.notes) && (im && (patch.cost ?? +d.cost) > 0)) patch.notes = patch.notes.replace(/\s*·?\s*IMEI \+ cost needed/, '').trim();
         if (status === 'swappa' && d.status !== 'swappa') { const p = parseFloat(L.querySelector('#d-list').value); if (!(p > 0)) { L.querySelector('#d-err').textContent = 'Enter the Swappa list price.'; return; }
           await Store.swappaList(S.user, S.store, d.id, p); close(); toast('Listed on Swappa'); return after(); }
         if (status === 'sold' && L.querySelector('#d-ch').value === 'Swappa') { await Store.swappaSold(S.user, S.store, d.id, parseFloat(L.querySelector('#d-sold').value) || 0, ''); close(); toast(`${STORES[d.store]} alerted to pull and pack it`); return after(); }
