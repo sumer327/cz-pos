@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794426418";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794428320";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -627,6 +627,7 @@ const DemoStore = {
   },
   async invoices(from, to){ return this.db().invoices.filter(i => new Date(i.at) >= from && new Date(i.at) < to); },
   async allInvoices(){ return this.db().invoices; },
+  async rsInvoiceCharge(emp, store, id){ throw new Error('RepairShopr invoices only exist in the live POS.'); },
   async invoiceRefs(cids, tids){ const d = this.db(); return {cust: Object.fromEntries(d.customers.filter(c => cids.includes(c.id)).map(c => [c.id, c])), tix: Object.fromEntries(d.tickets.filter(t => tids.includes(t.id)).map(t => [t.id, t]))}; },
   async findInvoices(emp, q){ const d = this.db(); const dg = String(q || '').replace(/\D/g, ''); if (!dg) return [];
     const C = Object.fromEntries(d.customers.map(c => [c.id, c])), T = Object.fromEntries(d.tickets.map(t => [t.id, t]));
@@ -950,6 +951,7 @@ const LiveStore = {
   async findInvoices(emp, q){ return (await this.rpc('pos_find_invoices', {p_pin: this.pinFor(emp), p_q: q})) || []; },
   async refund(emp, store, ref, approver){ const r = await this.rpc('pos_refund', {p_pin: this.pinFor(emp), p_store: store, p_ref: ref, p_approver_pin: approver && approver.id !== emp.id ? this.pinFor(approver) : null});
     this.keep(this.cI, [r]); const o = await this.sb.from('invoices_v').select('*').eq('id', ref.invoiceId).maybeSingle(); if (o.data) this.keep(this.cI, [o.data]); if (r.ticketId) { this.cT.delete(r.ticketId); await this.loadTicket(r.ticketId).catch(() => {}); } return r; },
+  async rsInvoiceCharge(emp, store, id){ const r = await this.rpc('pos_rs_invoice_charge', {p_pin: this.pinFor(emp), p_store: store, p_inv: id}); this.cI.delete(id); this.keep(this.cT, [r]); return r; },
   async invoiceRefs(cids, tids){ const chunk = (a, n = 150) => Array.from({length: Math.ceil(a.length / n)}, (_, i) => a.slice(i * n, i * n + n));
     const cs = (await Promise.all(chunk(cids).map(ids => this.sb.from('customers').select('id,name,phone').in('id', ids)))).flatMap(r => r.data || []);
     const ts = (await Promise.all(chunk(tids).map(ids => this.sb.from('tickets_v').select('id,number,device,subject,status').in('id', ids)))).flatMap(r => r.data || []);
@@ -1490,7 +1492,7 @@ async function viewTicket(el){
   const ch = t.charges || []; const due = ch.filter(x => !x.invoiceId);
   const diagCr = ch.filter(x => x.cat === 'Diagnostic' && x.invoiceId && !x.creditedOn); const crNow = chSum(due.filter(x => REPAIR_CATS.includes(x.cat))) >= chSum(diagCr) ? chSum(diagCr) : 0;
   const dueSum = chSum(due) - crNow + taxOf([...due, ...(crNow ? [{cat: 'Diagnostic credit', price: -crNow}] : [])]); const netCharged = chSum(ch) - chSum(ch.filter(x => x.creditedOn)) - crNow;
-  const tInv = await Store.ticketInvoices(t.id).catch(() => []); const paidSum = tInv.reduce((a, i) => a + Math.max(0, +i.total || 0), 0), refSum = -tInv.reduce((a, i) => a + Math.min(0, +i.total || 0), 0);
+  const tInvAll = await Store.ticketInvoices(t.id).catch(() => []); const rsUnpaid = tInvAll.filter(i => i.paid === false && i.total > 0); const tInv = tInvAll.filter(i => i.paid !== false); const paidSum = tInv.reduce((a, i) => a + Math.max(0, +i.total || 0), 0), refSum = -tInv.reduce((a, i) => a + Math.min(0, +i.total || 0), 0);
   const isOpen = t.status !== 'resolved';
   const first = (c.name || '').split(' ')[0];
   const readyMsg = `Hi ${first}, this is Cellular Zone ${STORES[t.store]}. Your ${t.device} is ready for pickup. We're open Mon–Sat 10–8, Sun 11–6. Thank you!`;
@@ -1522,7 +1524,7 @@ async function viewTicket(el){
           <dt>Store</dt><dd>${STORES[t.store]}</dd>
           <dt>Checked in</dt><dd>${new Date(t.createdAt).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})} by ${esc(staffName(t.by))}</dd>
         </dl>
-        ${t.status !== 'resolved' ? `<div class="row"><button id="t-label">Print label</button><button id="t-intake">Print intake receipt</button><button class="primary" id="t-pay">${t.type === 'rework' && !due.length && !tInv.length ? 'Close rework (no charge)' : due.length ? 'Make invoice · ' + cents(dueSum) : tInv.length ? 'Close ticket (paid)' : 'Make invoice'}</button>${t.status !== 'customer' ? '<button id="t-ready">Ready for pickup</button>' : ''}</div>` : `<div class="row">${t.invoiceId ? '<span class="pill ok">Paid and resolved</span>' : ''}<button id="t-intake">Print intake receipt</button><button id="t-rework">Customer came back: open rework</button></div>`}
+        ${t.status !== 'resolved' ? `<div class="row"><button id="t-label">Print label</button><button id="t-intake">Print intake receipt</button><button class="primary" id="t-pay">${t.type === 'rework' && !due.length && !tInv.length ? 'Close rework (no charge)' : due.length || rsUnpaid.length ? 'Make invoice · ' + cents(dueSum + rsUnpaid.reduce((a, i) => a + i.total, 0)) : tInv.length ? 'Close ticket (paid)' : 'Make invoice'}</button>${t.status !== 'customer' ? '<button id="t-ready">Ready for pickup</button>' : ''}</div>` : `<div class="row">${t.invoiceId ? '<span class="pill ok">Paid and resolved</span>' : ''}<button id="t-intake">Print intake receipt</button><button id="t-rework">Customer came back: open rework</button></div>`}
         ${reworks.length ? `<div class="small">Reworks: ${reworks.map(r => `<a data-goto="${r.id}" style="color:var(--accent);cursor:pointer">#${r.number}</a> ${stPill(r.status)}`).join(' ')}</div>` : ''}
       </div>
       ${parent ? `<div class="panel stack" style="border-left:4px solid var(--accent)">
@@ -1538,8 +1540,10 @@ async function viewTicket(el){
         ${ch.length ? `<div class="tbl"><table><tbody>${ch.map(x => `<tr><td>${esc(x.desc)}<div class="small muted">${esc(x.cat)}${x.glass ? ' · lifetime warranty' : ''} · ${esc(staffName(x.by))} · ${fmtDate(x.at)}</div>${x.partName ? `<div class="small" style="color:var(--ok)">Part pulled from stock: ${esc(x.partName)}</div>` : ''}</td><td class="r num">${cents(x.price)}</td>
           <td class="r" style="white-space:nowrap">${x.invoiceId ? `<span class="pill ok">Paid · #${esc(x.invoiceNo)}</span>${x.creditedOn ? ` <span class="pill acc">credited on #${esc(x.creditedOn)}</span>` : ''}` : isOpen ? `<span class="pill warn">Due</span> <button data-rmch="${x.id}" aria-label="Remove ${esc(x.desc)}" style="min-height:30px;padding:2px 8px">✕</button>` : '<span class="pill bad">Unpaid</span>'}</td></tr>`).join('')}</tbody></table></div>`
           : `<p class="muted small" style="margin:0">${isOpen ? 'Nothing charged yet. Tap <b>+ Add charge</b> and pick the repair: the part comes out of stock by itself. When the customer picks up, tap <b>Make invoice</b>.' : 'No charges on this ticket.'}</p>`}
-        ${ch.length || tInv.length ? `<div class="row" style="justify-content:space-between;gap:12px;flex-wrap:wrap"><span class="small">Charged <b class="num">${cents(netCharged)}</b> + tax · Paid <b class="num">${cents(paidSum)}</b>${refSum ? ` · <span style="color:var(--bad)">Refunded ${cents(refSum)}</span>` : ''}${crNow ? ` · <span style="color:var(--ok)">${cents(crNow)} diagnostic comes off the repair</span>` : ch.some(x => x.creditedOn) ? ' · diagnostic credited' : diagCr.length ? ` · <span class="muted">${cents(chSum(diagCr))} diagnostic comes off once the repair is added</span>` : ''}</span><span>Balance due <b class="num" style="font-size:20px">${cents(dueSum)}</b>${due.some(isTaxable) ? ' <span class="small muted">with tax</span>' : ''}</span></div>` : ''}
+        ${ch.length || tInv.length || rsUnpaid.length ? `<div class="row" style="justify-content:space-between;gap:12px;flex-wrap:wrap"><span class="small">Charged <b class="num">${cents(netCharged)}</b> + tax · Paid <b class="num">${cents(paidSum)}</b>${refSum ? ` · <span style="color:var(--bad)">Refunded ${cents(refSum)}</span>` : ''}${crNow ? ` · <span style="color:var(--ok)">${cents(crNow)} diagnostic comes off the repair</span>` : ch.some(x => x.creditedOn) ? ' · diagnostic credited' : diagCr.length ? ` · <span class="muted">${cents(chSum(diagCr))} diagnostic comes off once the repair is added</span>` : ''}</span><span>Balance due <b class="num" style="font-size:20px">${cents(dueSum + rsUnpaid.reduce((x, i) => x + i.total, 0))}</b>${due.some(isTaxable) ? ' <span class="small muted">with tax</span>' : ''}</span></div>` : ''}
         ${isOpen && due.length ? `<button class="primary" id="ch-pay" style="min-height:48px">Make invoice · ${cents(dueSum)}</button>` : ''}
+        ${rsUnpaid.length ? `<div class="banner warn small stack" style="gap:6px"><b>Not paid yet in RepairShopr</b>${rsUnpaid.map(i => `<span class="row" style="justify-content:space-between;gap:8px"><span class="num">Invoice #${i.number} · ${cents(i.total)} · ${fmtDate(i.at)}${(i.lines || []).length ? ' · ' + esc(i.lines.map(l => l.desc).join(', ')) : ''}</span><span class="pill bad">Unpaid</span></span>`).join('')}
+          ${isOpen ? '<span>Tap <b>Make invoice</b> to collect it here: it moves onto this ticket as a charge. Then void it in RepairShopr.</span>' : ''}</div>` : ''}
         ${tInv.length ? `<div class="small stack" style="gap:2px"><span class="label">Invoices on this ticket</span>${tInv.map(i => `<span class="row" style="justify-content:space-between;gap:8px"><span class="num">#${i.number} · ${cents(i.total)} · ${esc(i.payment || '')} · ${fmtDate(i.at)} ${fmtTime(i.at)} · ${esc((i.lines || []).map(l => l.desc).join(', '))}</span><span class="row" style="gap:4px;flex:none"><button data-rcpt="${i.id}" style="min-height:30px;padding:2px 10px">Receipt</button>${i.total > 0 && !i.refundOf ? `<button data-rfnd="${i.id}" style="min-height:30px;padding:2px 10px">Refund</button>` : ''}</span></span>`).join('')}</div>` : ''}
       </div>
       <div class="panel stack">
@@ -1583,6 +1587,7 @@ async function viewTicket(el){
   $('#t-pri').onchange = e => up({priority: +e.target.value});
   $('#t-ready') && ($('#t-ready').onclick = async () => { await Store.updateTicket(S.user, S.store, t.id, {status: 'customer'}); S.prefillSms = readyMsg; toast('Waiting on Customer · pickup text ready to send'); viewTicket(el); });
   $('#t-pay') && ($('#t-pay').onclick = () => {
+    if (rsUnpaid.length) return moveRs(true);
     if (!due.length && !tInv.length) return checkoutSheet(t, c);
     if (due.length) return paySheet(t, c, {resolve: true});
     sheet(`<div class="row" style="justify-content:space-between"><h3>Close ticket #${t.number}</h3><button data-close>Close</button></div><p style="margin:0">Everything on this ticket is paid (${cents(paidSum)}). Close it?</p><div class="err" id="cl-e" role="alert"></div><button class="primary" id="cl-go">Close ticket</button>`,
@@ -1594,6 +1599,8 @@ async function viewTicket(el){
     if (k === 'diag') return addCh({desc: 'Diagnostic · ' + t.device, cat: 'Diagnostic', price: diagFor(t.device, set)}, true);
  });
   $('#ch-add') && ($('#ch-add').onclick = () => chargeSheet(t, c, () => viewTicket(el)));
+  const moveRs = async pay => { try { let nt = t; for (const i of rsUnpaid) nt = await Store.rsInvoiceCharge(S.user, S.store, i.id);
+      toast(`RepairShopr invoice${rsUnpaid.length > 1 ? 's' : ''} moved onto the ticket. Void ${rsUnpaid.length > 1 ? 'them' : 'it'} in RepairShopr.`); await viewTicket(el); if (pay && nt?.charges) paySheet(nt, c, {resolve: true}); } catch (e) { toast(e.message); } };
   $('#ch-pay') && ($('#ch-pay').onclick = () => paySheet(t, c, {}));
   $('#t-label') && ($('#t-label').onclick = () => printTicketLabel(t, c));
   if (S.justCreated === t.id) { S.justCreated = null;
@@ -2718,14 +2725,14 @@ async function viewInvoices(el){
     <div class="small muted">${rows.length} invoice${rows.length === 1 ? '' : 's'}${rows.length === 300 ? ' (newest 300)' : ''} · total <b class="num">${cents(tot)}</b></div>
     <div class="tbl"><table><thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th>Ticket</th><th>Items</th><th>Paid with</th><th class="r">Total</th>${can(2) ? '<th class="r">Gross profit</th>' : ''}<th>By</th><th></th></tr></thead><tbody>
     ${rows.map(i => { const c = ref.cust[i.customerId], t = ref.tix[i.ticketId];
-      return `<tr><td class="num"><b>#${i.number}</b>${i.total < 0 ? ' <span class="pill bad">refund</span>' : (i.refunded || []).length ? ' <span class="pill warn">refunded</span>' : ''}${can(2) && !st ? ` <span class="small muted">${i.store}</span>` : ''}</td>
+      return `<tr><td class="num"><b>#${i.number}</b>${i.total < 0 ? ' <span class="pill bad">refund</span>' : i.paid === false ? ' <span class="pill bad">unpaid</span>' : (i.refunded || []).length ? ' <span class="pill warn">refunded</span>' : ''}${can(2) && !st ? ` <span class="small muted">${i.store}</span>` : ''}</td>
         <td class="small" style="white-space:nowrap">${fmtDate(i.at)} ${fmtTime(i.at)}</td>
         <td>${c ? `<a data-ivc="${c.id}" style="color:var(--accent);cursor:pointer">${esc(c.name)}</a><div class="small muted">${fmtPhone(c.phone)}</div>` : '<span class="muted">Walk-in</span>'}</td>
         <td>${t ? `<a data-ivt="${t.id}" style="color:var(--accent);cursor:pointer">#${t.number}</a>` : '<span class="muted">—</span>'}</td>
         <td class="small">${(i.lines || []).length ? i.lines.map(l => esc(l.desc)).join('<br>') : '<span class="muted">(from RepairShopr)</span>'}</td>
         <td class="small">${esc(i.payment || '')}</td><td class="r num"><b>${cents(i.total)}</b></td>${can(2) ? `<td class="r num">${cents(i.total - (i.partsCost || 0))}</td>` : ''}
         <td class="small">${esc(i.by ? staffName(i.by) : 'RepairShopr')}</td>
-        <td class="r"><button data-ivr="${i.id}" style="min-height:32px;padding:2px 10px">Receipt</button>${i.total > 0 && !i.refundOf ? ` <button data-ivf="${i.id}" style="min-height:32px;padding:2px 10px">Refund</button>` : ''}</td></tr>`; }).join('') || `<tr><td colspan="10" class="muted">${q ? 'No invoice matches that.' : 'No invoices in this period.'}</td></tr>`}
+        <td class="r"><button data-ivr="${i.id}" style="min-height:32px;padding:2px 10px">Receipt</button>${i.total > 0 && !i.refundOf && i.paid !== false ? ` <button data-ivf="${i.id}" style="min-height:32px;padding:2px 10px">Refund</button>` : ''}</td></tr>`; }).join('') || `<tr><td colspan="10" class="muted">${q ? 'No invoice matches that.' : 'No invoices in this period.'}</td></tr>`}
     </tbody></table></div></div>`;
   const inp = $('#iv-q'); let tm; inp.oninput = () => { clearTimeout(tm); tm = setTimeout(() => { S.invQ = inp.value; viewInvoices(el).then(() => { const n = $('#iv-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 300); };
   el.querySelectorAll('[data-per]').forEach(b => b.onclick = () => { S.invPer = b.dataset.per; viewInvoices(el); });
