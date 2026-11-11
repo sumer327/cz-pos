@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794426088";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794426418";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -200,8 +200,9 @@ const taxRow = (sub, tax) => `<div class="row small" style="justify-content:spac
 const PAYMENTS = ['Square (card)','Cash','Acima','Zelle'];
 const DENOMS = [['b100', 100, '$100 bills'], ['b50', 50, '$50 bills'], ['b20', 20, '$20 bills'], ['b10', 10, '$10 bills'], ['b5', 5, '$5 bills'], ['b1', 1, '$1 bills'],
   ['c25', 0.25, 'Quarters'], ['c10', 0.10, 'Dimes'], ['c5', 0.05, 'Nickels'], ['c1', 0.01, 'Pennies']];
-const PAYOUTS = ['Cash','Apple Pay','Cash App','Zelle','Trade-in credit'];          // how a buyback seller gets paid
-const SAM_PAYS = ['Apple Pay','Cash App','Zelle'];                              // these need Sam to send the money
+const PAYOUTS = ['Cash','Apple Pay','Cash App','Zelle','PayPal','Trade-in credit'];          // how a buyback seller gets paid
+const SAM_PAYS = ['Apple Pay','Cash App','Zelle','PayPal'];
+const payToLabel = p => p + (p === 'Cash App' ? ' $cashtag or phone' : p === 'PayPal' ? ' email or phone' : ' phone or email');                              // these need Sam to send the money
 const isScreenPart = p => /screen|lcd|oled|xo7|x07|aq7|incell|digitizer|display/i.test(p.name + ' ' + (p.kind || ''));
 const isGlassOnly = txt => /glass only/i.test(txt || '');
 const needsBH = t => /iphone/i.test(t.issue + ' ' + t.device) && t.type !== 'buycheck';
@@ -626,6 +627,7 @@ const DemoStore = {
   },
   async invoices(from, to){ return this.db().invoices.filter(i => new Date(i.at) >= from && new Date(i.at) < to); },
   async allInvoices(){ return this.db().invoices; },
+  async invoiceRefs(cids, tids){ const d = this.db(); return {cust: Object.fromEntries(d.customers.filter(c => cids.includes(c.id)).map(c => [c.id, c])), tix: Object.fromEntries(d.tickets.filter(t => tids.includes(t.id)).map(t => [t.id, t]))}; },
   async findInvoices(emp, q){ const d = this.db(); const dg = String(q || '').replace(/\D/g, ''); if (!dg) return [];
     const C = Object.fromEntries(d.customers.map(c => [c.id, c])), T = Object.fromEntries(d.tickets.map(t => [t.id, t]));
     return d.invoices.filter(i => !i.refundOf && ((dg.length <= 7 && (String(i.number) === dg || String(T[i.ticketId]?.number) === dg)) || (dg.length === 10 && C[i.customerId]?.phone === dg)))
@@ -948,6 +950,10 @@ const LiveStore = {
   async findInvoices(emp, q){ return (await this.rpc('pos_find_invoices', {p_pin: this.pinFor(emp), p_q: q})) || []; },
   async refund(emp, store, ref, approver){ const r = await this.rpc('pos_refund', {p_pin: this.pinFor(emp), p_store: store, p_ref: ref, p_approver_pin: approver && approver.id !== emp.id ? this.pinFor(approver) : null});
     this.keep(this.cI, [r]); const o = await this.sb.from('invoices_v').select('*').eq('id', ref.invoiceId).maybeSingle(); if (o.data) this.keep(this.cI, [o.data]); if (r.ticketId) { this.cT.delete(r.ticketId); await this.loadTicket(r.ticketId).catch(() => {}); } return r; },
+  async invoiceRefs(cids, tids){ const chunk = (a, n = 150) => Array.from({length: Math.ceil(a.length / n)}, (_, i) => a.slice(i * n, i * n + n));
+    const cs = (await Promise.all(chunk(cids).map(ids => this.sb.from('customers').select('id,name,phone').in('id', ids)))).flatMap(r => r.data || []);
+    const ts = (await Promise.all(chunk(tids).map(ids => this.sb.from('tickets_v').select('id,number,device,subject,status').in('id', ids)))).flatMap(r => r.data || []);
+    return {cust: Object.fromEntries(cs.map(c => [c.id, c])), tix: Object.fromEntries(ts.map(t => [t.id, t]))}; },
   async allInvoices(){ const {data, error} = await this.sb.from('invoices_v').select('*').order('at', {ascending: false}).limit(1000); if (error) throw error; this.keep(this.cI, data); return [...this.cI.values()].sort((a, b) => new Date(b.at) - new Date(a.at)); },
   async ghlEvents(){ const {data, error} = await this.sb.from('ghl_events_v').select('*').gte('at', new Date(Date.now() - 3*86400000).toISOString()).order('at', {ascending: false}).limit(300); if (error) throw error; return data; },
   async glassWarranties(phone){ const {data, error} = await this.sb.from('glass_warranties_v').select('*').eq('phone', phone).order('soldAt', {ascending: false}); if (error) throw error; return data; },
@@ -1107,7 +1113,7 @@ function enterStore(emp, store, openP){
   S.store = store; ls.set('czpos-store', store);
   S.tf.store = 'mine'; S.rf.store = 'mine'; S.inv.store = 'mine'; S.cf.store = 'mine'; S.invStore = ''; S.sw.store = 'mine'; S.sw.tab = 'listed';
   S.user = emp; S.lastAct = Date.now();
-  S.tab = openP ? (['clock','staff','hours','dashboard','invoices'].includes(S.tab) && !can(2) ? 'tickets' : (S.tab === 'clock' ? 'tickets' : S.tab)) : 'clock';
+  S.tab = openP ? (['clock','staff','hours','dashboard'].includes(S.tab) && !can(2) ? 'tickets' : (S.tab === 'clock' ? 'tickets' : S.tab)) : 'clock';
   try { history.replaceState({pos: 0}, ''); history.pushState(navState(), ''); } catch {}
   renderShell();
 }
@@ -1340,10 +1346,10 @@ function helpMount(){
 function helpUnmount(){ $('#helpfab')?.remove(); $('#helpbox')?.remove(); S.help = null; }
 
 const NAV = [
-  ['dashboard','Dashboard',0],['customers','Customers',0],['tickets','Tickets',0],['register','Register',0],['inbox','Inbox',0],['buyback','Buyback',0],
+  ['dashboard','Dashboard',0],['customers','Customers',0],['tickets','Tickets',0],['invoices','Invoices',0],['register','Register',0],['inbox','Inbox',0],['buyback','Buyback',0],
   ['inventory','Devices',0],['swappa','Swappa',0],['wholesale','Wholesale',0],['repairs','Repair stock',0],['parts','Parts',0],['quote','Quote',0]
 ];
-const MORE = [['counts','Counts',0],['transfers','Transfers',0],['closeout','Close out',0],['invoices','Invoices',2],['hours','Timesheets',2],['staff','Admin',3]];
+const MORE = [['counts','Counts',0],['transfers','Transfers',0],['closeout','Close out',0],['hours','Timesheets',2],['staff','Admin',3]];
 const ALIAS = {ticket: 'tickets', newticket: 'tickets', customer: 'customers', repair: 'repairs', calls: 'inbox'};
 /* browser Back / Forward: every screen change is a history entry; Back closes an open popup first, and never leaves the POS */
 const NAV_KEYS = ['customerId', 'ticketId', 'deviceId', 'q'];
@@ -2501,7 +2507,7 @@ async function viewCloseout(el){
   const expected = (done?.float ?? set.float) + cashIn - cashOut;
   const pending = bbsAll.filter(b => b.payoutStatus === 'requested' && (can(3) || b.store === S.store));
   el.innerHTML = `<div class="stack">
-    ${pending.length ? `<div class="panel stack"><h2>Payout requests</h2><p class="muted small" style="margin:0">Sellers paid by Apple Pay, Cash App or Zelle. Each one went to Sam as an alert${Store.mode === 'live' ? ' and a Slack message' : ''} with its buyback ID.</p>
+    ${pending.length ? `<div class="panel stack"><h2>Payout requests</h2><p class="muted small" style="margin:0">Sellers paid by Apple Pay, Cash App, Zelle or PayPal. Each one went to Sam as an alert${Store.mode === 'live' ? ' and a Slack message' : ''} with its buyback ID.</p>
       <div class="tbl"><table><thead><tr><th>Buyback ID</th><th>Seller</th><th>Send to</th><th class="r">Amount</th><th>Requested</th><th></th></tr></thead><tbody>
       ${pending.map(b => `<tr><td class="num"><b>${esc(b.bbId)}</b></td><td>${esc(b.seller.firstName)} ${esc(b.seller.lastName)}<div class="small muted num">${fmtPhone(b.seller.phone)}</div></td><td>${esc(b.payout)}: <b>${esc(b.payoutTo || '—')}</b></td><td class="r num">${cents(b.paid)}</td><td class="small">${ago(b.at)} · ${STORES[b.store]}</td>
         <td class="r">${can(3) ? `<button class="primary" data-paid="${b.id}" style="min-height:34px;padding:4px 10px">Mark sent</button>` : '<span class="pill warn">Waiting on Sam</span>'}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
@@ -2691,15 +2697,43 @@ async function viewSearch(el){
   el.querySelectorAll('tr[data-dv]').forEach(tr => tr.onclick = () => { const d = dd.find(x => x.id === tr.dataset.dv); d.status === 'repair' ? go('repair', {deviceId: d.id}) : deviceSheet(d, () => viewSearch(el)); });
   if (dd.length === 1 && !tt.length && !ct.length) { const d = dd[0]; d.status === 'repair' ? go('repair', {deviceId: d.id}) : deviceSheet(d, () => go('inventory')); }
 }
+/* Invoices tab, like RepairShopr's: every sale and ticket payment, newest first. Search by invoice #, ticket #, name or phone. */
 async function viewInvoices(el){
-  const [invs, custs] = await Promise.all([Store.allInvoices(), Store.customers()]); const C = custById(custs);
-  const rows = invs.filter(i => S.invStore === 'all' || i.store === (S.invStore || S.store)).slice(0, 300);
-  el.innerHTML = `<div class="stack"><div class="row" style="justify-content:space-between"><h2>Invoices</h2>
-    ${can(3) ? `<select id="iv-store" aria-label="Store" style="width:auto"><option value="">${STORES[S.store]}</option><option value="all">All stores</option>${Object.entries(STORES).filter(([k]) => k !== S.store).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>` : ''}</div>
-    <div class="tbl"><table><thead><tr><th>#</th><th>Customer</th><th>Items</th><th>Paid with</th><th class="r">Total</th><th class="r">Gross profit</th><th>Date</th><th>By</th></tr></thead><tbody>
-    ${rows.map(i => `<tr><td class="num"><button data-ivr="${i.id}" style="min-height:30px;padding:2px 8px" title="Receipt / refund">${i.number}</button>${i.total < 0 ? ' <span class="pill bad">refund</span>' : (i.refunded || []).length ? ' <span class="pill warn">refunded</span>' : ''}</td><td>${esc(C[i.customerId]?.name || 'Walk-in')}</td><td class="small">${i.lines.map(l => `${esc(l.desc)} <span class="muted">(${esc(l.cat)})</span>`).join('<br>')}</td><td class="small">${esc(i.payment)}</td><td class="r num">${cents(i.total)}</td><td class="r num">${cents(i.total - (i.partsCost || 0))}</td><td class="small">${fmtDate(i.at)} ${fmtTime(i.at)}</td><td class="small">${esc(staffName(i.by))}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No invoices yet.</td></tr>'}
+  el.innerHTML = '<p class="muted">Loading invoices…</p>';
+  const invs = await Store.allInvoices();
+  const st = S.invStore === 'all' ? null : (S.invStore || S.store); const per = S.invPer || 'week';
+  const since = per === 'today' ? new Date(new Date().toDateString()) : per === 'week' ? new Date(Date.now() - 7 * 86400000) : per === 'month' ? new Date(Date.now() - 31 * 86400000) : null;
+  let rows = invs.filter(i => (!st || i.store === st) && (!since || new Date(i.at) >= since));
+  const ref = await Store.invoiceRefs([...new Set(rows.map(i => i.customerId).filter(Boolean))].slice(0, 600), [...new Set(rows.map(i => i.ticketId).filter(Boolean))].slice(0, 600)).catch(() => ({cust: {}, tix: {}}));
+  const q = (S.invQ || '').trim().toLowerCase(), qd = q.replace(/\D/g, '');
+  if (q) rows = rows.filter(i => { const c = ref.cust[i.customerId] || {}, t = ref.tix[i.ticketId] || {};
+    return String(i.number) === qd || (qd && String(t.number || '') === qd) || (qd.length >= 4 && (c.phone || '').includes(qd)) || (!/^\d+$/.test(q) && ((c.name || '').toLowerCase().includes(q) || (i.lines || []).some(l => (l.desc || '').toLowerCase().includes(q)))); });
+  rows = rows.slice(0, 300);
+  const tot = rows.reduce((a, i) => a + (+i.total || 0), 0);
+  el.innerHTML = `<div class="stack"><div class="row" style="justify-content:space-between;gap:10px"><h2>Invoices</h2>
+      <div class="row" style="gap:8px">${can(2) ? `<select id="iv-store" aria-label="Store" style="width:auto"><option value="">${STORES[S.store]}</option><option value="all">All stores</option>${Object.entries(STORES).filter(([k]) => k !== S.store).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>` : ''}
+      <button id="iv-new">+ New sale (Register)</button></div></div>
+    <div class="row" style="gap:8px"><input id="iv-q" value="${esc(S.invQ || '')}" placeholder="Invoice #, ticket #, customer name or phone" style="flex:1;min-width:220px" autocomplete="off">
+      <div class="statusbar" role="group" aria-label="Dates">${[['today', 'Today'], ['week', '7 days'], ['month', '31 days'], ['all', 'All']].map(([k, l]) => `<button data-per="${k}" aria-pressed="${per === k}">${l}</button>`).join('')}</div></div>
+    <div class="small muted">${rows.length} invoice${rows.length === 1 ? '' : 's'}${rows.length === 300 ? ' (newest 300)' : ''} · total <b class="num">${cents(tot)}</b></div>
+    <div class="tbl"><table><thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th>Ticket</th><th>Items</th><th>Paid with</th><th class="r">Total</th>${can(2) ? '<th class="r">Gross profit</th>' : ''}<th>By</th><th></th></tr></thead><tbody>
+    ${rows.map(i => { const c = ref.cust[i.customerId], t = ref.tix[i.ticketId];
+      return `<tr><td class="num"><b>#${i.number}</b>${i.total < 0 ? ' <span class="pill bad">refund</span>' : (i.refunded || []).length ? ' <span class="pill warn">refunded</span>' : ''}${can(2) && !st ? ` <span class="small muted">${i.store}</span>` : ''}</td>
+        <td class="small" style="white-space:nowrap">${fmtDate(i.at)} ${fmtTime(i.at)}</td>
+        <td>${c ? `<a data-ivc="${c.id}" style="color:var(--accent);cursor:pointer">${esc(c.name)}</a><div class="small muted">${fmtPhone(c.phone)}</div>` : '<span class="muted">Walk-in</span>'}</td>
+        <td>${t ? `<a data-ivt="${t.id}" style="color:var(--accent);cursor:pointer">#${t.number}</a>` : '<span class="muted">—</span>'}</td>
+        <td class="small">${(i.lines || []).length ? i.lines.map(l => esc(l.desc)).join('<br>') : '<span class="muted">(from RepairShopr)</span>'}</td>
+        <td class="small">${esc(i.payment || '')}</td><td class="r num"><b>${cents(i.total)}</b></td>${can(2) ? `<td class="r num">${cents(i.total - (i.partsCost || 0))}</td>` : ''}
+        <td class="small">${esc(i.by ? staffName(i.by) : 'RepairShopr')}</td>
+        <td class="r"><button data-ivr="${i.id}" style="min-height:32px;padding:2px 10px">Receipt</button>${i.total > 0 && !i.refundOf ? ` <button data-ivf="${i.id}" style="min-height:32px;padding:2px 10px">Refund</button>` : ''}</td></tr>`; }).join('') || `<tr><td colspan="10" class="muted">${q ? 'No invoice matches that.' : 'No invoices in this period.'}</td></tr>`}
     </tbody></table></div></div>`;
-  el.querySelectorAll('[data-ivr]').forEach(b => b.onclick = () => receiptSheet(rows.find(i => i.id === b.dataset.ivr), {after: () => viewInvoices(el)}));
+  const inp = $('#iv-q'); let tm; inp.oninput = () => { clearTimeout(tm); tm = setTimeout(() => { S.invQ = inp.value; viewInvoices(el).then(() => { const n = $('#iv-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 300); };
+  el.querySelectorAll('[data-per]').forEach(b => b.onclick = () => { S.invPer = b.dataset.per; viewInvoices(el); });
+  el.querySelectorAll('[data-ivr]').forEach(b => b.onclick = () => receiptSheet(rows.find(i => i.id === b.dataset.ivr), {c: ref.cust[rows.find(i => i.id === b.dataset.ivr).customerId], after: () => viewInvoices(el)}));
+  el.querySelectorAll('[data-ivf]').forEach(b => b.onclick = () => refundSheet(rows.find(i => i.id === b.dataset.ivf), () => viewInvoices(el)));
+  el.querySelectorAll('[data-ivt]').forEach(a => a.onclick = () => go('ticket', {ticketId: a.dataset.ivt}));
+  el.querySelectorAll('[data-ivc]').forEach(a => a.onclick = () => go('customer', {customerId: a.dataset.ivc}));
+  $('#iv-new').onclick = () => go('register');
   $('#iv-store') && ($('#iv-store').value = S.invStore || '', $('#iv-store').onchange = e => { S.invStore = e.target.value; viewInvoices(el); });
 }
 
@@ -2921,7 +2955,7 @@ async function viewBuyback(el){
           <div class="field"><label class="label" for="f-paid">Paying the seller</label><input id="f-paid" data-b="paid" inputmode="decimal" placeholder="${max}" value="${esc(B.paid)}"></div>
           <div class="field"><label class="label" for="f-pay">Pay the seller by</label><select id="f-pay" data-b="payout">${PAYOUTS.map(x => `<option ${B.payout === x ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
         </div>
-        <div class="field" id="f-to-f" ${SAM_PAYS.includes(B.payout) ? '' : 'hidden'}><label class="label" for="f-to">${esc(B.payout)} phone, email or $cashtag</label><input id="f-to" data-b="payoutTo" value="${esc(B.payoutTo || '')}" placeholder="$mariag or 210-555-0142"></div>
+        <div class="field" id="f-to-f" ${SAM_PAYS.includes(B.payout) ? '' : 'hidden'}><label class="label" for="f-to">${esc(payToLabel(B.payout))}</label><input id="f-to" data-b="payoutTo" value="${esc(B.payoutTo || '')}" placeholder="$mariag or 210-555-0142"></div>
         <div class="banner acc small" id="f-to-note" ${SAM_PAYS.includes(B.payout) ? '' : 'hidden'}>Completing the buy sends Sam a payout request with the buyback ID. The seller waits until Sam sends it.</div>
         <div class="field"><label class="label" for="f-notes">Notes</label><input id="f-notes" data-b="notes" value="${esc(B.notes)}" placeholder="Small scratch on frame, seller wiped it in store"></div>
         <div id="f-warn"></div>
@@ -2952,7 +2986,7 @@ async function viewBuyback(el){
   const warn = () => { const v = parseFloat(B.paid);
     $('#f-warn').innerHTML = v > max ? `<div class="banner warn small">${money(v)} is ${money(v - max)} over max buy. A manager PIN will be needed.</div>` : (row.atlas && v > row.atlas ? `<div class="banner warn small">Paying more than Atlas pays (${money(row.atlas)}). Only do this if it will sell in store or on Swappa.</div>` : ''); };
   $('#f-paid').addEventListener('input', warn); warn();
-  $('#f-pay').addEventListener('change', () => { const on = SAM_PAYS.includes(B.payout); $('#f-to-f').hidden = !on; $('#f-to-note').hidden = !on; $('#f-to-f .label').textContent = B.payout + ' phone, email or $cashtag'; });
+  $('#f-pay').addEventListener('change', () => { const on = SAM_PAYS.includes(B.payout); $('#f-to-f').hidden = !on; $('#f-to-note').hidden = !on; $('#f-to-f .label').textContent = payToLabel(B.payout); });
   form.onsubmit = async e => {
     e.preventDefault();
     const sl = B.seller, paid = parseFloat(B.paid), ph = sl.phone.replace(/\D/g, '');
