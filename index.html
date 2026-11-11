@@ -198,6 +198,8 @@ const isTaxable = l => !['Diagnostic', 'Diagnostic credit', 'Water damage treatm
 const taxOf = lines => Math.max(0, Math.round(lines.filter(isTaxable).reduce((a, l) => a + (+l.price || 0) * (l.qty || 1), 0) * TAX_RATE * 100) / 100);
 const taxRow = (sub, tax) => `<div class="row small" style="justify-content:space-between"><span class="muted">Subtotal ${cents(sub)} · Sales tax 8.25% ${cents(tax)}</span>${tax === 0 && sub > 0 ? '<span class="muted">labor only, no tax</span>' : ''}</div>`;
 const PAYMENTS = ['Square (card)','Cash','Acima','Zelle'];
+const DENOMS = [['b100', 100, '$100 bills'], ['b50', 50, '$50 bills'], ['b20', 20, '$20 bills'], ['b10', 10, '$10 bills'], ['b5', 5, '$5 bills'], ['b1', 1, '$1 bills'],
+  ['c25', 0.25, 'Quarters'], ['c10', 0.10, 'Dimes'], ['c5', 0.05, 'Nickels'], ['c1', 0.01, 'Pennies']];
 const PAYOUTS = ['Cash','Apple Pay','Cash App','Zelle','Trade-in credit'];          // how a buyback seller gets paid
 const SAM_PAYS = ['Apple Pay','Cash App','Zelle'];                              // these need Sam to send the money
 const isScreenPart = p => /screen|lcd|oled|xo7|x07|aq7|incell|digitizer|display/i.test(p.name + ' ' + (p.kind || ''));
@@ -1219,7 +1221,7 @@ const HELP_KB = [
   'First time on a computer: pick the DYMO and set margins to None.']},
  {t: 'Open the register in the morning', k: 'open register morning drawer buyback fund count start of day', s: [
   'Go to **Register** and tap **Open register**.',
-  'Count the cash drawer and type it in.',
+  'Count the cash drawer: type how many of each bill and coin ($100s down to pennies). The POS adds it up.',
   'Count the buyback fund and type it in, then save.']},
  {t: 'Close the register at night', k: 'close register end of day close out drawer deposit night count cash', s: [
   'Go to **Register** (or **More → Close out**) and tap **Close register**.',
@@ -2223,13 +2225,21 @@ async function registerPanel(box, again){
     ${closedToday ? `<div class="small">Closed ${fmtTime(closedToday.closedAt)} by ${esc(staffName(closedToday.closedBy))} · drawer ${cents(closedToday.drawerCounted)} ${off(closedToday.drawerCounted, closedToday.drawerExpected)} · deposit ${cents(closedToday.deposit)} into the fund · buyback fund ${cents(closedToday.fundCounted)} ${off(closedToday.fundCounted, closedToday.fundExpected)}</div>`
       : `<div class="small muted">${last ? `Last close ${fmtDate(last.day + 'T12:00')}: drawer float ${cents(last.openDrawer)}, buyback fund ${cents(last.fundCounted)}.` : 'First day on the POS: count the drawer and the buyback fund.'} Count both before the first sale or buyback.</div>`}</div>`;
   box.querySelector('#rg-open') && (box.querySelector('#rg-open').onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Open register · ${STORES[S.store]}</h3><button data-close>Close</button></div>
-    <div class="grid g2"><div class="field"><label class="label" for="or-d">Cash in the drawer</label><input id="or-d" inputmode="decimal" placeholder="${prevDrawer.toFixed(2)}"></div>
-    <div class="field"><label class="label" for="or-f">Cash in the buyback fund</label><input id="or-f" inputmode="decimal" placeholder="${prevFund.toFixed(2)}"></div></div>
+    <div class="stack" style="gap:6px"><span class="label">Cash drawer · count each one</span>
+      <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px">${DENOMS.map(([k, v, l]) => `<div class="field" style="margin:0"><label class="label" for="or-${k}" style="text-transform:none">${l}</label><input id="or-${k}" data-den="${v}" inputmode="numeric" placeholder="0" autocomplete="off"></div>`).join('')}</div>
+      <div class="row" style="justify-content:space-between;align-items:baseline"><span class="small muted">Expected about ${cents(prevDrawer)}</span><span>Drawer total <b class="num" id="or-dt" style="font-size:22px">$0.00</b></span></div></div>
+    <div class="field"><label class="label" for="or-f">Cash in the buyback fund (total)</label><input id="or-f" inputmode="decimal" placeholder="${prevFund.toFixed(2)}"></div>
     ${last ? `<div class="small muted">Last night: drawer float ${cents(last.openDrawer)}, buyback fund ${cents(last.fundCounted)}. If your count is different, tell a manager.</div>` : ''}
-    <div class="err" id="or-e" role="alert"></div><button class="primary" id="or-go">Open register</button>`, (L, close) => L.querySelector('#or-go').onclick = async () => {
-      const dr = parseFloat(L.querySelector('#or-d').value), fu = parseFloat(L.querySelector('#or-f').value);
-      if (isNaN(dr) || isNaN(fu)) { L.querySelector('#or-e').textContent = 'Count the drawer and the buyback fund.'; return; }
-      try { await Store.openRegister(S.user, S.store, dr, fu); close(); toast('Register open'); again(); } catch (e) { L.querySelector('#or-e').textContent = e.message; } }));
+    <div class="err" id="or-e" role="alert"></div><button class="primary" id="or-go">Open register</button>`, (L, close) => {
+      const ins = [...L.querySelectorAll('[data-den]')];
+      const total = () => Math.round(ins.reduce((a, i) => a + (parseInt(i.value, 10) || 0) * +i.dataset.den, 0) * 100) / 100;
+      ins.forEach(i => i.oninput = () => { i.value = i.value.replace(/\D/g, ''); L.querySelector('#or-dt').textContent = cents(total()); });
+      setTimeout(() => ins[0]?.focus(), 50);
+      L.querySelector('#or-go').onclick = async () => {
+      const dr = total(), fu = parseFloat(L.querySelector('#or-f').value);
+      if (!ins.some(i => i.value !== '')) { L.querySelector('#or-e').textContent = 'Count the drawer: type how many of each bill and coin (0 if none).'; return; }
+      if (isNaN(fu)) { L.querySelector('#or-e').textContent = 'Count the buyback fund.'; return; }
+      try { await Store.openRegister(S.user, S.store, dr, fu); close(); toast('Register open · drawer ' + cents(dr)); again(); } catch (e) { L.querySelector('#or-e').textContent = e.message; } }; }));
 }
 async function viewRegister(el){
   const set = await Store.settings();
