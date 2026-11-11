@@ -138,6 +138,20 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 .kv{display:grid;grid-template-columns:120px 1fr;gap:6px 12px;font-size:14px}
 .kv dt{color:var(--muted)}.kv dd{margin:0;min-width:0;overflow-wrap:anywhere}
 @media (prefers-reduced-motion:no-preference){.toast{animation:pop .2s ease-out}@keyframes pop{from{opacity:0;transform:translate(-50%,8px)}}}
+  #helpfab{position:fixed;right:18px;bottom:18px;z-index:60;min-height:48px;padding:0 18px;border-radius:999px;border:0;background:var(--accent);color:#fff;font-weight:700;font-size:15px;box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer}
+  #helpfab span{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,.25);margin-right:4px}
+  #helpbox{position:fixed;right:18px;bottom:18px;z-index:61;width:min(400px,calc(100vw - 32px));height:min(600px,calc(100vh - 100px));display:flex;flex-direction:column;background:var(--panel);color:inherit;border:1px solid var(--line);border-radius:16px;box-shadow:0 10px 40px rgba(0,0,0,.3);overflow:hidden}
+  #helpbox[hidden],#helpfab[hidden]{display:none}
+  .hb-head{display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--accent);color:#fff}
+  .hb-head b{font-size:16px} .hb-head button{margin-left:auto;min-height:32px;padding:2px 10px;background:transparent;color:#fff;border:1px solid rgba(255,255,255,.5)}
+  .hb-msgs{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:10px}
+  .hb-bot{align-self:flex-start;max-width:92%;background:var(--soft);border-radius:12px;padding:8px 12px;line-height:1.45}
+  .hb-bot p{margin:4px 0} .hb-bot ol{margin:4px 0;padding-left:22px} .hb-bot li{margin:5px 0}
+  .hb-me{align-self:flex-end;max-width:85%;background:var(--accent);color:#fff;border-radius:12px;padding:8px 12px}
+  .hb-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px} .hb-chips button{min-height:34px;padding:4px 10px;font-size:13px;border-radius:999px;text-align:left}
+  .hb-in{display:flex;gap:8px;padding:10px;border-top:1px solid var(--line)} .hb-in input{flex:1;min-width:0;width:auto} .hb-in button{flex:none;width:auto;padding:0 16px}
+  .hb-foot{padding:0 12px 10px} .hb-link{border:0;background:none;padding:0;min-height:0;text-decoration:underline;color:inherit;font:inherit;cursor:pointer}
+  @media print{#helpfab,#helpbox{display:none!important}}
 </style>
 
 <div id="bar"></div>
@@ -895,6 +909,7 @@ const LiveStore = {
   async glassWarranties(phone){ const {data, error} = await this.sb.from('glass_warranties_v').select('*').eq('phone', phone).order('soldAt', {ascending: false}); if (error) throw error; return data; },
   async callSources(){ const {data, error} = await this.sb.from('call_sources').select('*').order('label'); if (error) return []; return data; },
   async rsSync(){ const {data} = await this.sb.from('rs_sync').select('*').eq('id', 1).maybeSingle(); return data || null; },
+  async askHelp(body){ const {data, error} = await this.sb.functions.invoke('pos-help', {body}); if (error || !data?.answer) throw new Error(data?.error || error?.message || 'no answer'); return data.answer; },
   async rsSyncNow(){ const {data, error} = await this.sb.functions.invoke('rs-sync', {body: {}}); if (error) throw new Error((data && data.error) || error.message); return data; },
   async saveCallSource(emp, cs){ return this.rpc('pos_save_call_source', {p_pin: this.pinFor(emp), p_number: cs.number, p_label: cs.label || '', p_paid: !!cs.paid, p_store: cs.store || '', p_delete: !!cs.delete}); },
   async ghlCall(body){ const {data, error} = await this.sb.functions.invoke('ghl', {body}); if (error) { let m = error.message; try { m = (await error.context.json()).error || m; } catch {} throw new Error(m); } if (data?.error) throw new Error(data.error); return data; },
@@ -1049,7 +1064,7 @@ function enterStore(emp, store, openP){
 }
 
 async function renderLock(){
-  S.user = null; $('#bar').innerHTML = ''; $('#layer').innerHTML = '';
+  S.user = null; $('#bar').innerHTML = ''; $('#layer').innerHTML = ''; helpUnmount();
   const open = S.store ? (await Store.punches(new Date(Date.now() - 2*86400000), new Date(Date.now() + 86400000))).filter(p => !p.t_out && p.store === S.store) : [];
   const demo = Store.mode === 'demo';
   $('#app').innerHTML = `
@@ -1091,6 +1106,183 @@ async function renderLock(){
 ['click','keydown','input'].forEach(ev => document.addEventListener(ev, () => { S.lastAct = Date.now(); }, true));
 setInterval(() => { if (S.user && !RSI.running && Date.now() - S.lastAct > IDLE_LOCK_MS && !$('#layer').innerHTML) { renderLock(); toast('Locked after 30 minutes idle'); } }, 5000);
 
+/* POS help topics: used by the Help chat (offline answers + the AI's reference). Keep steps short, exact button names in **bold**. */
+const HELP_KB = [
+ {t: 'Log in, clock in and lock the screen', k: 'login log in pin clock in clock out lock screen sign in start shift', s: [
+  'Type your own 4-digit PIN on the lock screen. Never use someone else\'s.',
+  'Tap **Clock in at [store]**. You can\'t buy devices until you\'re clocked in.',
+  'Stepping away? Tap **Lock** (top right). It also locks itself after 30 minutes idle.',
+  'End of shift: tap the green **Clocked in** button at the top, then **Clock out**.']},
+ {t: 'Find a customer, ticket or phone', k: 'search find look up customer phone number name ticket number imei stock number barcode scan', s: [
+  'Use the search box at the top of every screen.',
+  'Type a name, phone number, ticket #, IMEI or stock #. Scanning a label barcode works too.',
+  'Tap the result to open it. Customers are shared by all 3 stores.']},
+ {t: 'Check in a repair (new ticket)', k: 'new ticket check in repair create ticket drop off customer device', s: [
+  'Tap **+ New → New ticket** (or **Start ticket** from the **Quote** tab, which fills the device, repair and price).',
+  'Search the customer by phone. Not there? Tap **New customer** and ask "How did you hear about us?"',
+  'Fill in the device, passcode, IMEI and the issue, then **Create ticket**.',
+  'In the popup: **Print ticket label** and stick it on the device.',
+  'Then **Collect diagnostic now** if they haven\'t paid it (see Diagnostic).']},
+ {t: 'Charge the diagnostic up front', k: 'diagnostic diag fee 29 39 49 up front collect deposit', s: [
+  'Phones $29 · tablets $39 · consoles/computers $49. No tax on it.',
+  'On the ticket, tap **Diagnostic · collect now**.',
+  'Pick how they paid and tap **Record payment**. The ticket stays open.',
+  'If they do the repair, the diagnostic comes off the repair price automatically at pickup.']},
+ {t: 'Add a charge to a ticket (repair, glass, part, labor)', k: 'add charge ticket price repair glass custom labor accessory case quoted price', s: [
+  'Open the ticket and tap **+ Add charge** (or the quick buttons: Quoted repair, Glass, Privacy glass).',
+  'Pick a tab: **Repair price list**, **Diagnostic & labor**, **Accessories**, or **Custom** (type any name and price).',
+  'Tap the item. It shows on the ticket as **Due**.',
+  'Wrong charge? Tap ✕ next to it (only unpaid charges can be removed).']},
+ {t: 'Customer picks up: take payment and close the ticket', k: 'pickup pick up checkout check out pay close ticket done resolved payment finish repair battery health', s: [
+  'Open the ticket and tap **Check out · $X due**.',
+  'Leave all charges ticked and **Repair is done: close the ticket** checked.',
+  'iPhone? Type the battery health %.',
+  'Pick how they paid. Square: run the card on the Square iPad first.',
+  'Tap **Record payment**, then print, text or email the receipt.']},
+ {t: 'Ring up a walk-in sale (accessories, glass)', k: 'register sale sell accessory case charger cable walk in ring up cash out record sale', s: [
+  'Go to **Register**.',
+  'Tap a quick button (Tempered glass, Case, Charger…) or scan/search the item in the search box.',
+  'Add the customer\'s phone if they want a receipt (required for glass).',
+  'Pick **Paid with** (run Square on the iPad first) and tap **Record sale**.']},
+ {t: 'Ring up something that is not in inventory (manual item)', k: 'manual item not in inventory not in system dont have missing custom item other item product no barcode type price case charger ring up sell', s: [
+  'Go to **Register** and type the item in the search box.',
+  'Tap **+ Ring up "…" as a manual item** (or just press Enter when nothing matches). You can also tap **+ Manual item**.',
+  'Type the price before tax and the quantity, pick the category, tap **Add to sale**.',
+  'Write a clear name (like "Otterbox case iPhone 15") so the sale makes sense later.']},
+ {t: 'Sell a phone', k: 'sell phone device sale iphone samsung stock number customer buying phone', s: [
+  'Go to **Register** and type the stock #, IMEI or model in the search box.',
+  'Tap the phone under **Phones in stock**, enter the selling price, tap OK.',
+  'Phone isn\'t showing? Tap **+ Phone / device sale** and type the model, storage, carrier and IMEI with the price.',
+  'Pick how they paid and tap **Record sale**. If it was listed on Swappa, take the listing down.']},
+ {t: 'Change a price on the sale', k: 'change price discount edit price lower price override', s: [
+  'On the Register, tap the price next to the item in the **Sale** box.',
+  'Type the new price (before tax) and tap **Save**.']},
+ {t: 'Tempered glass and lifetime replacement', k: 'tempered glass screen protector privacy glass lifetime warranty replacement 5 dollars broken glass', s: [
+  'New glass: **Register → Tempered glass** ($29.99) or **Privacy glass** ($34.99). The customer\'s phone is required.',
+  'Replacement: tap **Lifetime replacement**, type their phone, pick their glass. It rings up at $5.',
+  'Nothing on file? A manager PIN can approve it.']},
+ {t: 'Buy a device from a customer (buyback)', k: 'buyback buy device purchase phone from customer sell me sell us sells selling to us cash offer max price', s: [
+  'Make sure you\'re clocked in. Go to **Buyback**.',
+  'Pick the model, carrier, storage and condition. The max buy price shows.',
+  'Run every test. iCloud/Google lock and blacklist must pass or you can\'t buy it.',
+  'Enter the seller\'s name, phone, address, birthday and photo ID (18+, not expired).',
+  'Enter what you\'re paying (over max needs a manager PIN) and how they\'re paid, then **Complete buy**.',
+  'Print the **Bill of sale** (seller signs) and the label, then pick where it goes: Inventory, Repair stock or Wholesale.']},
+ {t: 'Trade-in: customer sells a device and buys something', k: 'trade in trade-in trading credit upgrade swap use toward purchase credit cash back new one', s: [
+  'Do the buyback and pick **Trade-in credit** as the payout.',
+  'On Buy complete tap **Use it now: ring up their purchase**.',
+  'Add what they\'re buying. The green box takes the credit off the total.',
+  'Collect the balance, or if credit is more, pick **Give $X back in cash** or **Keep it as trade-in credit**.',
+  'Tap **Record sale**. Cash back comes from the buyback fund.']},
+ {t: 'Customer wants cash instead of trade-in credit', k: 'cash instead change mind trade in credit cash out', s: [
+  'On the Buy complete screen tap **They want cash instead**.',
+  'Pay them from the buyback fund.']},
+ {t: 'Receipts: print, text or email', k: 'receipt print text email reprint resend copy link', s: [
+  'After every payment the receipt window opens: **Print receipt**, **Text receipt** or **Email receipt**.',
+  'Reprint later: open the ticket, find the invoice, tap **Receipt**.',
+  'Printer not right? In the print window pick the Epson and set margins to None.']},
+ {t: 'Print a ticket or device label', k: 'label print dymo sticker barcode ticket label device label', s: [
+  'Ticket: open it and tap **Print label** (DYMO LabelWriter 450).',
+  'Device: from the Buy complete screen or the device\'s page tap **Print label**.',
+  'First time on a computer: pick the DYMO and set margins to None.']},
+ {t: 'Open the register in the morning', k: 'open register morning drawer buyback fund count start of day', s: [
+  'Go to **Register** and tap **Open register**.',
+  'Count the cash drawer and type it in.',
+  'Count the buyback fund and type it in, then save.']},
+ {t: 'Close the register at night', k: 'close register end of day close out drawer deposit night count cash', s: [
+  'Go to **Register** (or **More → Close out**) and tap **Close register**.',
+  'Count the drawer and type it in. The deposit goes into the buyback fund.',
+  'Count the buyback fund and type it in.',
+  'Off by $5 or more? Write a note explaining why.']},
+ {t: 'Move a device: hot stock, Swappa, repair stock, wholesale', k: 'move device status hot stock swappa list repair stock wholesale where does it go devices', s: [
+  'Open **Devices** and tap the phone (or search its stock #).',
+  'Tap **Move it** and pick where it goes.',
+  'Going to Atlas? Move it to **Wholesale**, never straight to "sent to Atlas".']},
+ {t: 'Ship wholesale devices to Atlas', k: 'wholesale atlas ship box pack tracking packing list', s: [
+  'Go to **Wholesale**.',
+  'Tick the devices going in the box (or **Tick all**) and tap **Ship to Atlas**.',
+  'Add the tracking number and tap **Clear wholesale and ship**. Print the packing list for the box.']},
+ {t: 'Use a part on a ticket', k: 'use part parts used screen part inventory ticket part oled lcd', s: [
+  'Open the ticket and tap **Use part**.',
+  'Pick the part. It comes out of your store\'s parts count.',
+  'Part not in stock? Tap **Order this** so it goes on the next order.']},
+ {t: 'Count parts or phones', k: 'count parts count phones inventory count daily count fix count check counts', s: [
+  'Go to **More → Counts**.',
+  'Tap **Start parts count** (Mon, Wed, Fri) or the phones count (every day).',
+  'Type what you see on the shelf and tap **Finish count**. Anything off gets flagged for the manager.']},
+ {t: 'Transfer a device or part to another store', k: 'transfer another store send move to babcock bulverde potranco', s: [
+  'Open the device and tap **Transfer to another store** (or go to **More → Transfers**).',
+  'Pick the store and send it. The other store taps **Received** when it arrives.']},
+ {t: 'Repair quote for a customer', k: 'quote price how much repair cost screen battery good better best', s: [
+  'Go to **Quote** and search the device.',
+  'Pick the repair. Screens show Good (aftermarket LCD), Better (premium OLED) and Best (genuine Apple OEM).',
+  'Tap **Start ticket** to check it in with that price.']},
+ {t: 'Refund or return',  k: 'refund return money back give back cancel sale void exchange undo', s: [
+  'Refunds aren\'t in the POS yet. Get a manager before you give any money back.',
+  'The manager refunds a card on the Square iPad, or cash from the drawer.',
+  'Write a note on the customer\'s ticket (or the Register close-out note) with what was refunded and why.']},
+ {t: 'Rework or warranty repair', k: 'rework warranty came back broken again redo comeback', s: [
+  'Open the old ticket and tap **Open rework ticket**.',
+  'Repairs have a 6-month warranty from the payment date.']},
+];
+
+/* ---------------- HELP CHAT ---------------- */
+const helpWords = s => String(s || '').toLowerCase().replace(/[^a-z0-9$ ]/g, ' ').split(/\s+/).filter(w => w.length > 1 && !['the','a','an','to','do','how','i','we','my','is','it','on','in','of','for','and','or','can','what','where','with','when','you','does','customer','wants','want','someone','their','his','her','need','needs','they','he','she','this','that'].includes(w));
+function helpMatch(q, n = 3){
+  const ws = [...new Set(helpWords(q))]; if (!ws.length) return [];
+  const docs = HELP_KB.map(h => ' ' + helpWords(h.t + ' ' + h.k).join(' ') + ' ');
+  const hit = (d, w) => d.includes(' ' + w + ' ') || (w.length > 3 && (d.includes(' ' + w.replace(/(ing|ed|es|s)$/, '')) || d.includes(' ' + w.slice(0, -1))));
+  const idf = w => Math.log(1 + HELP_KB.length / (1 + docs.filter(d => hit(d, w)).length));
+  return HELP_KB.map((h, i) => ({h, sc: ws.reduce((a, w) => a + (hit(docs[i], w) ? idf(w) * (hit(' ' + helpWords(h.t).join(' ') + ' ', w) ? 1.5 : 1) : 0), 0)}))
+    .filter(x => x.sc > 0.4).sort((a, b) => b.sc - a.sc).slice(0, n).map(x => x.h);
+}
+const helpKbText = () => HELP_KB.map(h => `## ${h.t}\n${h.s.map((x, i) => `${i + 1}. ${x}`).join('\n')}`).join('\n\n');
+function helpRender(text){
+  const lines = String(text || '').trim().split('\n'); let out = '', inList = false;
+  const fmt = s => esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+  lines.forEach(l => { const m = l.match(/^\s*(\d+)[.)]\s+(.*)/);
+    if (m) { if (!inList) { out += '<ol>'; inList = true; } out += `<li>${fmt(m[2])}</li>`; }
+    else { if (inList) { out += '</ol>'; inList = false; } if (l.trim()) out += `<p>${fmt(l.replace(/^\s*[-•]\s+/, '• '))}</p>`; } });
+  return out + (inList ? '</ol>' : '');
+}
+const HELP_START = {dashboard: ['Open the register', 'Close the register'], tickets: ['Check in a repair', 'Take payment and close a ticket', 'Charge the diagnostic'],
+  ticket: ['Add a charge to a ticket', 'Take payment and close a ticket', 'Use a part on a ticket'], register: ['Ring up something not in inventory', 'Sell a phone', 'Tempered glass replacement'],
+  buyback: ['Buy a device from a customer', 'Trade-in toward a purchase', 'Customer wants cash instead'], wholesale: ['Ship wholesale to Atlas'], inventory: ['Move a device to Swappa or repair stock', 'Sell a phone'],
+  counts: ['Count parts or phones'], transfers: ['Transfer to another store'], quote: ['Repair quote for a customer']};
+function helpOpen(){
+  S.help = S.help || {msgs: [], busy: false};
+  let box = $('#helpbox'); if (!box) { box = document.createElement('div'); box.id = 'helpbox'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-label', 'POS help'); document.body.appendChild(box); }
+  box.hidden = false; $('#helpfab')?.setAttribute('hidden', '');
+  const H = S.help, starts = HELP_START[S.tab] || ['Check in a repair', 'Ring up something not in inventory', 'Buy a device from a customer', 'Close the register'];
+  box.innerHTML = `<div class="hb-head"><b>POS Help</b><span class="small" style="opacity:.8">Ask how to do anything</span><button id="hb-x" aria-label="Close help">✕</button></div>
+    <div class="hb-msgs" id="hb-msgs">${H.msgs.length ? '' : `<div class="hb-bot"><p>Hi ${esc(S.user?.name || '')}! Ask me how to do anything in the POS and I'll give you the steps.</p></div>
+      <div class="hb-chips">${starts.map(s => `<button data-hq="${esc(s)}">${esc(s)}</button>`).join('')}</div>`}
+      ${H.msgs.map(m => m.role === 'user' ? `<div class="hb-me">${esc(m.text)}</div>` : `<div class="hb-bot">${helpRender(m.text)}${m.more?.length ? `<div class="small muted" style="margin-top:8px">Did you mean:</div><div class="hb-chips">${m.more.map(t => `<button data-hq="${esc(t)}">${esc(t)}</button>`).join('')}</div>` : ''}</div>`).join('')}
+      ${H.busy ? '<div class="hb-bot muted">Thinking…</div>' : ''}</div>
+    <form class="hb-in" id="hb-f"><input id="hb-q" placeholder="e.g. how do I sell a phone?" autocomplete="off" ${H.busy ? 'disabled' : ''}><button class="primary" ${H.busy ? 'disabled' : ''}>Ask</button></form>
+    <div class="hb-foot small muted">${H.msgs.length ? '<button id="hb-new" class="hb-link">Start over</button> · ' : ''}Still stuck? Ask a manager.</div>`;
+  const m = $('#hb-msgs'); m.scrollTop = m.scrollHeight;
+  $('#hb-x').onclick = helpClose; const nw = $('#hb-new'); if (nw) nw.onclick = () => { S.help = {msgs: [], busy: false}; helpOpen(); };
+  box.querySelectorAll('[data-hq]').forEach(b => b.onclick = () => helpAsk(b.dataset.hq));
+  $('#hb-f').onsubmit = e => { e.preventDefault(); const q = $('#hb-q').value.trim(); if (q) helpAsk(q); };
+  if (!H.busy) setTimeout(() => $('#hb-q')?.focus(), 30);
+}
+function helpClose(){ const b = $('#helpbox'); if (b) b.hidden = true; $('#helpfab')?.removeAttribute('hidden'); }
+async function helpAsk(q){
+  const H = S.help; H.msgs.push({role: 'user', text: q}); H.busy = true; helpOpen();
+  const local = helpMatch(q, 3); let ans = null;
+  try { ans = await Store.askHelp({q, history: H.msgs.slice(-7, -1).map(m => ({role: m.role, text: m.text})), screen: S.tab, role: S.user?.role, store: STORES[S.store], kb: helpKbText()}); } catch (e) { ans = null; }
+  if (ans) H.msgs.push({role: 'bot', text: ans});
+  else if (local.length) H.msgs.push({role: 'bot', text: `**${local[0].t}**\n` + local[0].s.map((x, i) => `${i + 1}. ${x}`).join('\n'), more: local.slice(1).map(h => h.t)});
+  else H.msgs.push({role: 'bot', text: 'I don\'t have steps for that one yet. Try different words (like "refund", "glass", "close register"), or ask a manager.'});
+  H.busy = false; if (!$('#helpbox')?.hidden) helpOpen();
+}
+function helpMount(){
+  if (!$('#helpfab')) { const b = document.createElement('button'); b.id = 'helpfab'; b.innerHTML = '<span aria-hidden="true">?</span> Help'; b.onclick = helpOpen; document.body.appendChild(b); }
+  $('#helpfab').hidden = !!($('#helpbox') && !$('#helpbox').hidden);
+}
+function helpUnmount(){ $('#helpfab')?.remove(); $('#helpbox')?.remove(); S.help = null; }
+
 const NAV = [
   ['dashboard','Dashboard',0],['customers','Customers',0],['tickets','Tickets',0],['register','Register',0],['inbox','Inbox',0],['buyback','Buyback',0],
   ['inventory','Devices',0],['swappa','Swappa',0],['wholesale','Wholesale',0],['repairs','Repair stock',0],['parts','Parts',0],['quote','Quote',0]
@@ -1119,7 +1311,7 @@ async function renderShell(){
       <span class="who">${esc(S.user.name)}</span>
       <button class="ab" id="lockbtn">Lock</button>
     </div></div></header>`;
-  $('#app').innerHTML = `<main id="main"></main>`;
+  $('#app').innerHTML = `<main id="main"></main>`; helpMount();
   $('#lockbtn').onclick = () => renderLock();
   $('#clockbtn').onclick = () => go('clock');
   document.querySelectorAll('[data-t]').forEach(b => b.onclick = () => go(b.dataset.t));
