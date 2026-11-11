@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794438685";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794440116";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -792,6 +792,7 @@ const DemoStore = {
   },
   /* ---------- payouts ---------- */
   async buybacksAll(){ return this.db().buybacks; },
+  async buybackLog(store){ return this.db().buybacks.filter(b => !store || b.store === store).sort((a, b) => new Date(b.at) - new Date(a.at)); },
   async markPayout(actor, id, ref){
     if (RANK[actor.role] < 3) throw new Error('Only the owner marks payouts sent.');
     const d = this.db(); const b = d.buybacks.find(x => x.id === id); b.payoutStatus = 'paid'; b.payoutRef = ref || ''; b.payoutAt = now();
@@ -1051,6 +1052,7 @@ const LiveStore = {
   async newInvoice(emp, store, customerId){ const r = await this.rpc('pos_new_invoice', {p_pin: this.pinFor(emp), p_store: store, p_customer: customerId || null}); this.keep(this.cI, [r]); return r; },
   async invoiceCustomer(emp, store, id, cid){ const r = await this.rpc('pos_invoice_customer', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_customer: cid}); this.keep(this.cI, [r]); return r; },
   async buybacksAll(){ return []; },
+  async buybackLog(store){ let q = this.sb.from('buybacks_v').select('*').order('at', {ascending: false}).limit(2000); if (store) q = q.eq('store', store); const {data, error} = await q; if (error) throw error; return data; },
   async markPayout(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
   async closeouts(){ return []; },
   async registerDays(){ const {data, error} = await this.sb.from('register_days_v').select('*').order('day', {ascending: false}).limit(90); if (error) throw error; return data; },
@@ -1432,7 +1434,7 @@ const NAV = [
   ['inventory','Devices',0],['swappa','Swappa',0],['wholesale','Wholesale',0],['repairs','Repair stock',0],['parts','Parts',0],['quote','Quote',0]
 ];
 const MORE = [['eod','End-of-day count',0],['counts','Old counts',2],['transfers','Transfers',0],['closeout','Close out',0],['hours','Timesheets',2],['staff','Admin',3]];
-const ALIAS = {invoice: 'invoices', ticket: 'tickets', newticket: 'tickets', customer: 'customers', repair: 'repairs', calls: 'inbox'};
+const ALIAS = {bblog: 'buyback', invoice: 'invoices', ticket: 'tickets', newticket: 'tickets', customer: 'customers', repair: 'repairs', calls: 'inbox'};
 /* browser Back / Forward: every screen change is a history entry; Back closes an open popup first, and never leaves the POS */
 const NAV_KEYS = ['customerId', 'ticketId', 'deviceId', 'invoiceId', 'q'];
 const navState = () => ({pos: 1, tab: S.tab, ...Object.fromEntries(NAV_KEYS.filter(k => S[k] != null && S[k] !== '').map(k => [k, S[k]]))});
@@ -1494,7 +1496,7 @@ async function renderShell(){
   const views = {clock: viewClock, buyback: viewBuyback, inventory: viewInventory, parts: viewParts, quote: viewQuote, swappa: viewSwappa, wholesale: viewWholesale, dashboard: viewDashboard,
     hours: viewHours, staff: viewStaff, tickets: viewTickets, ticket: viewTicket, newticket: viewNewTicket, customers: viewCustomers,
     customer: viewCustomer, search: viewSearch, invoices: viewInvoices, invoice: viewInvoice, eod: viewEod, techboard: viewTechboard, calls: viewInbox, inbox: viewInbox, repairs: viewRepairs, repair: viewRepair,
-    register: viewRegister, closeout: viewCloseout, counts: viewCounts, transfers: viewTransfers};
+    register: viewRegister, closeout: viewCloseout, bblog: viewBbLog, counts: viewCounts, transfers: viewTransfers};
   try { await (views[S.tab] || viewTickets)($('#main')); } catch (e) { console.error(e); $('#main').innerHTML = `<div class="banner bad">${esc(e.message)}</div>`; }
 }
 
@@ -2868,8 +2870,9 @@ async function viewEod(el){
   }
   const E = S.eod, L = E.list;
   const SECT = [['In the store (for sale / testing)', d => ['hot', 'tolist', 'testing'].includes(d.status)], ['Listed on Swappa (still here)', d => d.status === 'swappa'], ['Repair stock', d => d.status === 'repair'], ['Wholesale (waiting to ship)', d => d.status === 'wholesale']];
-  const brand = n => /ipad/i.test(n) ? 'iPad' : /iphone|^iphone|^\s*(x|xs|xr|\d{1,2})\b/i.test(n) ? 'iPhone' : /galaxy|^s\d|note|^a\d|samsung|^z /i.test(n) ? 'Samsung' : 'Other';
-  const pg = {iPhone: [], Samsung: [], iPad: [], Other: []}; L.parts.forEach(p => pg[brand(p.name)].push(p));
+  /* same order as the shelf / the Parts Inventory sheet */
+  const shelf = n => /ipad/i.test(n) ? 'iPad' : /iphone/i.test(n) ? (/aq7/i.test(n) ? 'iPhone AQ7' : /incell/i.test(n) ? 'iPhone Incell' : /oled|xo7|x07/i.test(n) ? 'iPhone OLED (XO7)' : 'iPhone older + LCD') : /galaxy|^s\d|note|^a\d|samsung|^z /i.test(n) ? 'Samsung' : 'Other';
+  const pg = []; L.parts.slice().sort((a, b) => (a.sort ?? 9999) - (b.sort ?? 9999) || a.name.localeCompare(b.name)).forEach(p => { const k = shelf(p.name); if (!pg.length || pg[pg.length - 1][0] !== k) pg.push([k, []]); pg[pg.length - 1][1].push(p); });
   const nP = L.phones.length, nC = L.phones.filter(d => E.checked.has(d.id)).length, nS = L.parts.length, nE = L.parts.filter(p => E.parts[p.id] !== undefined && E.parts[p.id] !== '').length;
   const binsOk = E.rma !== '' && E.refurb !== '';
   const lbl = d => `<b class="num">#${d.stockNo}</b> ${esc([d.model, d.storage, d.color].filter(Boolean).join(' '))}${d.imei ? ` <span class="small muted num">…${esc(String(d.imei).slice(-4))}</span>` : ''}`;
@@ -2886,8 +2889,8 @@ async function viewEod(el){
           ${ds.map(d => `<label class="row" style="gap:12px;cursor:pointer;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r);flex-wrap:nowrap;${E.checked.has(d.id) ? 'background:var(--ok-soft)' : ''}"><input type="checkbox" data-ph="${d.id}" ${E.checked.has(d.id) ? 'checked' : ''} style="width:24px;height:24px;flex:none"><span style="flex:1;min-width:0">${lbl(d)}</span></label>`).join('')}</div>` : ''; }).join('')}
         ${nP ? '' : '<p class="muted">No phones on file for this store.</p>'}
         <button class="primary" data-eo="parts" style="align-self:flex-end">Next: screens →</button>`
-    : E.open === 'parts' ? `${Object.entries(pg).filter(([, ps]) => ps.length).map(([b, ps]) => `<div class="stack" style="gap:4px"><span class="label">${b} screens</span>
-          <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:6px">${ps.map(p => `<label class="row" style="gap:10px;padding:6px 10px;border:1px solid var(--line);border-radius:var(--r);flex-wrap:nowrap"><span style="flex:1;min-width:0">${esc(p.name)}</span>
+    : E.open === 'parts' ? `<div class="banner small">Same order as the shelf: go top to bottom. Type 0 when there are none. Enter jumps to the next one.</div>${pg.map(([b, ps]) => `<div class="stack" style="gap:4px"><span class="label">${b} (${ps.length})</span>
+          <div class="stack" style="gap:4px;max-width:560px">${ps.map(p => `<label class="row" style="gap:10px;padding:6px 10px;border:1px solid var(--line);border-radius:var(--r);flex-wrap:nowrap"><span style="flex:1;min-width:0">${esc(p.name)}</span>
             <input data-pc="${p.id}" value="${esc(E.parts[p.id] ?? '')}" inputmode="numeric" placeholder="#" aria-label="How many ${esc(p.name)}" style="width:70px;min-height:38px;text-align:center"></label>`).join('')}</div></div>`).join('')}
         <div class="row" style="justify-content:space-between"><button data-eo="phones">← Phones</button><button class="primary" data-eo="bins">Next: bins →</button></div>`
     : `<div class="grid g2"><div class="field"><label class="label" for="eo-rma">Screens in the RMA bin (defective, going back to Sentrix)</label><input id="eo-rma" inputmode="numeric" value="${esc(E.rma)}" placeholder="#"></div>
@@ -3398,15 +3401,62 @@ window.addEventListener('message', e => {
     Object.assign(S.bb, {appraisal: a, model: niceModel(a.model), storage: String(a.storage || '').toUpperCase().replace(/\s+/g, ''), carrier: CARRIER_NAME[a.carrierRaw] || a.carrier || '', cond: a.cond || 'used', ...(a.paid > 0 ? {paid: String(a.paid)} : {})});
     window.scrollTo(0, 0); viewBuyback($('#main')); }
 });
+/* ---------------- BUYBACK LOG: every buy at this store and where the device is now ---------------- */
+const lockOf = c => { const t = String(c || ''); return /lock.*financ/i.test(t) ? 'Locked / financed' : /financ/i.test(t) ? 'Financed' : /unlock/i.test(t) ? 'Unlocked' : /wi-?fi|gps|cellular/i.test(t) || !t ? '—' : 'Locked'; };
+const BBL_STATUS = [['all', 'All'], ['here', 'Still here'], ['repair', 'Repair stock'], ['swappa', 'On Swappa'], ['atlas', 'Atlas / wholesale'], ['sold', 'Sold']];
+const bblMatch = (k, d) => k === 'all' ? true : !d ? false : k === 'here' ? ['testing', 'hot', 'tolist', 'swappa', 'repair', 'wholesale'].includes(d.status) : k === 'atlas' ? ['wholesale', 'atlas'].includes(d.status) : d.status === k;
+async function viewBbLog(el){
+  el.innerHTML = '<p class="muted">Loading the buyback log…</p>';
+  const [bbs, devs] = await Promise.all([Store.buybackLog(S.store), Store.devices()]);
+  const dv = Object.fromEntries(devs.map(d => [d.id, d]));
+  const per = S.bblPer || 'month', stF = S.bblSt || 'all';
+  const since = per === 'week' ? Date.now() - 7 * 86400000 : per === 'month' ? Date.now() - 31 * 86400000 : 0;
+  const q = (S.bblQ || '').trim().toLowerCase(), qd = q.replace(/\D/g, '');
+  const rows = bbs.map(b => ({b, d: dv[b.deviceId] || null, s: b.seller || {}})).filter(({b, d, s}) => new Date(b.at) >= since && bblMatch(stF, d) && (!q ||
+    String(b.bbId || (b.store + b.receiptNo)).toLowerCase().includes(q) || (d && (String(d.stockNo) === qd || (qd.length >= 4 && String(d.imei || '').includes(qd)) || (d.model || '').toLowerCase().includes(q))) ||
+    [s.firstName, s.lastName].join(' ').toLowerCase().includes(q) || (qd.length >= 4 && String(s.phone || b.phone || '').includes(qd))));
+  const paid = rows.reduce((a, r) => a + (+r.b.paid || 0), 0);
+  const sold = rows.filter(r => r.d?.status === 'sold'), profit = sold.reduce((a, r) => a + ((+r.d.soldPrice || 0) - (+r.d.cost || 0) - (+r.d.partsCost || 0)), 0);
+  const stPill = d => !d ? '<span class="pill bad">Device missing</span>' : d.status === 'sold' ? `<span class="pill ok">Sold${d.soldPrice ? ' ' + cents(d.soldPrice) : ''}</span>${d.soldAt ? `<div class="small muted">${fmtDate(d.soldAt)}</div>` : ''}`
+    : `<span class="pill ${d.status === 'repair' ? 'warn' : ['wholesale', 'atlas'].includes(d.status) ? '' : 'ok'}">${esc(STATUS_LABEL[d.status] || d.status)}</span>`;
+  el.innerHTML = `<div class="stack">
+    <div class="row" style="justify-content:space-between;gap:10px"><div class="row" style="gap:10px"><button id="bl-back">← Buyback</button><h2 style="margin:0">Buyback log</h2></div><span class="muted">${STORES[S.store]}</span></div>
+    <div class="row" style="gap:8px"><input id="bl-q" value="${esc(S.bblQ || '')}" placeholder="Receipt (BV70005), stock #, model, seller name, phone or last 4 of IMEI" style="flex:1;min-width:240px" autocomplete="off">
+      <div class="statusbar" role="group" aria-label="Dates">${[['week', '7 days'], ['month', '31 days'], ['all', 'All']].map(([k, l]) => `<button data-bp="${k}" aria-pressed="${per === k}">${l}</button>`).join('')}</div></div>
+    <div class="statusbar" role="group" aria-label="Where it is now">${BBL_STATUS.map(([k, l]) => `<button data-bs="${k}" aria-pressed="${stF === k}">${l}</button>`).join('')}</div>
+    <div class="small muted">${rows.length} buy${rows.length === 1 ? '' : 's'} · paid out <b class="num">${cents(paid)}</b>${sold.length && can(2) ? ` · ${sold.length} sold, profit <b class="num">${cents(profit)}</b>` : ''}</div>
+    <div class="tbl"><table><thead><tr><th>Date</th><th>Receipt</th><th>Device</th><th>Carrier</th><th>Lock</th><th class="r">Paid</th><th>Payout</th><th>Seller</th><th>Bought by</th><th>Status now</th><th></th></tr></thead><tbody>
+    ${rows.map(({b, d, s}) => `<tr data-bl="${b.id}" style="cursor:pointer">
+      <td class="small" style="white-space:nowrap">${fmtDate(b.at)} ${fmtTime(b.at)}</td>
+      <td class="num"><b>${esc(b.bbId || (b.store + b.receiptNo))}</b></td>
+      <td>${d ? `<b class="num">#${d.stockNo}</b> ${esc([d.model, d.storage, d.color].filter(Boolean).join(' '))}${d.imei ? `<div class="small muted num">IMEI …${esc(String(d.imei).slice(-4))}</div>` : ''}` : '<span class="muted">—</span>'}</td>
+      <td class="small">${esc(d?.carrier || '')}</td>
+      <td class="small">${(l => l === 'Unlocked' ? '<span class="pill ok">Unlocked</span>' : l === 'Financed' ? '<span class="pill bad">Financed</span>' : l === 'Locked' || l === 'Locked / financed' ? `<span class="pill warn">${l}</span>` : '<span class="muted">—</span>')(lockOf(d?.carrier))}</td>
+      <td class="r num"><b>${cents(b.paid)}</b>${d && +d.partsCost ? `<div class="small muted">+ ${cents(d.partsCost)} parts</div>` : ''}</td>
+      <td class="small">${esc(b.payout || '')}</td>
+      <td>${esc([s.firstName, s.lastName].filter(Boolean).join(' '))}<div class="small muted">${fmtPhone(s.phone || b.phone || '')}</div></td>
+      <td class="small">${esc(b.by ? staffName(b.by) : '')}</td>
+      <td>${stPill(d)}</td>
+      <td class="r"><button data-blb="${b.id}" style="min-height:32px;padding:2px 10px">Bill of sale</button></td></tr>`).join('') || '<tr><td colspan="11" class="muted">No buys match.</td></tr>'}
+    </tbody></table></div>
+    <p class="small muted" style="margin:0">Buys made in the POS show here. Click a row to open the device.</p></div>`;
+  $('#bl-back').onclick = () => go('buyback');
+  const inp = $('#bl-q'); let tm; inp.oninput = () => { clearTimeout(tm); tm = setTimeout(() => { S.bblQ = inp.value; viewBbLog(el).then(() => { const n = $('#bl-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 300); };
+  el.querySelectorAll('[data-bp]').forEach(x => x.onclick = () => { S.bblPer = x.dataset.bp; viewBbLog(el); });
+  el.querySelectorAll('[data-bs]').forEach(x => x.onclick = () => { S.bblSt = x.dataset.bs; viewBbLog(el); });
+  el.querySelectorAll('[data-blb]').forEach(x => x.onclick = e => { e.stopPropagation(); const r = rows.find(r => r.b.id === x.dataset.blb); bosSheet(r.b.id, r.b.deviceId); });
+  el.querySelectorAll('[data-bl]').forEach(tr => tr.onclick = () => { const r = rows.find(r => r.b.id === tr.dataset.bl); if (r.d) deviceSheet(r.d, () => viewBbLog(el)); else toast('That device is no longer on file.'); });
+}
 async function viewBuyback(el){
   if (S.bbDone) return viewBuybackDone(el);
   const B = S.bb; const P = S.prices;
   if (!B.appraisal) { const open0 = await Store.openPunch(S.user.id);
     el.innerHTML = `${!open0 ? '<div class="banner bad" style="margin-bottom:12px">Clock in before buying devices. Buybacks are tied to who is on the clock.</div>' : ''}
-      <div class="panel stack" style="padding:10px"><div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><h2 style="margin:0">1 · What are they selling?</h2>
+      <div class="panel stack" style="padding:10px"><div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><h2 style="margin:0">1 · What are they selling?</h2><button id="bb-log" style="margin-left:auto">📒 Buyback log</button>
         <span class="small muted">Pick the device and condition, then tap the green <b>Buy it</b> button to test it, add the seller and pay.</span></div>
         <iframe id="bb-counter" src="${COUNTER_URL}" title="Counter appraisal" style="width:100%;height:900px;border:1px solid var(--line);border-radius:var(--r);background:#fff"></iframe>
         <div class="small muted">Asks for the counter passcode the first time on each computer. <a href="${COUNTER_URL.replace('?pos=1', '')}" target="_blank" rel="noopener" style="color:var(--accent)">Open it in its own tab</a></div></div>`;
+    $('#bb-log').onclick = () => go('bblog');
     return; }
   const A = B.appraisal;
   const open = await Store.openPunch(S.user.id);
