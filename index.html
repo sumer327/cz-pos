@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794422934";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794426088";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -342,7 +342,7 @@ const DemoStore = {
         devices[3].swappa = {price: 699, listedAt: ago(9), drops: [], url: ''};
     devices[3].status = 'swappa';
     const leads = [
-      {id: uid(), at: mins(25), source: 'Website quote widget', store: 'PT', name: 'Carlos Vega', phone: '2105550311', email: '', device: 'iPhone 14 Pro', request: 'Screen replacement quote · $189.99 shown', status: 'new', notes: [], example: true},
+      {id: uid(), at: mins(25), source: 'Website quote widget', store: 'PT', name: 'Carlos Vega', phone: '2105550311', email: '', device: 'iPhone 14 Pro', request: 'OLED replacement quote · $189.99 shown', status: 'new', notes: [], example: true},
       {id: uid(), at: mins(190), source: 'Buyback widget', store: 'BV', name: 'Tanya Brooks', phone: '2105550356', email: 'tanya@example.com', device: 'iPhone 15 Pro Max 256GB Unlocked', request: 'Wants to sell · Good condition · offer shown $520', status: 'new', notes: [], example: true}];
     this.save({employees, punches, devices, parts: parts.map(p => ({...p, rma: {DZ: 0, BV: 0, PT: 0}})), audit, buybacks: [], customers, tickets, invoices, ghl, ghlOut: [], partOrders,
       settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), lookups: [], priceCache: {}, rmaLog: [], refurbLog: [], refurb: {DZ: 3, BV: 5, PT: 2}, counts: [], transfers: [], pos: [], leads, reviews: [], closeouts: [], notes: [], ships: [],
@@ -543,10 +543,16 @@ const DemoStore = {
     if (add) { if (t.status === 'resolved') throw new Error('This ticket is closed. Open a rework or a new ticket to charge more.');
       if (!String(add.desc || '').trim()) throw new Error('Name the charge.'); if (!(+add.price > 0)) throw new Error('Enter a price above $0.');
       const c = {id: uid(), desc: add.desc.trim(), cat: add.cat || 'Repair', price: Math.round(+add.price * 100) / 100, by: emp.id, at: now(), ...(add.productId ? {productId: add.productId} : {}), ...(add.glass ? {glass: add.glass} : {})};
-      t.charges.push(c); t.comments.unshift({id: uid(), at: now(), who: emp.id, text: `Charge added: ${c.desc} ${cents(c.price)}`, pub: false, sys: true}); }
+      if (add.partId) { const p = d.parts.find(x => x.id === add.partId); if (!p) throw new Error('That part was not found.');
+        if ((p.qty[t.store] || 0) < 1) throw new Error(`No ${p.name} left at this store. Special order it, or add the charge without the part.`);
+        p.qty[t.store] -= 1; Object.assign(c, {partId: p.id, partName: p.name, partCost: p.cost || 0}); t.partsUsed.push({partId: p.id, name: p.name, cost: p.cost || 0, at: now(), by: emp.id, chargeId: c.id});
+        c._pn = ` · part pulled from stock: ${p.name} (${p.qty[t.store]} left)`; }
+      const pn = c._pn || ''; delete c._pn;
+      t.charges.push(c); t.comments.unshift({id: uid(), at: now(), who: emp.id, text: `Charge added: ${c.desc} ${cents(c.price)}${pn}`, pub: false, sys: true}); }
     if (removeId) { const c = t.charges.find(x => x.id === removeId); if (!c) throw new Error('That charge is already gone.');
       if (c.invoiceId) throw new Error(`That charge is already paid (invoice #${c.invoiceNo}). It can't be removed from the ticket.`);
-      t.charges = t.charges.filter(x => x.id !== removeId); t.comments.unshift({id: uid(), at: now(), who: emp.id, text: `Charge removed: ${c.desc} ${cents(c.price)}`, pub: false, sys: true}); }
+      if (c.partId) { const p = d.parts.find(x => x.id === c.partId); if (p) p.qty[t.store] = (p.qty[t.store] || 0) + 1; t.partsUsed = t.partsUsed.filter(x => x.chargeId !== c.id); }
+      t.charges = t.charges.filter(x => x.id !== removeId); t.comments.unshift({id: uid(), at: now(), who: emp.id, text: `Charge removed: ${c.desc} ${cents(c.price)}${c.partId ? ' · ' + c.partName + ' back in stock' : ''}`, pub: false, sys: true}); }
     t.updatedAt = now(); this.save(d); return t;
   },
   async tradeCredits(phone){ const d = this.db(); return d.buybacks.filter(b => b.creditLeft > 0).map(b => { const c = d.customers.find(x => x.id === b.customerId) || {}; const dv = d.devices.find(x => x.id === b.deviceId) || {};
@@ -1172,12 +1178,13 @@ const HELP_KB = [
   'Pick how they paid and tap **Record payment**. The ticket stays open.',
   'If they do the repair, the diagnostic comes off the repair price automatically at pickup.']},
  {t: 'Add a charge to a ticket (repair, glass, part, labor)', k: 'add charge ticket price repair glass custom labor accessory case quoted price', s: [
-  'Open the ticket and tap **+ Add charge** (or the quick buttons: Quoted repair, Glass, Privacy glass).',
-  'Pick a tab: **Repair price list**, **Diagnostic & labor**, **Accessories**, or **Custom** (type any name and price).',
-  'Tap the item. It shows on the ticket as **Due**.',
+  'Open the ticket and tap **+ Add charge**.',
+  'Pick the repair from the **Repair price list** (or Diagnostic & labor, Accessories, Custom).',
+  'The matching part is already picked: check it and tap **Add charge**. That part comes out of your store\'s stock.',
+  'It shows on the ticket as **Due**. Removing an unpaid charge puts the part back in stock.',
   'Wrong charge? Tap ✕ next to it (only unpaid charges can be removed).']},
  {t: 'Customer picks up: take payment and close the ticket', k: 'pickup pick up checkout check out pay close ticket done resolved payment finish repair battery health', s: [
-  'Open the ticket and tap **Check out · $X due**.',
+  'Open the ticket and tap **Make invoice**. Add glass or an accessory on the invoice if they want one.',
   'Leave all charges ticked and **Repair is done: close the ticket** checked.',
   'iPhone? Type the battery health %.',
   'Pick how they paid. Square: run the card on the Square iPad first.',
@@ -1245,10 +1252,10 @@ const HELP_KB = [
   'Go to **Wholesale**.',
   'Tick the devices going in the box (or **Tick all**) and tap **Ship to Atlas**.',
   'Add the tracking number and tap **Clear wholesale and ship**. Print the packing list for the box.']},
- {t: 'Use a part on a ticket', k: 'use part parts used screen part inventory ticket part oled lcd', s: [
-  'Open the ticket and tap **Use part**.',
-  'Pick the part. It comes out of your store\'s parts count.',
-  'Part not in stock? Tap **Order this** so it goes on the next order.']},
+ {t: 'Use a part on a ticket', k: 'use part parts used part inventory ticket part oled lcd pull part stock', s: [
+  'You don\'t need to: adding the repair charge pulls its part from stock automatically.',
+  'Warranty or rework with no charge? Open **Pull a part without a charge** under Parts pulled from stock.',
+  'Part not in stock? Tap **+ Special order a part** so it goes on the next order.']},
  {t: 'Count parts or phones', k: 'count parts count phones inventory count daily count fix count check counts', s: [
   'Go to **More → Counts**.',
   'Tap **Start parts count** (Mon, Wed, Fri) or the phones count (every day).',
@@ -1258,7 +1265,7 @@ const HELP_KB = [
   'Pick the store and send it. The other store taps **Received** when it arrives.']},
  {t: 'Repair quote for a customer', k: 'quote price how much repair cost screen battery good better best', s: [
   'Go to **Quote** and search the device.',
-  'Pick the repair. Screens show Good (aftermarket LCD), Better (premium OLED) and Best (genuine Apple OEM).',
+  'Pick the repair: Glass Repair, LCD Replacement (aftermarket), OLED Replacement (premium) or the genuine Apple part.',
   'Tap **Start ticket** to check it in with that price.']},
  {t: 'Refund or return', k: 'refund return money back give back cancel sale void exchange undo returned brought back', s: [
   'Go to **Register** and tap **↩ Return / refund** (or open the ticket and tap **Refund** next to the invoice).',
@@ -1509,7 +1516,7 @@ async function viewTicket(el){
           <dt>Store</dt><dd>${STORES[t.store]}</dd>
           <dt>Checked in</dt><dd>${new Date(t.createdAt).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})} by ${esc(staffName(t.by))}</dd>
         </dl>
-        ${t.status !== 'resolved' ? `<div class="row"><button id="t-label">Print label</button><button id="t-intake">Print intake receipt</button><button class="primary" id="t-pay">${t.type === 'rework' && !due.length && !tInv.length ? 'Close rework (no charge)' : due.length ? 'Check out · ' + cents(dueSum) + ' due' : tInv.length ? 'Close ticket (paid)' : 'Check out'}</button>${t.status !== 'customer' ? '<button id="t-ready">Ready for pickup</button>' : ''}</div>` : `<div class="row">${t.invoiceId ? '<span class="pill ok">Paid and resolved</span>' : ''}<button id="t-intake">Print intake receipt</button><button id="t-rework">Customer came back: open rework</button></div>`}
+        ${t.status !== 'resolved' ? `<div class="row"><button id="t-label">Print label</button><button id="t-intake">Print intake receipt</button><button class="primary" id="t-pay">${t.type === 'rework' && !due.length && !tInv.length ? 'Close rework (no charge)' : due.length ? 'Make invoice · ' + cents(dueSum) : tInv.length ? 'Close ticket (paid)' : 'Make invoice'}</button>${t.status !== 'customer' ? '<button id="t-ready">Ready for pickup</button>' : ''}</div>` : `<div class="row">${t.invoiceId ? '<span class="pill ok">Paid and resolved</span>' : ''}<button id="t-intake">Print intake receipt</button><button id="t-rework">Customer came back: open rework</button></div>`}
         ${reworks.length ? `<div class="small">Reworks: ${reworks.map(r => `<a data-goto="${r.id}" style="color:var(--accent);cursor:pointer">#${r.number}</a> ${stPill(r.status)}`).join(' ')}</div>` : ''}
       </div>
       ${parent ? `<div class="panel stack" style="border-left:4px solid var(--accent)">
@@ -1520,16 +1527,13 @@ async function viewTicket(el){
         <span class="small muted">Its notes are copied into this ticket's history (marked "From #${parent.number}"). Add new notes and charges here on the rework.</span>
       </div>` : ''}
       <div class="panel stack" id="t-charges">
-        <div class="row" style="justify-content:space-between"><h3>Charges</h3>${isOpen ? '<button id="ch-add">+ Add charge</button>' : ''}</div>
-        ${isOpen ? `<div class="row" style="gap:6px">
-          ${ch.some(x => x.cat === 'Diagnostic') || (t.type === 'rework' && t.warranty) ? '' : `<button data-qch="diag" style="min-height:36px;padding:4px 12px">Diagnostic ${cents(diagFor(t.device, set))} · collect now</button>`}
-          ${t.estimate > 0 && !ch.some(x => x.cat !== 'Diagnostic') ? `<button data-qch="est" style="min-height:36px;padding:4px 12px">Quoted repair ${cents(t.estimate)}</button>` : ''}
-          <button data-qch="glass" style="min-height:36px;padding:4px 12px">Glass ${cents(GLASS.regular)}</button><button data-qch="glassp" style="min-height:36px;padding:4px 12px">Privacy glass ${cents(GLASS.privacy)}</button></div>` : ''}
-        ${ch.length ? `<div class="tbl"><table><tbody>${ch.map(x => `<tr><td>${esc(x.desc)}<div class="small muted">${esc(x.cat)}${x.glass ? ' · lifetime warranty' : ''} · ${esc(staffName(x.by))} · ${fmtDate(x.at)}</div></td><td class="r num">${cents(x.price)}</td>
+        <div class="row" style="justify-content:space-between"><h3>Charges</h3>${isOpen ? '<button class="primary" id="ch-add">+ Add charge</button>' : ''}</div>
+        ${isOpen && !(ch.some(x => x.cat === 'Diagnostic') || (t.type === 'rework' && t.warranty)) ? `<div class="row" style="gap:6px"><button data-qch="diag" style="min-height:36px;padding:4px 12px">Diagnostic ${cents(diagFor(t.device, set))} · collect now</button></div>` : ''}
+        ${ch.length ? `<div class="tbl"><table><tbody>${ch.map(x => `<tr><td>${esc(x.desc)}<div class="small muted">${esc(x.cat)}${x.glass ? ' · lifetime warranty' : ''} · ${esc(staffName(x.by))} · ${fmtDate(x.at)}</div>${x.partName ? `<div class="small" style="color:var(--ok)">Part pulled from stock: ${esc(x.partName)}</div>` : ''}</td><td class="r num">${cents(x.price)}</td>
           <td class="r" style="white-space:nowrap">${x.invoiceId ? `<span class="pill ok">Paid · #${esc(x.invoiceNo)}</span>${x.creditedOn ? ` <span class="pill acc">credited on #${esc(x.creditedOn)}</span>` : ''}` : isOpen ? `<span class="pill warn">Due</span> <button data-rmch="${x.id}" aria-label="Remove ${esc(x.desc)}" style="min-height:30px;padding:2px 8px">✕</button>` : '<span class="pill bad">Unpaid</span>'}</td></tr>`).join('')}</tbody></table></div>`
-          : `<p class="muted small" style="margin:0">${isOpen ? 'Nothing charged yet. Add the diagnostic, the repair, glass or a case here, then take payment. Charge the diagnostic up front and the repair at pickup: each payment makes its own invoice.' : 'No charges on this ticket.'}</p>`}
+          : `<p class="muted small" style="margin:0">${isOpen ? 'Nothing charged yet. Tap <b>+ Add charge</b> and pick the repair: the part comes out of stock by itself. When the customer picks up, tap <b>Make invoice</b>.' : 'No charges on this ticket.'}</p>`}
         ${ch.length || tInv.length ? `<div class="row" style="justify-content:space-between;gap:12px;flex-wrap:wrap"><span class="small">Charged <b class="num">${cents(netCharged)}</b> + tax · Paid <b class="num">${cents(paidSum)}</b>${refSum ? ` · <span style="color:var(--bad)">Refunded ${cents(refSum)}</span>` : ''}${crNow ? ` · <span style="color:var(--ok)">${cents(crNow)} diagnostic comes off the repair</span>` : ch.some(x => x.creditedOn) ? ' · diagnostic credited' : diagCr.length ? ` · <span class="muted">${cents(chSum(diagCr))} diagnostic comes off once the repair is added</span>` : ''}</span><span>Balance due <b class="num" style="font-size:20px">${cents(dueSum)}</b>${due.some(isTaxable) ? ' <span class="small muted">with tax</span>' : ''}</span></div>` : ''}
-        ${isOpen && due.length ? `<button class="primary" id="ch-pay" style="min-height:48px">Take payment · ${cents(dueSum)}</button>` : ''}
+        ${isOpen && due.length ? `<button class="primary" id="ch-pay" style="min-height:48px">Make invoice · ${cents(dueSum)}</button>` : ''}
         ${tInv.length ? `<div class="small stack" style="gap:2px"><span class="label">Invoices on this ticket</span>${tInv.map(i => `<span class="row" style="justify-content:space-between;gap:8px"><span class="num">#${i.number} · ${cents(i.total)} · ${esc(i.payment || '')} · ${fmtDate(i.at)} ${fmtTime(i.at)} · ${esc((i.lines || []).map(l => l.desc).join(', '))}</span><span class="row" style="gap:4px;flex:none"><button data-rcpt="${i.id}" style="min-height:30px;padding:2px 10px">Receipt</button>${i.total > 0 && !i.refundOf ? `<button data-rfnd="${i.id}" style="min-height:30px;padding:2px 10px">Refund</button>` : ''}</span></span>`).join('')}</div>` : ''}
       </div>
       <div class="panel stack">
@@ -1537,9 +1541,11 @@ async function viewTicket(el){
         <dl class="kv"><dt>Name</dt><dd>${esc(c.name || '—')}</dd><dt>Phone</dt><dd class="num">${fmtPhone(c.phone)} ${c.phone ? '<button id="t-copyph" style="min-height:30px;padding:2px 8px">Copy</button>' : ''}</dd>${c.email ? `<dt>Email</dt><dd>${esc(c.email)}</dd>` : ''}</dl>
       </div>
       <div class="panel stack">
-        <div class="row" style="justify-content:space-between"><h3>Parts used</h3><span class="muted small">${money(partsCost)} part cost</span></div>
-        ${t.partsUsed.length ? `<ul style="margin:0;padding-left:18px">${t.partsUsed.map(p => `<li>${esc(p.name)} <span class="muted small">· ${money(p.cost)} · ${esc(staffName(p.by))}</span>${p.rma ? ' <span class="pill warn">old part → RMA</span>' : ''}</li>`).join('')}</ul>` : '<span class="muted small">No parts logged yet. Logging the part takes it out of this store\'s count.</span>'}
-        ${t.status !== 'resolved' ? `<div class="row"><select id="t-part" aria-label="Part to use" style="flex:1;min-width:0"><option value="">Pick a part…</option>${parts.map(p => `<option value="${p.id}" ${(p.qty[t.store] || 0) < 1 ? 'disabled' : ''}>${esc(p.name)} (${p.qty[t.store] || 0} at ${t.store})</option>`).join('')}</select><button id="t-usepart">Use part</button></div><button id="t-order">+ Special order a part</button>` : ''}
+        <div class="row" style="justify-content:space-between"><h3>Parts pulled from stock</h3>${can(2) ? `<span class="muted small">${money(partsCost)} part cost</span>` : ''}</div>
+        ${t.partsUsed.length ? `<ul style="margin:0;padding-left:18px">${t.partsUsed.map(p => `<li>${esc(p.name)} <span class="muted small">· ${p.chargeId ? 'with its charge' : 'no charge'} · ${esc(staffName(p.by))}</span>${p.rma ? ' <span class="pill warn">old part → RMA</span>' : ''}</li>`).join('')}</ul>` : '<span class="muted small">None yet. Adding a repair charge pulls its part from this store\'s stock automatically.</span>'}
+        ${t.status !== 'resolved' ? `<div class="row"><button id="t-order">+ Special order a part</button></div>
+          <details><summary class="small muted" style="cursor:pointer">Pull a part without a charge (warranty or rework)</summary>
+          <div class="row" style="margin-top:8px"><select id="t-part" aria-label="Part to use" style="flex:1;min-width:0"><option value="">Pick a part…</option>${parts.map(p => `<option value="${p.id}" ${(p.qty[t.store] || 0) < 1 ? 'disabled' : ''}>${esc(p.name)} (${p.qty[t.store] || 0} at ${t.store})</option>`).join('')}</select><button id="t-usepart">Use part</button></div></details>` : ''}
         ${myOrders.length ? `<div class="stack" style="gap:6px"><span class="label">Special orders</span>${myOrders.map(o => `<div class="row" style="justify-content:space-between;gap:8px"><span>${esc(o.name)}${o.cost ? ` <span class="small muted">· ${cents(o.cost)}</span>` : ''}${o.rush ? ' <span class="pill bad">rush</span>' : ''}</span><span class="pill ${o.status === 'received' ? 'ok' : o.status === 'ordered' ? 'acc' : 'warn'}">${PO_ST[o.status]}${o.ref ? ' · ' + esc(o.ref) : ''}</span></div>`).join('')}</div>` : ''}
       </div>
     </div>
@@ -1580,8 +1586,7 @@ async function viewTicket(el){
       viewTicket(el); } catch (e) { toast(e.message); } };
   el.querySelectorAll('[data-qch]').forEach(b => b.onclick = () => { const k = b.dataset.qch;
     if (k === 'diag') return addCh({desc: 'Diagnostic · ' + t.device, cat: 'Diagnostic', price: diagFor(t.device, set)}, true);
-    if (k === 'est') return addCh({desc: t.subject, cat: /console/i.test(t.issue) ? 'Console repair' : t.status === 'board' ? 'Board-level repair' : 'Repair', price: t.estimate});
-    const g = k === 'glassp' ? 'privacy' : 'regular'; addCh({desc: (g === 'privacy' ? 'Privacy tempered glass' : 'Tempered glass') + ' (lifetime warranty)', cat: 'Tempered glass', price: GLASS[g], glass: g}); });
+ });
   $('#ch-add') && ($('#ch-add').onclick = () => chargeSheet(t, c, () => viewTicket(el)));
   $('#ch-pay') && ($('#ch-pay').onclick = () => paySheet(t, c, {}));
   $('#t-label') && ($('#t-label').onclick = () => printTicketLabel(t, c));
@@ -1794,6 +1799,26 @@ function receiptHTML(r){
 function printReceipt(r){
   printHTML('Receipt #' + r.number, receiptHTML(r), '@page{size:72mm 297mm;margin:0}html,body{margin:0;width:72mm}body{padding:2mm 3mm;box-sizing:border-box}body>div{max-width:none!important;font-size:12px!important}');
 }
+/* ---------- parts that fit a repair ----------
+   "iPhone 11 Pro Max" matches "iPhone 11 Pro Max Oled" and "iPhone 11 Pro Max AQ7", not "iPhone 11 Pro Oled".
+   want: 'lcd' (aftermarket / incell / AQ7), 'oled' (XO7 / OLED / genuine) or null. Glass repairs use no part. */
+const partNorm = x => ' ' + String(x || '').toLowerCase().replace(/\b(apple|iphone|samsung|galaxy|google)\b/g, ' ').replace(/\(.*?\)/g, ' ').replace(/\bplus\b/g, '+').replace(/\s*\+/g, '+').replace(/\s+/g, ' ').trim() + ' ';
+const partKey = device => partNorm(String(device || '').replace(/\b\d+\s?(gb|tb)\b/ig, '').replace(/\b(unlocked|t-mobile|verizon|at&t|black|white|blue|red|green|gray|grey|gold|silver|purple|pink)\b/ig, '')).trim();
+const partQual = n => /oled|xo7|x07|genuine|oem|service pack/i.test(n) ? 'oled' : /aq7|incell|lcd|aftermarket/i.test(n) ? 'lcd' : null;
+const PART_TYPES = {battery: /batter/i, port: /charg|port/i, back: /back glass|back housing|housing|frame/i, camera: /camera|lens/i, speaker: /speaker|mesh/i};
+const repairType = name => /lcd|oled|display|digitizer|glass \+ lcd/i.test(name) && !/back glass/i.test(name) ? 'display' : Object.keys(PART_TYPES).find(k => PART_TYPES[k].test(name)) || null;
+const partIsType = (p, type) => !type ? true : type === 'display' ? (p.kind === 'Screen' || /lcd|oled|xo7|x07|aq7|incell|digitizer|display/i.test(p.name)) && !/batter|charg|port|camera|back|speaker/i.test(p.name) : PART_TYPES[type].test(p.name);
+function partsFor(parts, device, want, store, type){
+  const key = partKey(device); if (!key) return []; parts = parts.filter(p => partIsType(p, type));
+  const esc2 = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const strict = new RegExp('[\\s/]' + esc2 + '(?=[\\s/])(?!\\s*(max|mini|ultra|pro|\\+|fe|e|lite)\\b)(?!\\+)');
+  let hits = parts.filter(p => strict.test(partNorm(p.name)));
+  if (!hits.length) { const w = key.split(' '); hits = parts.filter(p => { const n = partNorm(p.name); return w.every(x => n.includes(' ' + x)); }); }
+  const score = p => (want && partQual(p.name) === want ? 2 : 0) + ((p.qty?.[store] || 0) > 0 ? 1 : 0);
+  return hits.sort((a, b) => score(b) - score(a) || a.name.localeCompare(b.name)).slice(0, 8);
+}
+const repairWants = name => /^glass repair/i.test(name) ? 'none' : /lcd replacement \(aftermarket\)|^lcd/i.test(name) ? 'lcd' : /oled/i.test(name) ? 'oled' : /lcd/i.test(name) ? 'lcd' : null;
+
 /* ---------- passcode / Samsung pattern ----------
    A pattern is saved in the passcode field as "Pattern 1-2-3-6-9": dots numbered 1-9, left to right, top to bottom. */
 const isPattern = v => /^Pattern [1-9](-[1-9])*$/.test(v || '');
@@ -1983,9 +2008,10 @@ function paySheet(t, c, opts = {}){
   const credits = (t.charges || []).filter(x => x.cat === 'Diagnostic' && x.invoiceId && !x.creditedOn); let useCredit = true;
   const creditFor = sel => { const rep = chSum(sel.filter(x => REPAIR_CATS.includes(x.cat))); const cr = chSum(credits); return credits.length && rep >= cr ? cr : 0; };
   const autoResolve = () => opts.resolve === false && resolve === null ? false : pick.size === due.length && !due.filter(x => pick.has(x.id)).every(x => x.cat === 'Diagnostic');
-  sheet(`<div class="row" style="justify-content:space-between"><h3>Take payment · #${t.number}</h3><button data-close>Close</button></div>
+  sheet(`<div class="row" style="justify-content:space-between"><h3>Invoice · ticket #${t.number}</h3><button data-close>Close</button></div>
     ${c?.name ? `<div class="small muted">${esc(c.name)} · ${fmtPhone(c.phone)} · ${esc(t.device)}</div>` : ''}
     <div id="py-lines"></div>
+    <div class="row" style="gap:6px"><button type="button" data-pyadd="regular" style="min-height:36px;padding:4px 12px">+ Tempered glass ${cents(GLASS.regular)}</button><button type="button" data-pyadd="privacy" style="min-height:36px;padding:4px 12px">+ Privacy glass ${cents(GLASS.privacy)}</button><button type="button" data-pyadd="item" style="min-height:36px;padding:4px 12px">+ Accessory or other item</button></div>
     <div id="py-tax"></div><div class="row" style="justify-content:space-between"><span class="label">Total with tax</span><span class="num" style="font-size:28px" id="py-total"></span></div>
     <div id="py-trade"></div>
     <label class="row" style="gap:10px;align-items:flex-start;cursor:pointer;background:var(--soft);border-radius:var(--r);padding:10px 12px"><input type="checkbox" id="py-res" style="width:22px;height:22px;margin-top:2px">
@@ -2020,6 +2046,11 @@ function paySheet(t, c, opts = {}){
     draw();
     if (c?.phone) Store.tradeCredits(c.phone).then(cr => { TRp.credits = cr || []; if (TRp.credits.length) draw(); }).catch(() => {});
     L.querySelector('#py-res').onchange = e => { resolve = e.target.checked; draw(); };
+    const reopen = nt => { viewTicket($('#main')); paySheet(nt || t, c, {resolve: opts.resolve}); };
+    L.querySelectorAll('[data-pyadd]').forEach(b => b.onclick = async () => { const k = b.dataset.pyadd;
+      if (k === 'item') { close(); return chargeSheet(t, c, async () => reopen((await Store.tickets()).find(x => x.id === t.id)), {tab: 'items', fromInvoice: true}); }
+      b.disabled = true; try { const r = await Store.ticketCharge(S.user, S.store, t.id, {desc: (k === 'privacy' ? 'Privacy tempered glass' : 'Tempered glass') + ' (lifetime warranty)', cat: 'Tempered glass', price: GLASS[k], glass: k});
+        close(); reopen(r?.charges ? r : (await Store.tickets()).find(x => x.id === t.id)); } catch (e) { L.querySelector('#py-err').textContent = e.message; b.disabled = false; } });
     const pay = L.querySelector('#py-pay'); const sq = () => { L.querySelector('#py-sq').hidden = !pay.value.startsWith('Square'); }; pay.onchange = sq; sq();
     L.querySelector('#py-go').onclick = async () => {
       const sel = due.filter(x => pick.has(x.id)); const res = resolve ?? autoResolve(); const btn = L.querySelector('#py-go');
@@ -2039,29 +2070,51 @@ function paySheet(t, c, opts = {}){
     };
   });
 }
-async function chargeSheet(t, c, after){
-  const set = await Store.settings(); let tab = 'price', q = t.device || '', added = 0;
+async function chargeSheet(t, c, after, opts = {}){
+  const set = await Store.settings(); let tab = opts.tab || 'price', q = t.device || '', added = 0, picked = null;
+  const parts = await Store.parts().catch(() => []);
+  const partRows = (list, sel) => list.map(p => { const n = p.qty?.[t.store] || 0;
+    return `<label class="row" style="gap:10px;cursor:${n ? 'pointer' : 'default'};padding:8px 10px;border:1px solid var(--line);border-radius:var(--r);flex-wrap:nowrap;${n ? '' : 'opacity:.55'}"><input type="radio" name="cs-part" value="${p.id}" ${sel === p.id ? 'checked' : ''} ${n ? '' : 'disabled'} style="width:20px;height:20px;flex:none">
+      <span style="flex:1;min-width:0">${esc(p.name)}</span><span class="small ${n ? '' : 'muted'}" style="white-space:nowrap">${n} at ${t.store}</span></label>`; }).join('');
   const L0 = sheet(`<div class="row" style="justify-content:space-between"><h3>Add charge · #${t.number}</h3><button data-close>Close</button></div>
     <div class="statusbar" role="group" aria-label="Kind of charge">${[['price', 'Repair price list'], ['diag', 'Diagnostic & labor'], ['items', 'Accessories'], ['custom', 'Custom']].map(([k, l]) => `<button data-tab="${k}">${l}</button>`).join('')}</div>
     <div id="cs-body" class="stack"></div><div id="cs-foot"></div>`, (L, close) => {
-    const add = async (x, btn) => { if (btn) btn.disabled = true;
-      try { const r = await Store.ticketCharge(S.user, S.store, t.id, x); t = r?.charges ? r : t; added++; toast('Added: ' + x.desc); foot(L, close); }
+    const add = async (x, btn) => { if (btn) btn.disabled = true; added = 0;
+      try { const r = await Store.ticketCharge(S.user, S.store, t.id, x); t = r?.charges ? r : t; added = 1; toast('Added: ' + x.desc + (x.partId ? ' · part pulled from stock' : '')); foot(L, close); }
       catch (e) { toast(e.message); } if (btn) btn.disabled = false; };
     const body = async () => {
       L.querySelectorAll('[data-tab]').forEach(b => b.setAttribute('aria-pressed', b.dataset.tab === tab));
       const B = L.querySelector('#cs-body');
+      if (tab === 'price' && picked) {
+        const want = repairWants(picked.desc); const cand = want === 'none' ? [] : partsFor(parts, picked.device, want, t.store, repairType(picked.desc));
+        const best = cand.find(p => (p.qty?.[t.store] || 0) > 0 && (!want || partQual(p.name) === want)) || cand.find(p => (p.qty?.[t.store] || 0) > 0);
+        const sel = picked.sel !== undefined ? picked.sel : (best?.id || '');
+        B.innerHTML = `<div class="stack" style="gap:10px"><div><b style="font-size:17px">${esc(picked.desc)}</b></div>
+          <div class="field" style="max-width:200px"><label class="label" for="cs-pp">Price</label><input id="cs-pp" inputmode="decimal" value="${picked.price}"></div>
+          <span class="label">Part from ${STORES[t.store]} stock</span>
+          ${want === 'none' ? '<span class="small muted">Glass repair: no part comes out of stock.</span>' : cand.length ? partRows(cand, sel) : `<span class="small" style="color:var(--bad)">No matching part on file for ${esc(picked.device)}.</span>`}
+          <label class="row" style="gap:10px;cursor:pointer;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r);flex-wrap:nowrap"><input type="radio" name="cs-part" value="" ${sel === '' ? 'checked' : ''} style="width:20px;height:20px;flex:none"><span>No part from stock <span class="small muted">(glass repair, customer brought the part, or it's on order)</span></span></label>
+          ${want !== 'none' && !best ? `<div class="banner warn small">Nothing in stock for this at ${STORES[t.store]}. Add the charge, then special order the part. <button type="button" id="cs-so" style="min-height:32px;padding:2px 10px;margin-left:6px">Special order it</button></div>` : ''}
+          <div class="row" style="justify-content:space-between"><button type="button" id="cs-back">← Back to the price list</button><button class="primary" id="cs-addp" style="min-height:46px">Add charge</button></div></div>`;
+        L.querySelectorAll('[name="cs-part"]').forEach(r => r.onchange = () => { picked.sel = r.value; });
+        L.querySelector('#cs-back').onclick = () => { picked = null; body(); };
+        L.querySelector('#cs-so') && (L.querySelector('#cs-so').onclick = () => specialOrderSheet({forType: 'ticket', forId: t.id, forLabel: `Ticket #${t.number} ${t.subject}`, store: t.store, device: t.device}, () => {}));
+        L.querySelector('#cs-addp').onclick = async e => { const price = parseFloat(L.querySelector('#cs-pp').value); const pid = L.querySelector('[name="cs-part"]:checked')?.value || '';
+          await add({desc: picked.desc, cat: picked.cat, price, ...(pid ? {partId: pid} : {})}, e.target); if (added) { picked = null; body(); } };
+        return;
+      }
       if (tab === 'price') {
         if (!S.rq) { B.innerHTML = '<p class="muted">Loading repair prices…</p>'; await S.rqP; }
         const qq = q.trim().toLowerCase().replace(/\s+/g, ' ');
         const hits = qq ? Object.entries(S.rq.cats).flatMap(([k, cc]) => cc.models.map(m => ({k, m, c: cc})).filter(x => rqMatch(x, qq))).slice(0, 4) : [];
         B.innerHTML = `<div class="field"><label class="label" for="cs-q">Device</label><input id="cs-q" value="${esc(q)}" placeholder="13 pro max, s24 ultra, ps5…" autocomplete="off"></div>
           ${hits.length ? hits.map((x, hi) => `<div class="stack" style="gap:6px"><b>${esc(rqDevice(x.k, x.m))}</b> <span class="small muted">${esc(x.c.name)}${x.m.g ? ' · ' + esc(x.m.g) : ''}</span>
-            <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:6px">${x.c.cols.map((col, i) => [col, x.m.p[i], i]).filter(z => z[1]).map(([col, v, i]) => `<button data-rq="${hi}:${i}" style="justify-content:space-between;text-align:left;min-height:40px"><span>${esc(x.k === 'computer' ? x.m.n : rqColLabel(col))}</span><b class="num">${esc(v)}</b></button>`).join('')}</div></div>`).join('')
+            <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:6px">${x.c.cols.map((col, i) => [col, x.m.p[i], i]).filter(z => z[1]).map(([col, v, i]) => `<button data-rq="${hi}:${i}" style="justify-content:space-between;text-align:left;min-height:40px"><span>${esc(x.k === 'computer' ? x.m.n : rqColLabel(col, x.k, x.m))}</span><b class="num">${esc(v)}</b></button>`).join('')}</div></div>`).join('')
             : `<p class="muted small">${qq ? 'No match on the price list. Try fewer words, or use Custom.' : 'Type the device.'}</p>`}`;
         const inp = L.querySelector('#cs-q'); let tm; inp.oninput = () => { clearTimeout(tm); tm = setTimeout(() => { q = inp.value; body().then(() => { const n = L.querySelector('#cs-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 250); };
         L.querySelectorAll('[data-rq]').forEach(b => b.onclick = () => { const [hi, i] = b.dataset.rq.split(':').map(Number); const x = hits[hi]; const v = x.m.p[i];
           const price = parseFloat(String(v).replace(/,/g, '').match(/\d+(\.\d+)?/)?.[0]); if (!(price > 0)) { toast('That price needs a quote. Use Custom.'); return; }
-          add({desc: `${rqDevice(x.k, x.m)} ${rqRepairName(x.k, x.m, x.c.cols[i])}`, cat: x.k === 'console' ? 'Console repair' : 'Repair', price}, b); });
+          picked = {desc: `${rqDevice(x.k, x.m)} ${rqRepairName(x.k, x.m, x.c.cols[i])}`, device: rqDevice(x.k, x.m), cat: x.k === 'console' ? 'Console repair' : 'Repair', price}; body(); });
       } else if (tab === 'diag') {
         const L2 = set.labor; const opts = [['Diagnostic · ' + t.device, 'Diagnostic', diagFor(t.device, set)], ['Labor only, customer brought the part (phone)', 'Labor (part provided)', L2.phone], ['Labor only, customer brought the part (tablet)', 'Labor (part provided)', L2.tablet],
           ['Labor only, customer brought the part (console)', 'Labor (part provided)', L2.console], ['Labor only, customer brought the part (computer)', 'Labor (part provided)', L2.computer], ['Data backup', 'Other', 75], ['Software restore', 'Other', 39]];
@@ -2085,13 +2138,16 @@ async function chargeSheet(t, c, after){
         B.innerHTML = `<div class="field"><label class="label" for="cs-d">What is it</label><input id="cs-d" placeholder="Water damage cleaning"></div>
           <div class="grid g2"><div class="field"><label class="label" for="cs-c">Category</label><select id="cs-c">${LINE_CATS.map(x => `<option>${x}</option>`).join('')}</select></div>
           <div class="field"><label class="label" for="cs-p">Price</label><input id="cs-p" inputmode="decimal" placeholder="0.00"></div></div>
+          <div class="field"><label class="label" for="cs-pt">Part from ${STORES[t.store]} stock (optional)</label><select id="cs-pt"><option value="">No part</option>${(() => { const fit = partsFor(parts, t.device, null, t.store); const rest = parts.filter(p => !fit.includes(p));
+            const o = p => `<option value="${p.id}" ${(p.qty?.[t.store] || 0) < 1 ? 'disabled' : ''}>${esc(p.name)} (${p.qty?.[t.store] || 0} at ${t.store})</option>`;
+            return (fit.length ? `<optgroup label="Fits ${esc(t.device)}">${fit.map(o).join('')}</optgroup>` : '') + `<optgroup label="All parts">${rest.map(o).join('')}</optgroup>`; })()}</select></div>
           <button class="primary" id="cs-go" style="align-self:flex-start">Add charge</button>`;
-        L.querySelector('#cs-go').onclick = e => add({desc: L.querySelector('#cs-d').value, cat: L.querySelector('#cs-c').value, price: parseFloat(L.querySelector('#cs-p').value)}, e.target).then(() => { if (L.querySelector('#cs-d')) { L.querySelector('#cs-d').value = ''; L.querySelector('#cs-p').value = ''; } });
+        L.querySelector('#cs-go').onclick = e => { const pid = L.querySelector('#cs-pt').value; add({desc: L.querySelector('#cs-d').value, cat: L.querySelector('#cs-c').value, price: parseFloat(L.querySelector('#cs-p').value), ...(pid ? {partId: pid} : {})}, e.target).then(() => { if (L.querySelector('#cs-d')) { L.querySelector('#cs-d').value = ''; L.querySelector('#cs-p').value = ''; L.querySelector('#cs-pt').value = ''; } }); };
       }
     };
     const foot = (L, close) => { const due = (t.charges || []).filter(x => !x.invoiceId);
       L.querySelector('#cs-foot').innerHTML = `<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding-top:10px;gap:8px"><span>${due.length} due on the ticket · <b class="num">${cents(chSum(due))}</b> <span class="small muted">+ tax</span></span>
-        <span class="row" style="gap:6px"><button id="cs-done">Done</button>${due.length ? `<button class="primary" id="cs-pay">Take payment</button>` : ''}</span></div>`;
+        <span class="row" style="gap:6px">${opts.fromInvoice ? '<button class="primary" id="cs-done">Back to the invoice</button>' : `<button id="cs-done">Done</button>${due.length ? '<button class="primary" id="cs-pay">Make invoice</button>' : ''}`}</span></div>`;
       L.querySelector('#cs-done').onclick = () => { close(); after && after(); };
       L.querySelector('#cs-pay') && (L.querySelector('#cs-pay').onclick = () => { close(); after && after(); paySheet(t, c, {}); }); };
     L.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; body(); });
@@ -3590,11 +3646,26 @@ async function loadRepairPrices(){
 }
 const rqDevice = (k, m) => k === 'watch' ? 'Apple Watch ' + m.n : k === 'computer' ? (m.g === 'Mac' ? 'Mac' : 'PC') : k === 'pixel' && !/pixel/i.test(m.n) ? 'Pixel ' + m.n : k === 'samsung' && !/galaxy|note/i.test(m.n) ? 'Galaxy ' + m.n : m.n;
 const rqIssue = (k, m) => ({iphone: 'iPhone Repair', samsung: 'Smartphone Repair', pixel: 'Smartphone Repair', moto: 'Smartphone Repair', watch: 'Smartphone Repair', ipod: 'Smartphone Repair', ipad: 'iPad Repair', surface: 'Tablet Repair', console: 'Game Console Repair'})[k] || (m.g === 'Mac' ? 'Macbook Repair' : 'Computer Repair');
-/* Good / Better / Best always says which screen it is: Good = aftermarket LCD, Better = premium OLED, Best = genuine OEM */
-const RQ_TIER = {GOOD: ['Good', 'Aftermarket LCD'], BETTER: ['Better', 'Premium OLED'], BEST: ['Best', 'Genuine OEM']};
-const rqColLabel = col => { const t = /^(GOOD|BETTER|BEST)\s+(.*)$/.exec(col); if (!t) return col; const [tier, q] = RQ_TIER[t[1]];
-  return /glass only/i.test(t[2]) ? `Glass Only · ${tier} (${q})` : `Screen · ${tier} (${/genuine/i.test(t[2]) ? (/apple/i.test(t[2]) ? 'Genuine Apple OEM' : q) : t[2]})`; };
-const rqRepairName = (k, m, col) => k === 'computer' ? m.n : rqColLabel(col).replace(/^Screen · /, 'Screen Replacement · ').replace(' · ', ' – ');
+/* Repair names never say "screen": it's Glass Repair, LCD Replacement or OLED Replacement, depending on the part.
+   iPhone tiers: Good = aftermarket LCD (incell), Better = premium OLED, Best = genuine Apple. iPhones that came with an LCD
+   (6 through 8 Plus, SE, XR, 11) say LCD on every tier; Samsung A0x / A1x phones are LCD, other Galaxys are OLED. */
+const RQ_TIER = {GOOD: 'Good', BETTER: 'Better', BEST: 'Best'};
+const lcdIphone = n => /^iphone (5|5s|5c|6|6s|7|8|se|xr|11)( plus)?\b(?! pro)/i.test(String(n).trim()) && !/11 pro/i.test(n);
+const lcdSamsung = n => /\bA(0\d|1[0-4])[a-z]?\b/i.test(String(n));
+const rqColLabel = (col, k, m) => { const n = m?.n || '', t = /^(GOOD|BETTER|BEST)\s+(.*)$/.exec(col);
+  if (t) { const tier = RQ_TIER[t[1]];
+    if (/glass only/i.test(t[2])) return `Glass Repair (${tier})`;
+    if (t[1] === 'GOOD') return 'LCD Replacement (Aftermarket)';
+    const kind = lcdIphone(n) ? 'LCD' : 'OLED';
+    return t[1] === 'BETTER' ? `${kind} Replacement (Premium)` : `${kind} Replacement (Genuine ${/apple/i.test(t[2]) ? 'Apple' : 'OEM'})`; }
+  if (/^glass only \+ burn/i.test(col)) return 'Glass Repair + Burn-in';
+  if (/^glass only/i.test(col)) return 'Glass Repair';
+  if (/^screen replacement$/i.test(col)) return k === 'samsung' && lcdSamsung(n) ? 'LCD Replacement' : 'OLED Replacement';
+  if (/^screen \(standard\)$/i.test(col)) return 'OLED Replacement (Standard)';
+  if (/^screen \(genuine oem\)$/i.test(col)) return 'OLED Replacement (Genuine OEM)';
+  if (/^full screen/i.test(col)) return 'Glass + LCD Replacement';
+  return col.replace(/\bscreen\b/gi, 'display'); };
+const rqRepairName = (k, m, col) => k === 'computer' ? m.n : rqColLabel(col, k, m);
 const rqMatch = (x, q) => { const hay = (rqDevice(x.k, x.m) + ' ' + x.m.g + ' ' + x.c.name + ' ' + x.m.n + (x.m.g === 'Mac' ? ' macbook imac' : x.m.g === 'PC' ? ' laptop windows' : '')).toLowerCase().replace(/playstation\s*/g, 'ps').replace(/series\s*/g, 'series ');
   const qq = q.replace(/playstation\s*/g, 'ps').replace(/\bxbox\s+/, 'xbox ').replace(/\bs(\d{2})\b/, 'galaxy s$1');
   return qq.split(' ').every(w => hay.includes(w)) || q.split(' ').every(w => hay.includes(w)); };
@@ -3633,7 +3704,7 @@ async function viewQuote(el){
       ${m ? `<h3>${esc(dev)}${m.g && Q.cat !== 'computer' ? ` <span class="muted small">${esc(m.g)}</span>` : ''}</h3>
       ${sel ? `<div class="script">Phone script: "Yes, we can fix that. ${esc(Q.cat === 'computer' ? rqRepairName(Q.cat, m, sel[0]) : rqRepairName(Q.cat, m, sel[0]) + ' on the ' + dev)} comes with a 6-month warranty, and the cost is <b>${esc(sel[1])}</b>." Then ask if they can come in today.</div>` : ''}
       <div class="tbl"><table><thead><tr><th>Repair</th><th class="r">Price</th><th></th></tr></thead><tbody>
-      ${priced.map(([c, v, i]) => `<tr data-qcol="${i}" style="cursor:pointer${Q.col === i ? ';background:var(--warn-soft)' : ''}"><td>${esc(Q.cat === 'computer' ? m.n : rqColLabel(c))}</td><td class="r num">${esc(v)}</td><td class="r"><button data-tk="${i}" style="min-height:34px;padding:4px 10px">Start ticket</button></td></tr>`).join('')}
+      ${priced.map(([c, v, i]) => `<tr data-qcol="${i}" style="cursor:pointer${Q.col === i ? ';background:var(--warn-soft)' : ''}"><td>${esc(Q.cat === 'computer' ? m.n : rqColLabel(c, Q.cat, m))}</td><td class="r num">${esc(v)}</td><td class="r"><button data-tk="${i}" style="min-height:34px;padding:4px 10px">Start ticket</button></td></tr>`).join('')}
       </tbody></table></div>
       <p class="muted small" style="margin:0">Tap a row to put it in the phone script. Start ticket fills in the device, repair and price. You pick the customer.</p>`
       : `<p class="muted">${q ? 'Tap a match' : 'Pick a model'} to see every price and the phone script.</p>`}
