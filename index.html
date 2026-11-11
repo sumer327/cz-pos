@@ -479,7 +479,7 @@ const DemoStore = {
   },
   /* customers + tickets + invoices */
   async customers(){ return this.db().customers; },
-  async search(){}, async loadCustomer(){}, async loadTicket(){},
+  async search(){}, async loadCustomer(){}, async loadTicket(){}, async rsPull(){ return null; },
   async customerByPhone(ph){ return this.db().customers.find(c => c.phone === ph) || null; },
   async products(){ const d = this.db(); if (!d.products){ d.products = DEMO_PRODUCTS.map(([name, category, price, cost, q]) => ({id: uid(), name, category, price, cost, upc: '', qty: {DZ: q[0], BV: q[1], PT: q[2]}, maintainStock: true, disabled: false})); this.save(d); } return d.products; },
   async saveProduct(emp, store, p){ const d = this.db(); await this.products(); const d2 = this.db(); let row = p.id && d2.products.find(x => x.id === p.id);
@@ -713,8 +713,10 @@ const DemoStore = {
     const inv = d.invoices.find(i => i.id === p.invoiceId); const since = inv ? (Date.now() - new Date(inv.at)) / 86400000 : null;
     const inWarranty = since != null && since <= 183;
     const row = {id: uid(), number: d.nextTicket++, store, status: 'new', priority: 1, partsUsed: [], createdAt: now(), updatedAt: now(), by: emp.id,
-      type: 'rework', parentId: p.id, customerId: p.customerId, device: p.device, imei: p.imei, passcode: p.passcode, issue: p.issue, subject: 'REWORK: ' + p.subject, estimate: 0, techId: p.techId, warranty: inWarranty,
-      comments: [{id: uid(), at: now(), who: emp.id, text: `Rework of #${p.number}. ${reason.trim()} · ${inWarranty ? `in warranty (${Math.round(since)} days since paid)` : since == null ? 'original was never invoiced' : `OUT of warranty (${Math.round(since)} days since paid)`}`, pub: false, sys: true}]};
+      type: 'rework', parentId: p.id, customerId: p.customerId, device: p.device, imei: p.imei, passcode: p.passcode, issue: p.issue, subject: 'Rework ' + p.subject, estimate: 0, techId: p.techId, warranty: inWarranty,
+      comments: [{id: uid(), at: now(), who: emp.id, text: `Rework of #${p.number}. ${reason.trim()} · ${inWarranty ? `in warranty (${Math.round(since)} days since paid)` : since == null ? 'original was never invoiced' : `OUT of warranty (${Math.round(since)} days since paid)`}`, pub: false, sys: true},
+        {id: uid(), at: now(), who: emp.id, text: `History from #${p.number}:` + ([...(p.charges || []).map(c => `\n• ${c.desc} $${c.price}${c.invoiceId ? ` (paid, invoice #${c.invoiceNo})` : ' (not paid)'}`), ...d.invoices.filter(i => i.ticketId === p.id).map(i => `\n• Invoice #${i.number} · $${i.total} · ${i.payment || ''} · ${(i.lines || []).map(l => l.desc).join(', ')}`)].join('') || '\n• No charges or invoices on the original.'), pub: false, sys: true},
+        ...(p.comments || []).map(m => ({...m, id: uid(), pub: false, from: p.number, text: `From #${p.number}: ${m.text}`}))]};
     d.tickets.unshift(row); p.comments.unshift({id: uid(), at: now(), who: emp.id, text: `Customer came back. Rework ticket #${row.number} opened.`, pub: false, sys: true});
     this.log(d, emp.id, store, 'Rework opened', `#${row.number} for #${p.number} · ${reason.trim()}`); this.save(d); return row;
   },
@@ -943,6 +945,8 @@ const LiveStore = {
   async callSources(){ const {data, error} = await this.sb.from('call_sources').select('*').order('label'); if (error) return []; return data; },
   async rsSync(){ const {data} = await this.sb.from('rs_sync').select('*').eq('id', 1).maybeSingle(); return data || null; },
   async askHelp(body){ const {data, error} = await this.sb.functions.invoke('pos-help', {body}); if (error || !data?.answer) throw new Error(data?.error || error?.message || 'no answer'); return data.answer; },
+  async rsPull(t){ const {data, error} = await this.sb.functions.invoke('rs-sync', {body: {rsTicket: t.rsId}}); if (error || !data?.ok) throw new Error(data?.error || error?.message || 'RepairShopr did not answer');
+    this.cT.delete(t.id); await this.loadTicket(t.id); return data; },
   async rsSyncNow(){ const {data, error} = await this.sb.functions.invoke('rs-sync', {body: {}}); if (error) throw new Error((data && data.error) || error.message); return data; },
   async saveCallSource(emp, cs){ return this.rpc('pos_save_call_source', {p_pin: this.pinFor(emp), p_number: cs.number, p_label: cs.label || '', p_paid: !!cs.paid, p_store: cs.store || '', p_delete: !!cs.delete}); },
   async ghlCall(body){ const {data, error} = await this.sb.functions.invoke('ghl', {body}); if (error) { let m = error.message; try { m = (await error.context.json()).error || m; } catch {} throw new Error(m); } if (data?.error) throw new Error(data.error); return data; },
@@ -956,7 +960,9 @@ const LiveStore = {
   async requestLookup(){ throw new Error('Sentrix lookups connect after the pilot sign-off.'); },
   async demoAnswerLookup(){ return null; },
   async saveSettings(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
-  async openRework(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
+  async openRework(emp, store, parentId, reason){ if (!reason?.trim()) throw new Error('Say what came back wrong.');
+    const r = await this.rpc('pos_open_rework', {p_pin: this.pinFor(emp), p_store: store, p_parent: parentId, p_reason: reason.trim()});
+    this.cT.delete(parentId); this._tp = null; this.keep(this.cT, [r]); await this.loadTicket(parentId).catch(() => {}); return r; },
   async addRefurb(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
   async addRma(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
   async rmaLog(){ return []; },
@@ -1455,9 +1461,13 @@ async function viewTicket(el){
   await Store.loadTicket(S.ticketId);
   const [all, custs, parts, reqs] = await Promise.all([Store.tickets(), Store.customers(), Store.parts(), Store.partOrders()]);
   const t = all.find(x => x.id === S.ticketId); if (!t) return go('tickets');
+  S.rsPulled = S.rsPulled || new Set();
+  const pullNow = !!t.rsId && !t.comments.length && !S.rsPulled.has(t.id);
+  if (pullNow) { S.rsPulled.add(t.id); Store.rsPull(t).then(() => { if (S.tab === 'ticket' && S.ticketId === t.id) viewTicket(el); }).catch(e => { const n = $('#t-rsnotes'); if (n) n.textContent = "Couldn't load the RepairShopr notes: " + e.message; }); }
+  if (t.parentId && !all.some(x => x.id === t.parentId)) { await Store.loadTicket(t.parentId).catch(() => {}); const p0 = (await Store.tickets()).find(x => x.id === t.parentId); if (p0) all.push(p0); }
   const myOrders = reqs.filter(o => o.forType === 'ticket' && o.forId === t.id);
   const c = custById(custs)[t.customerId] || {};
-  const parent = t.parentId ? all.find(x => x.id === t.parentId) : null; const reworks = all.filter(x => x.parentId === t.id);
+  const parent = t.parentId ? all.find(x => x.id === t.parentId) : null; const pInv = parent ? await Store.ticketInvoices(parent.id).catch(() => []) : []; const reworks = all.filter(x => x.parentId === t.id);
   const set = await Store.settings();
   const techs = S.staff.filter(e => e.active);
   const partsCost = t.partsUsed.reduce((a, p) => a + (+p.cost || 0), 0);
@@ -1495,13 +1505,20 @@ async function viewTicket(el){
           <dt>Store</dt><dd>${STORES[t.store]}</dd>
           <dt>Checked in</dt><dd>${new Date(t.createdAt).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})} by ${esc(staffName(t.by))}</dd>
         </dl>
-        ${t.status !== 'resolved' ? `<div class="row"><button id="t-label">Print label</button><button class="primary" id="t-pay">${t.type === 'rework' ? 'Close rework' : due.length ? 'Check out · ' + cents(dueSum) + ' due' : tInv.length ? 'Close ticket (paid)' : 'Check out'}</button>${t.status !== 'customer' ? '<button id="t-ready">Ready for pickup</button>' : ''}</div>` : `<div class="row">${t.invoiceId ? '<span class="pill ok">Paid and resolved</span>' : ''}<button id="t-rework">Customer came back: open rework</button></div>`}
+        ${t.status !== 'resolved' ? `<div class="row"><button id="t-label">Print label</button><button class="primary" id="t-pay">${t.type === 'rework' && !due.length && !tInv.length ? 'Close rework (no charge)' : due.length ? 'Check out · ' + cents(dueSum) + ' due' : tInv.length ? 'Close ticket (paid)' : 'Check out'}</button>${t.status !== 'customer' ? '<button id="t-ready">Ready for pickup</button>' : ''}</div>` : `<div class="row">${t.invoiceId ? '<span class="pill ok">Paid and resolved</span>' : ''}<button id="t-rework">Customer came back: open rework</button></div>`}
         ${reworks.length ? `<div class="small">Reworks: ${reworks.map(r => `<a data-goto="${r.id}" style="color:var(--accent);cursor:pointer">#${r.number}</a> ${stPill(r.status)}`).join(' ')}</div>` : ''}
       </div>
+      ${parent ? `<div class="panel stack" style="border-left:4px solid var(--accent)">
+        <div class="row" style="justify-content:space-between"><h3>From the original ticket #${parent.number}</h3><button id="t-parent2">Open #${parent.number}</button></div>
+        <div class="small muted">${esc(parent.subject)} · checked in ${fmtDate(parent.createdAt)}${t.warranty ? ' · <b style="color:var(--ok)">in warranty</b>' : ' · <b style="color:var(--bad)">out of warranty</b>'}</div>
+        ${(parent.charges || []).length ? `<div class="tbl"><table><tbody>${parent.charges.map(x => `<tr><td>${esc(x.desc)}<div class="small muted">${esc(x.cat || '')} · ${fmtDate(x.at)}</div></td><td class="r num">${cents(x.price)}</td><td class="r">${x.invoiceId ? `<span class="pill ok">Paid · #${esc(x.invoiceNo)}</span>` : '<span class="pill bad">Unpaid</span>'}</td></tr>`).join('')}</tbody></table></div>` : ''}
+        ${pInv.length ? `<div class="small stack" style="gap:2px"><span class="label">Invoices on #${parent.number}</span>${pInv.map(i => `<span class="row" style="justify-content:space-between;gap:8px"><span class="num">#${i.number} · ${cents(i.total)}${i.payment ? ' · ' + esc(i.payment) : ''} · ${fmtDate(i.at)}${(i.lines || []).length ? ' · ' + esc(i.lines.map(l => l.desc).join(', ')) : ''}</span><button data-rcpt="${i.id}" style="min-height:30px;padding:2px 10px;flex:none">Receipt</button></span>`).join('')}</div>` : !(parent.charges || []).length ? '<span class="small muted">No charges or invoices on the original.</span>' : ''}
+        <span class="small muted">Its notes are copied into this ticket's history (marked "From #${parent.number}"). Add new notes and charges here on the rework.</span>
+      </div>` : ''}
       <div class="panel stack" id="t-charges">
         <div class="row" style="justify-content:space-between"><h3>Charges</h3>${isOpen ? '<button id="ch-add">+ Add charge</button>' : ''}</div>
         ${isOpen ? `<div class="row" style="gap:6px">
-          ${ch.some(x => x.cat === 'Diagnostic') ? '' : `<button data-qch="diag" style="min-height:36px;padding:4px 12px">Diagnostic ${cents(diagFor(t.device, set))} · collect now</button>`}
+          ${ch.some(x => x.cat === 'Diagnostic') || (t.type === 'rework' && t.warranty) ? '' : `<button data-qch="diag" style="min-height:36px;padding:4px 12px">Diagnostic ${cents(diagFor(t.device, set))} · collect now</button>`}
           ${t.estimate > 0 && !ch.some(x => x.cat !== 'Diagnostic') ? `<button data-qch="est" style="min-height:36px;padding:4px 12px">Quoted repair ${cents(t.estimate)}</button>` : ''}
           <button data-qch="glass" style="min-height:36px;padding:4px 12px">Glass ${cents(GLASS.regular)}</button><button data-qch="glassp" style="min-height:36px;padding:4px 12px">Privacy glass ${cents(GLASS.privacy)}</button></div>` : ''}
         ${ch.length ? `<div class="tbl"><table><tbody>${ch.map(x => `<tr><td>${esc(x.desc)}<div class="small muted">${esc(x.cat)}${x.glass ? ' · lifetime warranty' : ''} · ${esc(staffName(x.by))} · ${fmtDate(x.at)}</div></td><td class="r num">${cents(x.price)}</td>
@@ -1528,6 +1545,7 @@ async function viewTicket(el){
       <div class="field" style="margin:0"><label class="label" for="t-note">Add a note to this ticket <span class="muted" style="text-transform:none;letter-spacing:0">(staff only, the customer never sees it)</span></label><textarea id="t-note" rows="3" placeholder="What was done, what the customer said, what's next"></textarea></div>
       <div class="row"><button class="primary" id="t-addnote" style="min-height:44px">Add note</button></div>
       <span class="label">Ticket history</span>
+      ${pullNow ? '<div class="small muted" id="t-rsnotes">Loading the notes from RepairShopr…</div>' : t.rsId && !t.comments.length ? '<div class="small muted">RepairShopr has no notes on this ticket.</div>' : ''}
       <div class="timeline" style="max-height:440px;overflow:auto">${t.comments.map(m => `<div class="c ${m.pub ? 'pub' : ''}"><div class="small muted">${esc(m.who ? staffName(m.who) : (m.by || 'RepairShopr'))} · ${new Date(m.at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}${m.pub ? ' · <b style="color:var(--accent)">to customer</b>' : ''}</div><div${m.sys ? ' class="muted"' : ''}>${esc(m.text)}</div></div>`).join('')}</div>
     </div>
     <div class="panel stack">
@@ -1549,7 +1567,7 @@ async function viewTicket(el){
   $('#t-pri').onchange = e => up({priority: +e.target.value});
   $('#t-ready') && ($('#t-ready').onclick = async () => { await Store.updateTicket(S.user, S.store, t.id, {status: 'customer'}); S.prefillSms = readyMsg; toast('Waiting on Customer · pickup text ready to send'); viewTicket(el); });
   $('#t-pay') && ($('#t-pay').onclick = () => {
-    if (t.type === 'rework' || (!due.length && !tInv.length)) return checkoutSheet(t, c);
+    if (!due.length && !tInv.length) return checkoutSheet(t, c);
     if (due.length) return paySheet(t, c, {resolve: true});
     sheet(`<div class="row" style="justify-content:space-between"><h3>Close ticket #${t.number}</h3><button data-close>Close</button></div><p style="margin:0">Everything on this ticket is paid (${cents(paidSum)}). Close it?</p><div class="err" id="cl-e" role="alert"></div><button class="primary" id="cl-go">Close ticket</button>`,
       (L, close) => L.querySelector('#cl-go').onclick = async () => { try { await Store.updateTicket(S.user, S.store, t.id, {status: 'resolved'}); close(); toast('Ticket closed'); viewTicket(el); } catch (e) { L.querySelector('#cl-e').textContent = e.message; } }); });
@@ -1570,7 +1588,7 @@ async function viewTicket(el){
       ${ch.length ? '' : `<button id="nt-diag" style="min-height:48px">Collect diagnostic ${cents(diagFor(t.device, set))} now</button>`}`,
       (L, close) => { L.querySelector('#nt-lbl').onclick = () => printTicketLabel(t, c);
         L.querySelector('#nt-diag') && (L.querySelector('#nt-diag').onclick = () => { close(); addCh({desc: 'Diagnostic · ' + t.device, cat: 'Diagnostic', price: diagFor(t.device, set)}, true); }); }); }
-  el.querySelectorAll('[data-rcpt]').forEach(b => b.onclick = () => receiptSheet(tInv.find(i => i.id === b.dataset.rcpt), {c, t, after: () => viewTicket(el)}));
+  el.querySelectorAll('[data-rcpt]').forEach(b => b.onclick = () => receiptSheet([...tInv, ...pInv].find(i => i.id === b.dataset.rcpt), {c, t, after: () => viewTicket(el)}));
   el.querySelectorAll('[data-rfnd]').forEach(b => b.onclick = () => refundSheet(tInv.find(i => i.id === b.dataset.rfnd), () => viewTicket(el)));
   el.querySelectorAll('[data-rmch]').forEach(b => b.onclick = async () => { try { await Store.ticketCharge(S.user, S.store, t.id, null, b.dataset.rmch); toast('Charge removed'); viewTicket(el); } catch (e) { toast(e.message); } });
   $('#t-cust').onclick = () => go('customer', {customerId: c.id});
@@ -1596,6 +1614,7 @@ async function viewTicket(el){
       <div class="row"><button class="primary" id="rw-y">Yes, it goes to RMA</button><button id="rw-n">No (customer damage, keep out of RMA)</button></div>`,
       (L, close) => { L.querySelector('#rw-y').onclick = () => { close(); use(true); }; L.querySelector('#rw-n').onclick = () => { close(); use(false); }; }); });
   $('#t-parent') && ($('#t-parent').onclick = () => go('ticket', {ticketId: parent.id}));
+  $('#t-parent2') && ($('#t-parent2').onclick = () => go('ticket', {ticketId: parent.id}));
   el.querySelectorAll('[data-goto]').forEach(a => a.onclick = () => go('ticket', {ticketId: a.dataset.goto}));
   $('#t-bh') && ($('#t-bh').onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Battery health</h3><button data-close>Close</button></div>
     <p class="small muted" style="margin:0">Settings → Battery → Battery Health. On battery jobs, record the reading from before the swap.</p>
@@ -1610,7 +1629,7 @@ async function viewTicket(el){
     <p class="small muted" style="margin:0">Repairs carry a 6-month warranty from the day they were paid. The rework ticket links back to this one, and any defective part replaced on it goes to RMA.</p>
     <div class="field"><label class="label" for="rw-r">What came back wrong?</label><input id="rw-r" placeholder="Touch not working on the bottom of the screen"></div>
     <div class="err" id="rw-e" role="alert"></div><button class="primary" id="rw-go">Open rework ticket</button>`,
-    (L, close) => L.querySelector('#rw-go').onclick = async () => { try { const r = await Store.openRework(S.user, S.store, t.id, L.querySelector('#rw-r').value); close(); toast(`Rework #${r.number} opened`); go('ticket', {ticketId: r.id}); } catch (e) { L.querySelector('#rw-e').textContent = e.message; } }));
+    (L, close) => L.querySelector('#rw-go').onclick = async () => { const b = L.querySelector('#rw-go'); b.disabled = true; b.textContent = 'Opening…'; try { if (t.rsId) await Store.rsPull(t).catch(() => {}); const r = await Store.openRework(S.user, S.store, t.id, L.querySelector('#rw-r').value); close(); toast(`Rework #${r.number} opened`); go('ticket', {ticketId: r.id}); } catch (e) { b.disabled = false; b.textContent = 'Open rework ticket'; L.querySelector('#rw-e').textContent = e.message; } }));
 }
 
 const HEARD = ['Google', 'Facebook', 'Instagram', 'TikTok', 'Website', 'Referred by friend / family', 'Returning customer', 'Walk in / drive by', 'OfferUp', 'Yelp', 'Other'];
@@ -2026,8 +2045,8 @@ async function chargeSheet(t, c, after){
 }
 function checkoutSheet(t, c){
   if (t?.type === 'rework') return sheet(`<div class="row" style="justify-content:space-between"><h3>Close rework #${t.number}</h3><button data-close>Close</button></div>
-    <p style="margin:0">${t.warranty ? 'Warranty rework: no charge.' : 'This rework is out of warranty. Charge it like a normal repair instead: close this and use a new ticket, or ask a manager.'}</p>
-    <div class="err" id="rw-err" role="alert"></div>${t.warranty ? '<button class="primary" id="rw-close">Mark resolved</button>' : ''}`, (L, close) => { const b = L.querySelector('#rw-close'); if (b) b.onclick = async () => { try { await Store.updateTicket(S.user, S.store, t.id, {status: 'resolved'}); close(); toast('Rework resolved'); viewTicket($('#main')); } catch (e) { L.querySelector('#rw-err').textContent = e.message; } }; });
+    <p style="margin:0">${t.warranty ? 'Warranty rework: no charge. Close it once the device is fixed and back with the customer.' : 'This rework is <b>out of warranty</b>. To charge for it, close this, use <b>+ Add charge</b> on the ticket, then take payment. Or close it with no charge.'}</p>
+    <div class="err" id="rw-err" role="alert"></div><button class="primary" id="rw-close">${t.warranty ? 'Mark resolved' : 'Close with no charge'}</button>`, (L, close) => { const b = L.querySelector('#rw-close'); if (b) b.onclick = async () => { try { await Store.updateTicket(S.user, S.store, t.id, {status: 'resolved'}); close(); toast('Rework resolved'); viewTicket($('#main')); } catch (e) { L.querySelector('#rw-err').textContent = e.message; } }; });
   const lines = t ? [{desc: t.subject, cat: t.status === 'board' ? 'Board-level repair' : /console/i.test(t.issue) ? 'Console repair' : t.issue === 'Phone Sale' ? 'Phone sale' : /diag/i.test(t.subject) ? 'Diagnostic' : 'Repair', price: t.estimate || 0}] : [{desc: '', cat: 'Phone sale', price: 0}];
   const partsCost = t ? t.partsUsed.reduce((a, p) => a + (+p.cost || 0), 0) : 0;
   const upd = L => { const sub = lines.reduce((a, x) => a + (+x.price || 0), 0), tax = taxOf(lines);
