@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794421765";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -1205,7 +1205,7 @@ const HELP_KB = [
   'Make sure you\'re clocked in. Go to **Buyback**.',
   'The counter appraisal opens: pick the device, storage, carrier and condition (tick any repairs). Then tap the green **Buy it** button.',
   'Run every test. iCloud/Google lock and blacklist must pass or you can\'t buy it.',
-  'Enter the seller\'s name, phone, address, birthday and photo ID (18+, not expired).',
+  'Enter the seller\'s name, phone, birthday and photo ID (18+, not expired). No address needed.',
   'Enter what you\'re paying (over max needs a manager PIN) and how they\'re paid, then **Complete buy**.',
   'Print the **Bill of sale** (seller signs) and the label, then pick where it goes: Inventory, Repair stock or Wholesale.']},
  {t: 'Trade-in: customer sells a device and buys something', k: 'trade in trade-in trading credit upgrade swap use toward purchase credit cash back new one', s: [
@@ -2680,7 +2680,7 @@ function billOfSaleHTML(bb, dv, emp){
     <div style="text-align:right"><b>Buyback ${esc(bb.bbId || '')} · Receipt #${bb.receiptNo}</b><br>${when.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})} · ${when.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})}<br>Stock #${dv.stockNo}</div></div>
     <h2>Seller</h2><table>
       <tr><td class="k">Name</td><td>${esc(s.firstName)} ${esc(s.lastName)}</td><td class="k">Phone</td><td>${fmtPhone(s.phone)}</td></tr>
-      <tr><td class="k">Address</td><td colspan="3">${esc(s.address)}, ${esc(s.city)}, ${esc(s.state)} ${esc(s.zip)}</td></tr>
+      ${s.address ? `<tr><td class="k">Address</td><td colspan="3">${esc(s.address)}, ${esc(s.city)}, ${esc(s.state)} ${esc(s.zip)}</td></tr>` : ''}
       <tr><td class="k">Date of birth</td><td>${us(s.dob)}</td><td class="k">ID</td><td>${esc(s.idType)} · ${esc(s.idState || '')} ${esc(s.idNumber)} · exp ${us(s.idExp)}</td></tr></table>
     <h2>Device</h2><table>
       <tr><td class="k">Device</td><td>${esc(dv.model)} ${esc(dv.storage || '')}${dv.color ? ' · ' + esc(dv.color) : ''}</td><td class="k">Carrier</td><td>${esc(dv.carrier || '')}</td></tr>
@@ -2795,12 +2795,6 @@ async function viewBuyback(el){
           <div class="field"><label class="label" for="s-first">First name</label><input id="s-first" data-s="firstName" value="${sv('firstName')}"></div>
           <div class="field"><label class="label" for="s-last">Last name</label><input id="s-last" data-s="lastName" value="${sv('lastName')}"></div>
         </div>
-        <div class="field"><label class="label" for="s-addr">Street address</label><input id="s-addr" data-s="address" value="${sv('address')}"></div>
-        <div class="grid" style="grid-template-columns:2fr 1fr 1fr;gap:12px">
-          <div class="field"><label class="label" for="s-city">City</label><input id="s-city" data-s="city" value="${sv('city')}"></div>
-          <div class="field"><label class="label" for="s-state">State</label><input id="s-state" data-s="state" maxlength="2" value="${sv('state')}"></div>
-          <div class="field"><label class="label" for="s-zip">ZIP</label><input id="s-zip" data-s="zip" inputmode="numeric" maxlength="5" value="${sv('zip')}"></div>
-        </div>
         <div class="grid g2">
           <div class="field"><label class="label" for="s-idt">Photo ID</label><select id="s-idt" data-s="idType">${ID_TYPES.map(t => `<option ${B.seller.idType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
           <div class="field"><label class="label" for="s-idn">ID number</label><input id="s-idn" data-s="idNumber" value="${sv('idNumber')}"></div>
@@ -2854,7 +2848,6 @@ async function viewBuyback(el){
       : B.battery !== '' && !(+B.battery >= 1 && +B.battery <= 100) ? 'Battery health should be a number from 1 to 100.'
       : !sl.firstName.trim() || !sl.lastName.trim() ? "Enter the seller's first and last name."
       : ph.length !== 10 ? "Enter the seller's 10-digit phone number."
-      : !sl.address.trim() || !sl.city.trim() || !sl.state.trim() || !/^\d{5}$/.test(sl.zip) ? "Enter the seller's full address with a 5-digit ZIP."
       : !sl.dob ? "Enter the seller's date of birth." : age < 18 ? 'Seller must be 18 or older. Do not buy.'
       : !sl.idNumber.trim() ? 'Enter the ID number from the photo ID.' : !sl.idExp ? 'Enter the ID expiration date.' : new Date(sl.idExp) < new Date(new Date().toDateString()) ? 'That ID is expired. Ask for a current photo ID.'
       : !(paid > 0) ? 'Enter what you are paying the seller.'
@@ -3936,6 +3929,23 @@ async function viewStaff(el){
 }
 
 boot();
+/* Stay on the newest version: a store computer that keeps the POS open all day would otherwise run old code
+   (that's how a buyback label printed in the old format). Every 5 minutes, check the published page; when it changed,
+   reload by itself on the PIN screen or when the tab is in the background, otherwise show an "Update now" bar. */
+(function autoUpdate(){
+  if (!window.CZ_BUILD) return;
+  let ready = false;
+  const safe = () => (!S.user || S.tab === 'clock' || document.hidden) && !document.querySelector('#layer .sheet');   /* on the PIN screen or in the background */
+  const bar = () => { if (document.getElementById('cz-upd')) return; const b = document.createElement('div'); b.id = 'cz-upd';
+    b.style.cssText = 'position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:9999;background:#1d4ed8;color:#fff;border-radius:12px;padding:10px 14px;display:flex;gap:12px;align-items:center;box-shadow:0 6px 24px rgba(0,0,0,.25);font:600 14px system-ui,sans-serif;max-width:calc(100vw - 32px)';
+    b.innerHTML = '<span>A new version of the POS is ready.</span><button style="background:#fff;color:#1d4ed8;border:0;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer">Update now</button>';
+    b.querySelector('button').onclick = () => location.reload(); document.body.appendChild(b); };
+  const check = async () => {
+    try { if (!ready) { const t = await fetch(location.pathname + '?u=' + Date.now(), {cache: 'no-store'}).then(r => r.ok ? r.text() : ''); const m = t.match(/CZ_BUILD="(\d+)"/); if (m && m[1] !== window.CZ_BUILD) ready = true; } } catch {}
+    if (ready) { if (safe()) location.reload(); else bar(); } };
+  setInterval(check, 5 * 60000); document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+  setTimeout(check, 20000);
+})();
 </script>
 
 </body></html>
