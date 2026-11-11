@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794435618";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794435732";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -1983,6 +1983,7 @@ async function receiptSheet(inv, ctx = {}){
   sheet(`<div class="row" style="justify-content:space-between"><h3>${ctx.justPaid ? (isRef ? 'Refunded · ' + cents(-inv.total) : 'Paid · ' + cents(inv.total)) : 'Receipt #' + inv.number}</h3><button data-close>Done</button></div>
     ${ctx.refund ? `<div class="banner ${ctx.refund.method === 'Cash' ? 'warn' : 'ok'}" style="font-size:16px">${ctx.refund.method === 'Cash' ? `<b>Give the customer ${cents(-inv.total)} cash</b> from the register drawer.` : `Refund recorded: ${cents(-inv.total)} back by ${esc(ctx.refund.method)}.`} Refund for receipt #${ctx.refund.orig}.</div>` : ''}
     ${ctx.justPaid ? `<div class="small muted">Invoice #${inv.number} · ${esc(inv.payment)}${ctx.note ? ' · ' + esc(ctx.note) : ''}</div>` : ''}
+    ${ctx.cash ? `<div class="banner ${ctx.cash.change > 0 ? 'warn' : 'ok'}" style="font-size:18px">Cash received ${cents(ctx.cash.given)} · ${ctx.cash.change > 0 ? `<b>Give back ${cents(ctx.cash.change)} change</b>` : 'no change due'}</div>` : ''}
     ${ctx.cashBack > 0 ? `<div class="banner warn" style="font-size:16px"><b>Give the customer ${cents(ctx.cashBack)} cash back</b> from the buyback fund (the rest of their trade-in credit).</div>` : ''}
     ${ctx.creditLeft > 0 ? `<div class="banner ok small">${cents(ctx.creditLeft)} trade-in credit stays on file. It comes up automatically next time you enter their phone in the Register.</div>` : ''}
     <div style="background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:14px;max-height:340px;overflow:auto">${receiptHTML(r)}</div>
@@ -2518,7 +2519,8 @@ async function viewRegister(el){
       <div class="field"><label class="label" for="rg-ph">Customer phone (${S.cart.some(l => l.glass) ? 'required for the glass warranty' : 'optional'})</label><input id="rg-ph" inputmode="tel" value="${esc(S.cartPhone || '')}" placeholder="Leave blank for walk-in"></div>
       <div id="rg-trade">${S.cart.length ? tradeBox(TR.credits, total, TR) : (TR.credits.length ? `<div class="banner ok small">${esc(TR.credits[0].name || 'This customer')} has ${cents(tradeCalc(TR.credits, 1e9, {use: true}).avail)} trade-in credit. Add what they're buying.</div>` : '')}</div>
       <div class="field" ${S.cart.length && tk.applied > 0 && tk.due <= 0 ? 'hidden' : ''}><label class="label" for="rg-pay">${tk.applied > 0 ? 'Balance paid with' : 'Paid with'}</label><select id="rg-pay">${PAYMENTS.map(p => `<option ${S.rgPay === p ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
-      <div class="banner warn small" id="rg-sq">Charge the card on the Square iPad first, then record it here.</div>
+      <div class="banner warn small" id="rg-sq" ${(S.rgPay || PAYMENTS[0]).startsWith('Square') ? '' : 'hidden'}>Charge the card on the Square iPad first, then record it here.</div>
+      ${S.cart.length && (S.rgPay || PAYMENTS[0]) === 'Cash' && !(tk.applied > 0 && tk.due <= 0) ? cashBoxHTML('rg', S.rgGiven) : ''}
       <div class="err" id="rg-err" role="alert"></div>
       <button class="primary" id="rg-go" ${S.cart.length ? '' : 'disabled'} style="min-height:52px;font-size:16px">Record sale</button>
     </div></div>`;
@@ -2571,17 +2573,20 @@ async function viewRegister(el){
   if (exact) { addProd(exact); return; }
   registerPanel($('#rg-day'), () => viewRegister(el)).catch(e => { $('#rg-day').innerHTML = `<div class="banner warn small">Register open/close isn't available: ${esc(e.message)}</div>`; });
   $('#rg-ph').oninput = e => { S.cartPhone = e.target.value; if (e.target.value.replace(/\D/g, '').length === 10 || TR.phone) viewRegister(el).then(() => { const n = $('#rg-ph'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); };
-  $('#rg-pay').onchange = e => { S.rgPay = e.target.value; $('#rg-sq').hidden = !e.target.value.startsWith('Square'); };
+  $('#rg-pay').onchange = e => { S.rgPay = e.target.value; viewRegister(el); };
+  const rgDue = () => Math.round((tk.applied > 0 ? tk.due : total) * 100) / 100;
+  bindCash('rg', el, rgDue, v => { S.rgGiven = v; });
   $('#rg-go').onclick = async () => {
     const ph = (S.cartPhone || '').replace(/\D/g, ''); let cust = null;
     if (ph && ph.length !== 10) { $('#rg-err').textContent = 'Phone should be 10 digits, or leave it blank.'; return; }
     if (!ph && S.cart.some(l => l.glass)) { $('#rg-err').textContent = "Tempered glass comes with the lifetime warranty: enter the customer's phone so it's on file."; return; }
     if (ph) { cust = (await Store.customerByPhone(ph)) || await Store.saveCustomer(S.user, S.store, {name: 'Walk-in ' + ph.slice(-4), phone: ph, heardFrom: 'Walk in / drive by'}); }
     const useTr = tk.applied > 0;
+    let cash = null; if ($('#rg-given')) { cash = cashCheck('rg', el, rgDue()); if (cash.err) { $('#rg-err').textContent = cash.err; return; } }
     let inv; try { inv = await Store.checkout(S.user, S.store, {ticketId: null, customerId: cust?.id || null, lines: S.cart.map(l => ({desc: l.desc, cat: l.cat, price: l.price, ...(l.productId ? {productId: l.productId} : {}), ...(l.deviceId ? {deviceId: l.deviceId} : {}), ...(l.glass ? {glass: l.glass} : {}), ...(l.glassWarrantyId ? {glassWarrantyId: l.glassWarrantyId} : {})})), partsCost: 0, payment: $('#rg-pay').value,
       ...(useTr ? {credits: tk.alloc, cashBack: tk.left > 0 && TR.cashBack} : {})}); } catch (e) { $('#rg-err').textContent = e.message; return; }
-    S.cart = []; S.cartPhone = ''; S.prods = null; S.rgDevs = null; S.rgTrade = null; viewRegister(el);
-    receiptSheet(inv, {c: cust || {}, justPaid: true, cashBack: inv.cashBack || 0, creditLeft: useTr && !TR.cashBack ? tk.left : 0});
+    S.cart = []; S.cartPhone = ''; S.prods = null; S.rgDevs = null; S.rgTrade = null; S.rgGiven = ''; viewRegister(el);
+    receiptSheet(inv, {c: cust || {}, justPaid: true, cash, cashBack: inv.cashBack || 0, creditLeft: useTr && !TR.cashBack ? tk.left : 0});
   };
 }
 
@@ -3059,6 +3064,23 @@ async function glassPicker(kind, device, onPick){
     const inp = L.querySelector('#gp-q'); inp.oninput = () => { q = inp.value; draw(); }; draw(); setTimeout(() => { inp.focus(); inp.select(); }, 50);
   });
 }
+/* ---------- cash: what the customer handed over → change ---------- */
+const cashBoxHTML = (p, given) => `<div id="${p}-cash" class="stack" style="gap:6px;background:var(--soft);border-radius:var(--r);padding:10px 12px">
+    <div class="row" style="gap:8px;align-items:flex-end"><div class="field" style="margin:0;flex:1;min-width:140px"><label class="label" for="${p}-given">Cash they handed you</label><input id="${p}-given" inputmode="decimal" value="${esc(given || '')}" placeholder="0.00" style="font-size:20px"></div>
+      <div class="row" style="gap:6px">${[['exact', 'Exact'], [20, '$20'], [40, '$40'], [50, '$50'], [100, '$100']].map(([v, l]) => `<button type="button" data-cq="${v}" style="min-height:44px;padding:4px 12px">${l}</button>`).join('')}</div></div>
+    <div id="${p}-chg" style="font-size:20px"></div></div>`;
+/* returns {given, change} or {err}; due = amount to collect in cash */
+const cashCheck = (p, root, due) => { const v = root.querySelector('#' + p + '-given')?.value.replace(/[$,\s]/g, '') || '';
+  if (v === '') return {err: 'Type how much cash they handed you (or tap Exact).'}; const g = Math.round(parseFloat(v) * 100) / 100;
+  if (!(g >= 0)) return {err: 'Cash received should be a number.'}; if (g + 0.001 < due) return {err: `That's ${cents(due - g)} short. They owe ${cents(due)}.`};
+  return {given: g, change: Math.round((g - due) * 100) / 100}; };
+function bindCash(p, root, getDue, onGiven){
+  const inp = root.querySelector('#' + p + '-given'); if (!inp) return;
+  const show = () => { const due = getDue(); const r = cashCheck(p, root, due); const box = root.querySelector('#' + p + '-chg');
+    box.innerHTML = inp.value.trim() === '' ? `<span class="muted">Collect ${cents(due)}</span>` : r.err ? `<span style="color:var(--bad)">${esc(r.err)}</span>` : `Change due: <b class="num" style="font-size:28px;color:var(--ok)">${cents(r.change)}</b>`; };
+  inp.oninput = () => { onGiven && onGiven(inp.value); show(); };
+  root.querySelectorAll('[data-cq]').forEach(b => b.onclick = () => { const v = b.dataset.cq; inp.value = v === 'exact' ? getDue().toFixed(2) : String(v); onGiven && onGiven(inp.value); show(); });
+  show(); }
 /* ---------------- INVOICE PAGE (like RepairShopr) ----------------
    Ticket → Make invoice makes a numbered invoice that starts unpaid and opens here. Edit the lines (qty, price, Taxable),
    add items, glass or a discount, then Take payment. Paid invoices show how they were paid, with Receipt and Refund. */
@@ -3202,18 +3224,22 @@ function payInvoiceSheet(inv, t, c, el){
       <div class="field"><label class="label" for="pi-bhs">Or: couldn't read it because</label><select id="pi-bhs"><option value="">—</option><option>Disabled / passcode unknown</option><option>No display / can't see it</option><option>Won't turn on</option><option>Boot looping</option></select></div></div>` : ''}
     <div class="field" id="pi-payf"><label class="label" for="pi-pay">Paid with</label><select id="pi-pay">${PAYMENTS.map(p => `<option>${p}</option>`).join('')}</select></div>
     <div class="banner warn small" id="pi-sq">Charge the card on the Square iPad first, then record it here.</div>
+    ${cashBoxHTML('pi', '')}
     <div class="err" id="pi-err" role="alert"></div>
     <button class="primary" id="pi-go" style="min-height:52px;font-size:16px"></button>`,
   (L, close) => {
     const draw = () => { const tk = tradeCalc(TRp.credits, tot, TRp); L.querySelector('#pi-trade').innerHTML = tradeBox(TRp.credits, tot, TRp); bindTradeBox(L.querySelector('#pi-trade'), TRp, draw);
-      L.querySelector('#pi-payf').hidden = tk.applied > 0 && tk.due <= 0; L.querySelector('#pi-payf .label').textContent = tk.applied > 0 ? 'Balance paid with' : 'Paid with';
+      L.querySelector('#pi-payf').hidden = tk.applied > 0 && tk.due <= 0; const cb = L.querySelector('#pi-cash'); if (cb) cb.hidden = L.querySelector('#pi-pay').value !== 'Cash' || (tk.applied > 0 && tk.due <= 0); L.querySelector('#pi-payf .label').textContent = tk.applied > 0 ? 'Balance paid with' : 'Paid with';
       const r = L.querySelector('#pi-res'); if (r) { r.checked = resolve; L.querySelector('#pi-bh').hidden = !(resolve && needsBH(t) && !t.bh && !t.bhSkip); }
       L.querySelector('#pi-go').textContent = `Record ${cents(tk.applied ? tk.due : tot)} payment${tk.applied ? ' (+ ' + cents(tk.applied) + ' trade-in credit)' : ''}${resolve ? ' and close ticket' : ''}`; };
     draw();
     if (c?.phone) Store.tradeCredits(c.phone).then(cr => { TRp.credits = cr || []; if (TRp.credits.length) draw(); }).catch(() => {});
     L.querySelector('#pi-res') && (L.querySelector('#pi-res').onchange = e => { resolve = e.target.checked; draw(); });
-    const pay = L.querySelector('#pi-pay'); const sq = () => { L.querySelector('#pi-sq').hidden = !pay.value.startsWith('Square'); }; pay.onchange = sq; sq();
+    const pay = L.querySelector('#pi-pay'); const cashDue = () => { const tk = tradeCalc(TRp.credits, tot, TRp); return Math.round((tk.applied ? tk.due : tot) * 100) / 100; };
+    const sq = () => { L.querySelector('#pi-sq').hidden = !pay.value.startsWith('Square'); L.querySelector('#pi-cash').hidden = pay.value !== 'Cash' || L.querySelector('#pi-payf').hidden; }; pay.onchange = sq; sq();
+    bindCash('pi', L, cashDue);
     L.querySelector('#pi-go').onclick = async () => { const btn = L.querySelector('#pi-go'); const tk = tradeCalc(TRp.credits, tot, TRp);
+      let cash = null; if (pay.value === 'Cash' && !L.querySelector('#pi-cash').hidden) { cash = cashCheck('pi', L, cashDue()); if (cash.err) { L.querySelector('#pi-err').textContent = cash.err; return; } }
       if (L.querySelector('#pi-bh') && !L.querySelector('#pi-bh').hidden) { const v = L.querySelector('#pi-bhv').value.trim(), sk = L.querySelector('#pi-bhs').value;
         if (v && !(+v >= 1 && +v <= 100)) { L.querySelector('#pi-err').textContent = 'Battery health: enter a number from 1 to 100.'; return; }
         if (!v && !sk) { L.querySelector('#pi-err').textContent = "Record the battery health % (or pick why it couldn't be read) before closing."; return; }
@@ -3221,7 +3247,7 @@ function payInvoiceSheet(inv, t, c, el){
       btn.disabled = true;
       try { const r = await Store.checkout(S.user, S.store, {invoiceId: inv.id, ticketId: inv.ticketId || null, customerId: inv.customerId || c?.id || null, payment: pay.value, resolve: !!t && resolve,
           ...(tk.applied > 0 ? {credits: tk.alloc, cashBack: tk.left > 0 && TRp.cashBack} : {})});
-        close(); await viewInvoice(el); receiptSheet(r, {c: c || {}, t, justPaid: true, note: t ? (resolve ? 'ticket closed' : 'ticket stays open') : '', cashBack: r.cashBack || 0, creditLeft: tk.applied > 0 && !TRp.cashBack ? tk.left : 0});
+        close(); await viewInvoice(el); receiptSheet(r, {c: c || {}, t, justPaid: true, cash, note: t ? (resolve ? 'ticket closed' : 'ticket stays open') : '', cashBack: r.cashBack || 0, creditLeft: tk.applied > 0 && !TRp.cashBack ? tk.left : 0});
       } catch (e) { L.querySelector('#pi-err').textContent = e.message; btn.disabled = false; } };
   });
 }
