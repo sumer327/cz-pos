@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794428320";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794430672";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -194,7 +194,9 @@ const LINE_CATS = ['Repair','Board-level repair','Diagnostic','Water damage trea
 const TAX_RATE = 0.0825;
 /* how an invoice was paid: split payments (trade-in credit + card) or the single method */
 const payParts = i => i.payments?.length ? i.payments : [{method: i.payment, amount: i.total}];
-const isTaxable = l => !['Diagnostic', 'Diagnostic credit', 'Water damage treatment'].includes(l.cat) && !/water damage/i.test(l.desc || '');
+const isTaxable = l => typeof l.taxable === 'boolean' ? l.taxable : !['Diagnostic', 'Diagnostic credit', 'Water damage treatment'].includes(l.cat) && !/water damage/i.test(l.desc || '');
+const invTotals = inv => { const sub = Math.round(inv.lines.reduce((a, l) => a + (+l.price || 0) * (+l.qty || 1), 0) * 100) / 100; const tax = taxOf(inv.lines);
+  return Object.assign(inv, {subtotal: sub, tax, total: Math.round((sub + tax) * 100) / 100}); };
 const taxOf = lines => Math.max(0, Math.round(lines.filter(isTaxable).reduce((a, l) => a + (+l.price || 0) * (l.qty || 1), 0) * TAX_RATE * 100) / 100);
 const taxRow = (sub, tax) => `<div class="row small" style="justify-content:space-between"><span class="muted">Subtotal ${cents(sub)} · Sales tax 8.25% ${cents(tax)}</span>${tax === 0 && sub > 0 ? '<span class="muted">labor only, no tax</span>' : ''}</div>`;
 const PAYMENTS = ['Square (card)','Cash','Acima','Zelle'];
@@ -579,19 +581,21 @@ const DemoStore = {
   async ticketInvoices(id){ return this.db().invoices.filter(i => i.ticketId === id).sort((a, b) => new Date(b.at) - new Date(a.at)); },
   async checkout(emp, store, inv){
     const d = this.db(); const resolve = inv.resolve !== false;
+    if (inv.invoiceId) { const dr = d.invoices.find(i => i.id === inv.invoiceId); if (!dr || dr.paid !== false) throw new Error('That invoice is already paid.'); if (!dr.lines.length) throw new Error('Add at least one line to the invoice.');
+      inv = {...inv, ticketId: dr.ticketId, customerId: inv.customerId || dr.customerId, lines: dr.lines.filter(l => l.cat !== 'Diagnostic credit'), chargeIds: dr.lines.filter(l => l.chargeId).map(l => l.chargeId), creditIds: dr.lines.filter(l => l.creditId).map(l => l.creditId), _draft: dr}; delete inv.invoiceId; }
     if (inv.ticketId && resolve) { const t0 = d.tickets.find(x => x.id === inv.ticketId);
       if (needsBH(t0) && !t0.bh && !t0.bhSkip) throw new Error('Record battery health (BH %) on this iPhone ticket before checking out.'); }
     if (inv.ticketId && inv.chargeIds?.length) { const t0 = d.tickets.find(x => x.id === inv.ticketId);
-      if ((t0.charges || []).some(x => inv.chargeIds.includes(x.id) && x.invoiceId)) throw new Error('One of those charges was already paid. Reload the ticket.'); }
+      if ((t0.charges || []).some(x => inv.chargeIds.includes(x.id) && x.invoiceId && !(inv._draft && x.invoiceId === inv._draft.id))) throw new Error('One of those charges was already paid. Reload the ticket.'); }
     let credit = [];
     if (inv.ticketId && inv.creditIds?.length) { const t0 = d.tickets.find(x => x.id === inv.ticketId);
-      const cs = (t0.charges || []).filter(x => inv.creditIds.includes(x.id) && x.cat === 'Diagnostic' && x.invoiceId && !x.creditedOn);
+      const cs = (t0.charges || []).filter(x => inv.creditIds.includes(x.id) && x.cat === 'Diagnostic' && x.invoiceId && !x.draft && !x.creditedOn);
       if (cs.length !== inv.creditIds.length) throw new Error("That diagnostic was already credited, or isn't paid yet. Reload the ticket.");
       const rep = inv.lines.filter(l => REPAIR_CATS.includes(l.cat)).reduce((a, l) => a + l.price, 0); const cr = cs.reduce((a, x) => a + x.price, 0);
       if (rep < cr) throw new Error('The diagnostic credit is more than the repair on this payment. Add the repair charge first.');
-      credit = cs.map(x => ({desc: `Diagnostic credit (paid on invoice #${x.invoiceNo})`, cat: 'Diagnostic credit', price: -x.price})); }
+      credit = cs.map(x => ({desc: `Diagnostic credit (paid on invoice #${x.invoiceNo})`, cat: 'Diagnostic credit', price: -x.price, ...(inv._draft ? {qty: 1, taxable: false, creditId: x.id} : {})})); }
     const lines = [...inv.lines, ...credit];
-    const subtotal = Math.round(lines.reduce((a, l) => a + l.price, 0) * 100) / 100; const tax = taxOf(lines); const total = Math.round((subtotal + tax) * 100) / 100;
+    const subtotal = Math.round(lines.reduce((a, l) => a + l.price * (+l.qty || 1), 0) * 100) / 100; const tax = taxOf(lines); const total = Math.round((subtotal + tax) * 100) / 100;
     const tc = inv.credits || []; let tcSum = 0;
     tc.forEach(x => { const bb = d.buybacks.find(b => b.id === x.buybackId); if (!bb) throw new Error("That trade-in wasn't found.");
       if (!inv.customerId || bb.customerId !== inv.customerId) throw new Error('Trade-in credit can only be used by the person who sold us the device. Enter their phone number.');
@@ -602,6 +606,7 @@ const DemoStore = {
     const payments = [...(tcSum > 0 ? [{method: 'Trade-in credit', amount: tcSum}] : []), ...(rest > 0 ? [{method: pay, amount: rest}] : [])];
     const devCost = lines.filter(l => l.deviceId).reduce((a, l) => { const dv = d.devices.find(x => x.id === l.deviceId); return a + (+dv?.cost || 0) + (+dv?.partsCost || 0); }, 0);
     const row = {id: uid(), number: d.nextInvoice++, at: now(), by: emp.id, store, ...inv, lines, subtotal, tax, total, payments, payment: tcSum > 0 ? (rest > 0 ? 'Trade-in credit + ' + pay : 'Trade-in credit') : pay};
+    if (inv._draft) { row.id = inv._draft.id; row.number = inv._draft.number; d.nextInvoice--; d.invoices = d.invoices.filter(i => i.id !== row.id); } delete row._draft; row.paid = true; row.paidAt = now();
     delete row.chargeIds; delete row.resolve; delete row.creditIds; delete row.credits; delete row.cashBack; if (!resolve) row.partsCost = 0; row.partsCost = (row.partsCost || 0) + devCost;
     let cashBack = 0;
     tc.forEach(x => { const bb = d.buybacks.find(b => b.id === x.buybackId); bb.creditLeft = Math.round((bb.creditLeft - x.amount) * 100) / 100; (bb.creditUsed = bb.creditUsed || []).push({invoiceId: row.id, invoiceNo: row.number, amount: x.amount, at: now()});
@@ -611,7 +616,7 @@ const DemoStore = {
     row.cashBack = Math.round(cashBack * 100) / 100;
     if (credit.length) { const t0 = d.tickets.find(x => x.id === inv.ticketId); t0.charges.forEach(x => { if (inv.creditIds.includes(x.id)) x.creditedOn = row.number; }); }
     d.invoices.unshift(row);
-    if (inv.ticketId && inv.chargeIds?.length) { const t0 = d.tickets.find(x => x.id === inv.ticketId); (t0.charges || []).forEach(x => { if (inv.chargeIds.includes(x.id)) Object.assign(x, {invoiceId: row.id, invoiceNo: row.number, paidAt: now()}); }); }
+    if (inv.ticketId && inv.chargeIds?.length) { const t0 = d.tickets.find(x => x.id === inv.ticketId); (t0.charges || []).forEach(x => { if (inv.chargeIds.includes(x.id)) { delete x.draft; Object.assign(x, {invoiceId: row.id, invoiceNo: row.number, paidAt: now()}); } }); }
     d.glass = d.glass || [];
     (inv.lines || []).forEach(l => { if (l.glass && inv.customerId) d.glass.unshift({id: uid(), customerId: inv.customerId, store, kind: l.glass, device: l.device || '', invoiceId: row.id, soldAt: now(), replacements: 0, lastReplacedAt: null});
       if (l.glassWarrantyId) { const w = d.glass.find(x => x.id === l.glassWarrantyId); if (w) { w.replacements++; w.lastReplacedAt = now(); } } });
@@ -625,8 +630,31 @@ const DemoStore = {
       t.comments.unshift({id: uid(), at: now(), who: emp.id, text: `Paid ${cents(row.total)} · ${inv.payment} · invoice #${row.number}. Ticket stays open.`, pub: false, sys: true}); }
     this.log(d, emp.id, store, 'Invoice', `#${row.number} ${cents(row.total)} · ${inv.payment}`); this.save(d); return row;
   },
-  async invoices(from, to){ return this.db().invoices.filter(i => new Date(i.at) >= from && new Date(i.at) < to); },
-  async allInvoices(){ return this.db().invoices; },
+  async invoices(from, to){ return this.db().invoices.filter(i => i.paid !== false && new Date(i.at) >= from && new Date(i.at) < to); },
+  async invoice(id){ return this.db().invoices.find(i => i.id === id) || null; },
+  async makeInvoice(emp, store, ticketId, chargeIds){ const d = this.db(); const t = d.tickets.find(x => x.id === ticketId);
+    let inv = d.invoices.find(i => i.ticketId === t.id && i.paid === false && !i.rsId);
+    const ls = (t.charges || []).filter(x => !x.invoiceId && (!chargeIds || chargeIds.includes(x.id))).map(x => ({desc: x.desc, cat: x.cat, price: +x.price, qty: 1, taxable: isTaxable(x), chargeId: x.id, ...(x.productId ? {productId: x.productId} : {}), ...(x.glass ? {glass: x.glass, device: t.device} : {})}));
+    if (!inv) { const rep = ls.filter(l => REPAIR_CATS.includes(l.cat)).reduce((a, l) => a + l.price, 0); const crs = (t.charges || []).filter(x => x.cat === 'Diagnostic' && x.invoiceId && !x.draft && !x.creditedOn);
+      const cr = crs.reduce((a, x) => a + +x.price, 0); if (cr > 0 && rep >= cr) crs.forEach(x => ls.push({desc: `Diagnostic credit (paid on invoice #${x.invoiceNo})`, cat: 'Diagnostic credit', price: -x.price, qty: 1, taxable: false, creditId: x.id}));
+      inv = {id: uid(), number: d.nextInvoice++, at: now(), store, by: emp.id, ticketId: t.id, customerId: t.customerId, lines: ls, payment: 'Unpaid', payments: [], paid: false, partsCost: 0}; d.invoices.unshift(inv);
+      t.comments.unshift({id: uid(), at: now(), who: emp.id, text: `Invoice #${inv.number} made (not paid yet)`, pub: false, sys: true}); }
+    else inv.lines.push(...ls);
+    invTotals(inv); ls.filter(l => l.chargeId).forEach(l => Object.assign(t.charges.find(x => x.id === l.chargeId), {invoiceId: inv.id, invoiceNo: inv.number, draft: true}));
+    this.save(d); return inv; },
+  async saveInvoice(emp, store, id, lines){ const d = this.db(); const inv = d.invoices.find(i => i.id === id); if (!inv || inv.paid !== false) throw new Error('That invoice is already paid.');
+    lines.forEach(l => { if (!String(l.desc || '').trim()) throw new Error('Every line needs a name.'); l.price = Math.round((+l.price || 0) * 100) / 100; l.qty = Math.max(1, +l.qty || 1);
+      if (l.price < 0 && !['Discount', 'Diagnostic credit'].includes(l.cat)) throw new Error(`"${l.desc}" can't be below $0. Use Discount for money off.`);
+      if (l.price === 0 && l.cat !== 'Discount') throw new Error(`Enter a price for "${l.desc}".`); });
+    inv.lines = lines; invTotals(inv); if (inv.total < 0) throw new Error('The discount is more than the invoice.');
+    const t = inv.ticketId && d.tickets.find(x => x.id === inv.ticketId);
+    if (t) (t.charges || []).filter(x => x.invoiceId === inv.id).forEach(x => { const l = lines.find(y => y.chargeId === x.id); if (!l) { delete x.invoiceId; delete x.invoiceNo; delete x.draft; } else Object.assign(x, {desc: l.desc, price: l.price * l.qty}); });
+    this.save(d); return inv; },
+  async voidInvoice(emp, store, id){ const d = this.db(); const inv = d.invoices.find(i => i.id === id); if (!inv || inv.paid !== false) throw new Error('Only unpaid invoices can be deleted.');
+    const t = inv.ticketId && d.tickets.find(x => x.id === inv.ticketId);
+    if (t) { (t.charges || []).filter(x => x.invoiceId === inv.id).forEach(x => { delete x.invoiceId; delete x.invoiceNo; delete x.draft; }); t.comments.unshift({id: uid(), at: now(), who: emp.id, text: `Invoice #${inv.number} deleted (it was never paid). Its charges are back on the ticket.`, pub: false, sys: true}); }
+    d.invoices = d.invoices.filter(i => i.id !== id); this.save(d); return {ok: true, ticketId: inv.ticketId}; },
+  async allInvoices(store){ return this.db().invoices.filter(i => !store || i.store === store); },
   async rsInvoiceCharge(emp, store, id){ throw new Error('RepairShopr invoices only exist in the live POS.'); },
   async invoiceRefs(cids, tids){ const d = this.db(); return {cust: Object.fromEntries(d.customers.filter(c => cids.includes(c.id)).map(c => [c.id, c])), tix: Object.fromEntries(d.tickets.filter(t => tids.includes(t.id)).map(t => [t.id, t]))}; },
   async findInvoices(emp, q){ const d = this.db(); const dg = String(q || '').replace(/\D/g, ''); if (!dg) return [];
@@ -947,7 +975,11 @@ const LiveStore = {
   async wholesaleShip(emp, store, ids, tracking, notes){ return this.rpc('pos_wholesale_ship', {p_pin: this.pinFor(emp), p_store: store, p_ids: ids, p_tracking: tracking || '', p_notes: notes || ''}); },
   async atlasPayout(emp, id, amount){ return this.rpc('pos_atlas_payout', {p_pin: this.pinFor(emp), p_id: id, p_amount: amount}); },
   async ticketInvoices(id){ const {data, error} = await this.sb.from('invoices_v').select('*').eq('ticketId', id).order('at', {ascending: false}); if (error) throw error; this.keep(this.cI, data); return data; },
-  async invoices(from, to){ const {data, error} = await this.sb.from('invoices_v').select('*').gte('at', from.toISOString()).lt('at', to.toISOString()); if (error) throw error; return data; },
+  async invoices(from, to){ const {data, error} = await this.sb.from('invoices_v').select('*').gte('at', from.toISOString()).lt('at', to.toISOString()).or('paid.eq.true,rsId.not.is.null'); if (error) throw error; return data; },
+  async invoice(id){ const {data, error} = await this.sb.from('invoices_v').select('*').eq('id', id).maybeSingle(); if (error) throw error; if (data) this.keep(this.cI, [data]); return data; },
+  async makeInvoice(emp, store, ticketId, chargeIds){ const r = await this.rpc('pos_make_invoice', {p_pin: this.pinFor(emp), p_store: store, p_ticket: ticketId, p_charge_ids: chargeIds || null}); this.cT.delete(ticketId); await this.loadTicket(ticketId).catch(() => {}); this.keep(this.cI, [r]); return r; },
+  async saveInvoice(emp, store, id, lines){ const r = await this.rpc('pos_save_invoice', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_lines: lines}); this.keep(this.cI, [r]); if (r.ticketId) this.cT.delete(r.ticketId); return r; },
+  async voidInvoice(emp, store, id){ const r = await this.rpc('pos_void_invoice', {p_pin: this.pinFor(emp), p_store: store, p_id: id}); this.cI.delete(id); if (r.ticketId) { this.cT.delete(r.ticketId); await this.loadTicket(r.ticketId).catch(() => {}); } return r; },
   async findInvoices(emp, q){ return (await this.rpc('pos_find_invoices', {p_pin: this.pinFor(emp), p_q: q})) || []; },
   async refund(emp, store, ref, approver){ const r = await this.rpc('pos_refund', {p_pin: this.pinFor(emp), p_store: store, p_ref: ref, p_approver_pin: approver && approver.id !== emp.id ? this.pinFor(approver) : null});
     this.keep(this.cI, [r]); const o = await this.sb.from('invoices_v').select('*').eq('id', ref.invoiceId).maybeSingle(); if (o.data) this.keep(this.cI, [o.data]); if (r.ticketId) { this.cT.delete(r.ticketId); await this.loadTicket(r.ticketId).catch(() => {}); } return r; },
@@ -956,7 +988,8 @@ const LiveStore = {
     const cs = (await Promise.all(chunk(cids).map(ids => this.sb.from('customers').select('id,name,phone').in('id', ids)))).flatMap(r => r.data || []);
     const ts = (await Promise.all(chunk(tids).map(ids => this.sb.from('tickets_v').select('id,number,device,subject,status').in('id', ids)))).flatMap(r => r.data || []);
     return {cust: Object.fromEntries(cs.map(c => [c.id, c])), tix: Object.fromEntries(ts.map(t => [t.id, t]))}; },
-  async allInvoices(){ const {data, error} = await this.sb.from('invoices_v').select('*').order('at', {ascending: false}).limit(1000); if (error) throw error; this.keep(this.cI, data); return [...this.cI.values()].sort((a, b) => new Date(b.at) - new Date(a.at)); },
+  async allInvoices(store){ let q = this.sb.from('invoices_v').select('*').order('at', {ascending: false}).limit(1000); if (store) q = q.eq('store', store); const {data, error} = await q; if (error) throw error; this.keep(this.cI, data);
+    return [...this.cI.values()].filter(i => !store || i.store === store).sort((a, b) => new Date(b.at) - new Date(a.at)); },
   async ghlEvents(){ const {data, error} = await this.sb.from('ghl_events_v').select('*').gte('at', new Date(Date.now() - 3*86400000).toISOString()).order('at', {ascending: false}).limit(300); if (error) throw error; return data; },
   async glassWarranties(phone){ const {data, error} = await this.sb.from('glass_warranties_v').select('*').eq('phone', phone).order('soldAt', {ascending: false}); if (error) throw error; return data; },
   async callSources(){ const {data, error} = await this.sb.from('call_sources').select('*').order('label'); if (error) return []; return data; },
@@ -1352,9 +1385,9 @@ const NAV = [
   ['inventory','Devices',0],['swappa','Swappa',0],['wholesale','Wholesale',0],['repairs','Repair stock',0],['parts','Parts',0],['quote','Quote',0]
 ];
 const MORE = [['counts','Counts',0],['transfers','Transfers',0],['closeout','Close out',0],['hours','Timesheets',2],['staff','Admin',3]];
-const ALIAS = {ticket: 'tickets', newticket: 'tickets', customer: 'customers', repair: 'repairs', calls: 'inbox'};
+const ALIAS = {invoice: 'invoices', ticket: 'tickets', newticket: 'tickets', customer: 'customers', repair: 'repairs', calls: 'inbox'};
 /* browser Back / Forward: every screen change is a history entry; Back closes an open popup first, and never leaves the POS */
-const NAV_KEYS = ['customerId', 'ticketId', 'deviceId', 'q'];
+const NAV_KEYS = ['customerId', 'ticketId', 'deviceId', 'invoiceId', 'q'];
 const navState = () => ({pos: 1, tab: S.tab, ...Object.fromEntries(NAV_KEYS.filter(k => S[k] != null && S[k] !== '').map(k => [k, S[k]]))});
 function go(tab, extra = {}, fromHistory = false){ Object.assign(S, {tab}, extra);
   if (!fromHistory) { try { const st = navState(), cur = history.state;
@@ -1412,7 +1445,7 @@ async function renderShell(){
   gs.onkeydown = e => { if (e.key === 'Enter' && gs.value.trim()) go('search', {q: gs.value.trim()}); };
   const views = {clock: viewClock, buyback: viewBuyback, inventory: viewInventory, parts: viewParts, quote: viewQuote, swappa: viewSwappa, wholesale: viewWholesale, dashboard: viewDashboard,
     hours: viewHours, staff: viewStaff, tickets: viewTickets, ticket: viewTicket, newticket: viewNewTicket, customers: viewCustomers,
-    customer: viewCustomer, search: viewSearch, invoices: viewInvoices, calls: viewInbox, inbox: viewInbox, repairs: viewRepairs, repair: viewRepair,
+    customer: viewCustomer, search: viewSearch, invoices: viewInvoices, invoice: viewInvoice, calls: viewInbox, inbox: viewInbox, repairs: viewRepairs, repair: viewRepair,
     register: viewRegister, closeout: viewCloseout, counts: viewCounts, transfers: viewTransfers};
   try { await (views[S.tab] || viewTickets)($('#main')); } catch (e) { console.error(e); $('#main').innerHTML = `<div class="banner bad">${esc(e.message)}</div>`; }
 }
@@ -1490,9 +1523,10 @@ async function viewTicket(el){
   const techs = S.staff.filter(e => e.active);
   const partsCost = t.partsUsed.reduce((a, p) => a + (+p.cost || 0), 0);
   const ch = t.charges || []; const due = ch.filter(x => !x.invoiceId);
-  const diagCr = ch.filter(x => x.cat === 'Diagnostic' && x.invoiceId && !x.creditedOn); const crNow = chSum(due.filter(x => REPAIR_CATS.includes(x.cat))) >= chSum(diagCr) ? chSum(diagCr) : 0;
+  const diagCr = ch.filter(x => x.cat === 'Diagnostic' && x.invoiceId && !x.draft && !x.creditedOn); const crNow = chSum(due.filter(x => REPAIR_CATS.includes(x.cat))) >= chSum(diagCr) ? chSum(diagCr) : 0;
   const dueSum = chSum(due) - crNow + taxOf([...due, ...(crNow ? [{cat: 'Diagnostic credit', price: -crNow}] : [])]); const netCharged = chSum(ch) - chSum(ch.filter(x => x.creditedOn)) - crNow;
-  const tInvAll = await Store.ticketInvoices(t.id).catch(() => []); const rsUnpaid = tInvAll.filter(i => i.paid === false && i.total > 0); const tInv = tInvAll.filter(i => i.paid !== false); const paidSum = tInv.reduce((a, i) => a + Math.max(0, +i.total || 0), 0), refSum = -tInv.reduce((a, i) => a + Math.min(0, +i.total || 0), 0);
+  const tInvAll = await Store.ticketInvoices(t.id).catch(() => []); const rsUnpaid = tInvAll.filter(i => i.paid === false && i.rsId && i.total > 0); const drafts = tInvAll.filter(i => i.paid === false && !i.rsId); const tInv = tInvAll.filter(i => i.paid !== false);
+  const owed = drafts.reduce((a, i) => a + i.total, 0) + rsUnpaid.reduce((a, i) => a + i.total, 0); const paidSum = tInv.reduce((a, i) => a + Math.max(0, +i.total || 0), 0), refSum = -tInv.reduce((a, i) => a + Math.min(0, +i.total || 0), 0);
   const isOpen = t.status !== 'resolved';
   const first = (c.name || '').split(' ')[0];
   const readyMsg = `Hi ${first}, this is Cellular Zone ${STORES[t.store]}. Your ${t.device} is ready for pickup. We're open Mon–Sat 10–8, Sun 11–6. Thank you!`;
@@ -1524,7 +1558,7 @@ async function viewTicket(el){
           <dt>Store</dt><dd>${STORES[t.store]}</dd>
           <dt>Checked in</dt><dd>${new Date(t.createdAt).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})} by ${esc(staffName(t.by))}</dd>
         </dl>
-        ${t.status !== 'resolved' ? `<div class="row"><button id="t-label">Print label</button><button id="t-intake">Print intake receipt</button><button class="primary" id="t-pay">${t.type === 'rework' && !due.length && !tInv.length ? 'Close rework (no charge)' : due.length || rsUnpaid.length ? 'Make invoice · ' + cents(dueSum + rsUnpaid.reduce((a, i) => a + i.total, 0)) : tInv.length ? 'Close ticket (paid)' : 'Make invoice'}</button>${t.status !== 'customer' ? '<button id="t-ready">Ready for pickup</button>' : ''}</div>` : `<div class="row">${t.invoiceId ? '<span class="pill ok">Paid and resolved</span>' : ''}<button id="t-intake">Print intake receipt</button><button id="t-rework">Customer came back: open rework</button></div>`}
+        ${t.status !== 'resolved' ? `<div class="row"><button id="t-label">Print label</button><button id="t-intake">Print intake receipt</button><button class="primary" id="t-pay">${t.type === 'rework' && !due.length && !tInv.length ? 'Close rework (no charge)' : drafts.length && !due.length ? `Open invoice #${drafts[0].number} · ${cents(owed)}` : due.length || rsUnpaid.length ? 'Make invoice · ' + cents(dueSum + owed) : tInv.length ? 'Close ticket (paid)' : 'Make invoice'}</button>${t.status !== 'customer' ? '<button id="t-ready">Ready for pickup</button>' : ''}</div>` : `<div class="row">${t.invoiceId ? '<span class="pill ok">Paid and resolved</span>' : ''}<button id="t-intake">Print intake receipt</button><button id="t-rework">Customer came back: open rework</button></div>`}
         ${reworks.length ? `<div class="small">Reworks: ${reworks.map(r => `<a data-goto="${r.id}" style="color:var(--accent);cursor:pointer">#${r.number}</a> ${stPill(r.status)}`).join(' ')}</div>` : ''}
       </div>
       ${parent ? `<div class="panel stack" style="border-left:4px solid var(--accent)">
@@ -1538,13 +1572,13 @@ async function viewTicket(el){
         <div class="row" style="justify-content:space-between"><h3>Charges</h3>${isOpen ? '<button class="primary" id="ch-add">+ Add charge</button>' : ''}</div>
         ${isOpen && !(ch.some(x => x.cat === 'Diagnostic') || (t.type === 'rework' && t.warranty)) ? `<div class="row" style="gap:6px"><button data-qch="diag" style="min-height:36px;padding:4px 12px">Diagnostic ${cents(diagFor(t.device, set))} · collect now</button></div>` : ''}
         ${ch.length ? `<div class="tbl"><table><tbody>${ch.map(x => `<tr><td>${esc(x.desc)}<div class="small muted">${esc(x.cat)}${x.glass ? ' · lifetime warranty' : ''} · ${esc(staffName(x.by))} · ${fmtDate(x.at)}</div>${x.partName ? `<div class="small" style="color:var(--ok)">Part pulled from stock: ${esc(x.partName)}</div>` : ''}</td><td class="r num">${cents(x.price)}</td>
-          <td class="r" style="white-space:nowrap">${x.invoiceId ? `<span class="pill ok">Paid · #${esc(x.invoiceNo)}</span>${x.creditedOn ? ` <span class="pill acc">credited on #${esc(x.creditedOn)}</span>` : ''}` : isOpen ? `<span class="pill warn">Due</span> <button data-rmch="${x.id}" aria-label="Remove ${esc(x.desc)}" style="min-height:30px;padding:2px 8px">✕</button>` : '<span class="pill bad">Unpaid</span>'}</td></tr>`).join('')}</tbody></table></div>`
+          <td class="r" style="white-space:nowrap">${x.invoiceId && x.draft ? `<a data-oinv="${x.invoiceId}" class="pill warn" style="cursor:pointer">On invoice #${esc(x.invoiceNo)} · not paid</a>` : x.invoiceId ? `<a data-oinv="${x.invoiceId}" class="pill ok" style="cursor:pointer">Paid · #${esc(x.invoiceNo)}</a>${x.creditedOn ? ` <span class="pill acc">credited on #${esc(x.creditedOn)}</span>` : ''}` : isOpen ? `<span class="pill warn">Due</span> <button data-rmch="${x.id}" aria-label="Remove ${esc(x.desc)}" style="min-height:30px;padding:2px 8px">✕</button>` : '<span class="pill bad">Unpaid</span>'}</td></tr>`).join('')}</tbody></table></div>`
           : `<p class="muted small" style="margin:0">${isOpen ? 'Nothing charged yet. Tap <b>+ Add charge</b> and pick the repair: the part comes out of stock by itself. When the customer picks up, tap <b>Make invoice</b>.' : 'No charges on this ticket.'}</p>`}
-        ${ch.length || tInv.length || rsUnpaid.length ? `<div class="row" style="justify-content:space-between;gap:12px;flex-wrap:wrap"><span class="small">Charged <b class="num">${cents(netCharged)}</b> + tax · Paid <b class="num">${cents(paidSum)}</b>${refSum ? ` · <span style="color:var(--bad)">Refunded ${cents(refSum)}</span>` : ''}${crNow ? ` · <span style="color:var(--ok)">${cents(crNow)} diagnostic comes off the repair</span>` : ch.some(x => x.creditedOn) ? ' · diagnostic credited' : diagCr.length ? ` · <span class="muted">${cents(chSum(diagCr))} diagnostic comes off once the repair is added</span>` : ''}</span><span>Balance due <b class="num" style="font-size:20px">${cents(dueSum + rsUnpaid.reduce((x, i) => x + i.total, 0))}</b>${due.some(isTaxable) ? ' <span class="small muted">with tax</span>' : ''}</span></div>` : ''}
-        ${isOpen && due.length ? `<button class="primary" id="ch-pay" style="min-height:48px">Make invoice · ${cents(dueSum)}</button>` : ''}
+        ${ch.length || tInvAll.length ? `<div class="row" style="justify-content:space-between;gap:12px;flex-wrap:wrap"><span class="small">Charged <b class="num">${cents(netCharged)}</b> + tax · Paid <b class="num">${cents(paidSum)}</b>${refSum ? ` · <span style="color:var(--bad)">Refunded ${cents(refSum)}</span>` : ''}${crNow ? ` · <span style="color:var(--ok)">${cents(crNow)} diagnostic comes off the repair</span>` : ch.some(x => x.creditedOn) ? ' · diagnostic credited' : diagCr.length ? ` · <span class="muted">${cents(chSum(diagCr))} diagnostic comes off once the repair is added</span>` : ''}</span><span>Balance due <b class="num" style="font-size:20px">${cents(dueSum + owed)}</b>${due.some(isTaxable) ? ' <span class="small muted">with tax</span>' : ''}</span></div>` : ''}
+        ${isOpen && (due.length || drafts.length) ? `<button class="primary" id="ch-pay" style="min-height:48px">${drafts.length && !due.length ? `Open invoice #${drafts[0].number} · ${cents(owed)}` : drafts.length ? `Add to invoice #${drafts[0].number} · ${cents(dueSum + owed)}` : 'Make invoice · ' + cents(dueSum)}</button>` : ''}
         ${rsUnpaid.length ? `<div class="banner warn small stack" style="gap:6px"><b>Not paid yet in RepairShopr</b>${rsUnpaid.map(i => `<span class="row" style="justify-content:space-between;gap:8px"><span class="num">Invoice #${i.number} · ${cents(i.total)} · ${fmtDate(i.at)}${(i.lines || []).length ? ' · ' + esc(i.lines.map(l => l.desc).join(', ')) : ''}</span><span class="pill bad">Unpaid</span></span>`).join('')}
           ${isOpen ? '<span>Tap <b>Make invoice</b> to collect it here: it moves onto this ticket as a charge. Then void it in RepairShopr.</span>' : ''}</div>` : ''}
-        ${tInv.length ? `<div class="small stack" style="gap:2px"><span class="label">Invoices on this ticket</span>${tInv.map(i => `<span class="row" style="justify-content:space-between;gap:8px"><span class="num">#${i.number} · ${cents(i.total)} · ${esc(i.payment || '')} · ${fmtDate(i.at)} ${fmtTime(i.at)} · ${esc((i.lines || []).map(l => l.desc).join(', '))}</span><span class="row" style="gap:4px;flex:none"><button data-rcpt="${i.id}" style="min-height:30px;padding:2px 10px">Receipt</button>${i.total > 0 && !i.refundOf ? `<button data-rfnd="${i.id}" style="min-height:30px;padding:2px 10px">Refund</button>` : ''}</span></span>`).join('')}</div>` : ''}
+        ${tInv.length || drafts.length ? `<div class="small stack" style="gap:2px"><span class="label">Invoices on this ticket</span>${drafts.map(i => `<span class="row" style="justify-content:space-between;gap:8px"><span class="num"><a data-oinv="${i.id}" style="color:var(--accent);cursor:pointer;font-weight:700">#${i.number}</a> · ${cents(i.total)} · ${fmtDate(i.at)}</span><span class="pill bad">Not paid</span></span>`).join('')}${tInv.map(i => `<span class="row" style="justify-content:space-between;gap:8px"><span class="num"><a data-oinv="${i.id}" style="color:var(--accent);cursor:pointer;font-weight:700">#${i.number}</a> · ${cents(i.total)} · ${esc(i.payment || '')} · ${fmtDate(i.at)} ${fmtTime(i.at)} · ${esc((i.lines || []).map(l => l.desc).join(', '))}</span><span class="row" style="gap:4px;flex:none"><button data-rcpt="${i.id}" style="min-height:30px;padding:2px 10px">Receipt</button>${i.total > 0 && !i.refundOf ? `<button data-rfnd="${i.id}" style="min-height:30px;padding:2px 10px">Refund</button>` : ''}</span></span>`).join('')}</div>` : ''}
       </div>
       <div class="panel stack">
         <div class="row" style="justify-content:space-between"><h3>Customer</h3><button id="t-cust">Open customer</button></div>
@@ -1588,19 +1622,20 @@ async function viewTicket(el){
   $('#t-ready') && ($('#t-ready').onclick = async () => { await Store.updateTicket(S.user, S.store, t.id, {status: 'customer'}); S.prefillSms = readyMsg; toast('Waiting on Customer · pickup text ready to send'); viewTicket(el); });
   $('#t-pay') && ($('#t-pay').onclick = () => {
     if (rsUnpaid.length) return moveRs(true);
-    if (!due.length && !tInv.length) return checkoutSheet(t, c);
-    if (due.length) return paySheet(t, c, {resolve: true});
+    if (t.type === 'rework' && !due.length && !tInvAll.length) return checkoutSheet(t, c);
+    if (due.length || drafts.length || !tInv.length) return openInvoiceFor(t);
     sheet(`<div class="row" style="justify-content:space-between"><h3>Close ticket #${t.number}</h3><button data-close>Close</button></div><p style="margin:0">Everything on this ticket is paid (${cents(paidSum)}). Close it?</p><div class="err" id="cl-e" role="alert"></div><button class="primary" id="cl-go">Close ticket</button>`,
       (L, close) => L.querySelector('#cl-go').onclick = async () => { try { await Store.updateTicket(S.user, S.store, t.id, {status: 'resolved'}); close(); toast('Ticket closed'); viewTicket(el); } catch (e) { L.querySelector('#cl-e').textContent = e.message; } }); });
   const addCh = async (add, payNow) => { try { const r = await Store.ticketCharge(S.user, S.store, t.id, add); toast('Added: ' + add.desc);
-      if (payNow) { const nt = r?.charges ? r : (await Store.tickets()).find(x => x.id === t.id); const newest = (nt.charges || []).filter(x => !x.invoiceId).slice(-1)[0]; return paySheet(nt, c, {only: newest?.id, resolve: false}); }
+      if (payNow) { const nt = r?.charges ? r : (await Store.tickets()).find(x => x.id === t.id); const newest = (nt.charges || []).filter(x => !x.invoiceId).slice(-1)[0]; return openInvoiceFor(nt, newest ? [newest.id] : null); }
       viewTicket(el); } catch (e) { toast(e.message); } };
   el.querySelectorAll('[data-qch]').forEach(b => b.onclick = () => { const k = b.dataset.qch;
     if (k === 'diag') return addCh({desc: 'Diagnostic · ' + t.device, cat: 'Diagnostic', price: diagFor(t.device, set)}, true);
  });
   $('#ch-add') && ($('#ch-add').onclick = () => chargeSheet(t, c, () => viewTicket(el)));
+  el.querySelectorAll('[data-oinv]').forEach(a => a.onclick = () => go('invoice', {invoiceId: a.dataset.oinv}));
   const moveRs = async pay => { try { let nt = t; for (const i of rsUnpaid) nt = await Store.rsInvoiceCharge(S.user, S.store, i.id);
-      toast(`RepairShopr invoice${rsUnpaid.length > 1 ? 's' : ''} moved onto the ticket. Void ${rsUnpaid.length > 1 ? 'them' : 'it'} in RepairShopr.`); await viewTicket(el); if (pay && nt?.charges) paySheet(nt, c, {resolve: true}); } catch (e) { toast(e.message); } };
+      toast(`RepairShopr invoice${rsUnpaid.length > 1 ? 's' : ''} moved onto the ticket. Void ${rsUnpaid.length > 1 ? 'them' : 'it'} in RepairShopr.`); if (pay && nt?.charges) return openInvoiceFor(nt); await viewTicket(el); } catch (e) { toast(e.message); } };
   $('#ch-pay') && ($('#ch-pay').onclick = () => paySheet(t, c, {}));
   $('#t-label') && ($('#t-label').onclick = () => printTicketLabel(t, c));
   if (S.justCreated === t.id) { S.justCreated = null;
@@ -2162,7 +2197,7 @@ async function chargeSheet(t, c, after, opts = {}){
       L.querySelector('#cs-foot').innerHTML = `<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding-top:10px;gap:8px"><span>${due.length} due on the ticket · <b class="num">${cents(chSum(due))}</b> <span class="small muted">+ tax</span></span>
         <span class="row" style="gap:6px">${opts.fromInvoice ? '<button class="primary" id="cs-done">Back to the invoice</button>' : `<button id="cs-done">Done</button>${due.length ? '<button class="primary" id="cs-pay">Make invoice</button>' : ''}`}</span></div>`;
       L.querySelector('#cs-done').onclick = () => { close(); after && after(); };
-      L.querySelector('#cs-pay') && (L.querySelector('#cs-pay').onclick = () => { close(); after && after(); paySheet(t, c, {}); }); };
+      L.querySelector('#cs-pay') && (L.querySelector('#cs-pay').onclick = () => { close(); openInvoiceFor(t); }); };
     L.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; body(); });
     L.querySelectorAll('[data-close]').forEach(b => b.onclick = () => { close(); after && after(); });
     L.querySelector('.sheet').addEventListener('click', e => { if (e.target.classList.contains('sheet')) after && after(); });
@@ -2707,8 +2742,7 @@ async function viewSearch(el){
 /* Invoices tab, like RepairShopr's: every sale and ticket payment, newest first. Search by invoice #, ticket #, name or phone. */
 async function viewInvoices(el){
   el.innerHTML = '<p class="muted">Loading invoices…</p>';
-  const invs = await Store.allInvoices();
-  const st = S.invStore === 'all' ? null : (S.invStore || S.store); const per = S.invPer || 'week';
+  const st = S.store; const invs = await Store.allInvoices(st); const per = S.invPer || 'week';
   const since = per === 'today' ? new Date(new Date().toDateString()) : per === 'week' ? new Date(Date.now() - 7 * 86400000) : per === 'month' ? new Date(Date.now() - 31 * 86400000) : null;
   let rows = invs.filter(i => (!st || i.store === st) && (!since || new Date(i.at) >= since));
   const ref = await Store.invoiceRefs([...new Set(rows.map(i => i.customerId).filter(Boolean))].slice(0, 600), [...new Set(rows.map(i => i.ticketId).filter(Boolean))].slice(0, 600)).catch(() => ({cust: {}, tix: {}}));
@@ -2718,30 +2752,187 @@ async function viewInvoices(el){
   rows = rows.slice(0, 300);
   const tot = rows.reduce((a, i) => a + (+i.total || 0), 0);
   el.innerHTML = `<div class="stack"><div class="row" style="justify-content:space-between;gap:10px"><h2>Invoices</h2>
-      <div class="row" style="gap:8px">${can(2) ? `<select id="iv-store" aria-label="Store" style="width:auto"><option value="">${STORES[S.store]}</option><option value="all">All stores</option>${Object.entries(STORES).filter(([k]) => k !== S.store).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>` : ''}
-      <button id="iv-new">+ New sale (Register)</button></div></div>
+      <div class="row" style="gap:8px"><span class="muted">${STORES[S.store]}</span><button id="iv-new">+ New sale (Register)</button></div></div>
     <div class="row" style="gap:8px"><input id="iv-q" value="${esc(S.invQ || '')}" placeholder="Invoice #, ticket #, customer name or phone" style="flex:1;min-width:220px" autocomplete="off">
       <div class="statusbar" role="group" aria-label="Dates">${[['today', 'Today'], ['week', '7 days'], ['month', '31 days'], ['all', 'All']].map(([k, l]) => `<button data-per="${k}" aria-pressed="${per === k}">${l}</button>`).join('')}</div></div>
     <div class="small muted">${rows.length} invoice${rows.length === 1 ? '' : 's'}${rows.length === 300 ? ' (newest 300)' : ''} · total <b class="num">${cents(tot)}</b></div>
-    <div class="tbl"><table><thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th>Ticket</th><th>Items</th><th>Paid with</th><th class="r">Total</th>${can(2) ? '<th class="r">Gross profit</th>' : ''}<th>By</th><th></th></tr></thead><tbody>
+    <div class="tbl"><table><thead><tr><th>Invoice</th><th>Status</th><th>Date</th><th>Customer</th><th>Ticket</th><th>Items</th><th>Paid with</th><th class="r">Total</th>${can(2) ? '<th class="r">Gross profit</th>' : ''}<th>By</th><th></th></tr></thead><tbody>
     ${rows.map(i => { const c = ref.cust[i.customerId], t = ref.tix[i.ticketId];
-      return `<tr><td class="num"><b>#${i.number}</b>${i.total < 0 ? ' <span class="pill bad">refund</span>' : i.paid === false ? ' <span class="pill bad">unpaid</span>' : (i.refunded || []).length ? ' <span class="pill warn">refunded</span>' : ''}${can(2) && !st ? ` <span class="small muted">${i.store}</span>` : ''}</td>
+      return `<tr data-ivo="${i.id}" style="cursor:pointer"><td class="num"><a style="color:var(--accent);font-weight:700">#${i.number}</a></td>
+        <td>${i.total < 0 ? '<span class="pill bad">Refund</span>' : i.paid === false ? '<span class="pill bad">Not paid</span>' : (i.refunded || []).length ? '<span class="pill warn">Refunded</span>' : '<span class="pill ok">Paid</span>'}</td>
         <td class="small" style="white-space:nowrap">${fmtDate(i.at)} ${fmtTime(i.at)}</td>
         <td>${c ? `<a data-ivc="${c.id}" style="color:var(--accent);cursor:pointer">${esc(c.name)}</a><div class="small muted">${fmtPhone(c.phone)}</div>` : '<span class="muted">Walk-in</span>'}</td>
         <td>${t ? `<a data-ivt="${t.id}" style="color:var(--accent);cursor:pointer">#${t.number}</a>` : '<span class="muted">—</span>'}</td>
         <td class="small">${(i.lines || []).length ? i.lines.map(l => esc(l.desc)).join('<br>') : '<span class="muted">(from RepairShopr)</span>'}</td>
         <td class="small">${esc(i.payment || '')}</td><td class="r num"><b>${cents(i.total)}</b></td>${can(2) ? `<td class="r num">${cents(i.total - (i.partsCost || 0))}</td>` : ''}
         <td class="small">${esc(i.by ? staffName(i.by) : 'RepairShopr')}</td>
-        <td class="r"><button data-ivr="${i.id}" style="min-height:32px;padding:2px 10px">Receipt</button>${i.total > 0 && !i.refundOf && i.paid !== false ? ` <button data-ivf="${i.id}" style="min-height:32px;padding:2px 10px">Refund</button>` : ''}</td></tr>`; }).join('') || `<tr><td colspan="10" class="muted">${q ? 'No invoice matches that.' : 'No invoices in this period.'}</td></tr>`}
+        <td class="r"><button data-ivr="${i.id}" style="min-height:32px;padding:2px 10px">Receipt</button>${i.total > 0 && !i.refundOf && i.paid !== false ? ` <button data-ivf="${i.id}" style="min-height:32px;padding:2px 10px">Refund</button>` : ''}</td></tr>`; }).join('') || `<tr><td colspan="11" class="muted">${q ? 'No invoice matches that.' : 'No invoices in this period.'}</td></tr>`}
     </tbody></table></div></div>`;
   const inp = $('#iv-q'); let tm; inp.oninput = () => { clearTimeout(tm); tm = setTimeout(() => { S.invQ = inp.value; viewInvoices(el).then(() => { const n = $('#iv-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 300); };
   el.querySelectorAll('[data-per]').forEach(b => b.onclick = () => { S.invPer = b.dataset.per; viewInvoices(el); });
   el.querySelectorAll('[data-ivr]').forEach(b => b.onclick = () => receiptSheet(rows.find(i => i.id === b.dataset.ivr), {c: ref.cust[rows.find(i => i.id === b.dataset.ivr).customerId], after: () => viewInvoices(el)}));
   el.querySelectorAll('[data-ivf]').forEach(b => b.onclick = () => refundSheet(rows.find(i => i.id === b.dataset.ivf), () => viewInvoices(el)));
-  el.querySelectorAll('[data-ivt]').forEach(a => a.onclick = () => go('ticket', {ticketId: a.dataset.ivt}));
-  el.querySelectorAll('[data-ivc]').forEach(a => a.onclick = () => go('customer', {customerId: a.dataset.ivc}));
+  el.querySelectorAll('[data-ivt]').forEach(a => a.onclick = e => { e.stopPropagation(); go('ticket', {ticketId: a.dataset.ivt}); });
+  el.querySelectorAll('[data-ivo]').forEach(tr => tr.onclick = e => { if (e.target.closest('button,a[data-ivc],a[data-ivt]')) return; go('invoice', {invoiceId: tr.dataset.ivo}); });
+  el.querySelectorAll('[data-ivc]').forEach(a => a.onclick = e => { e.stopPropagation(); go('customer', {customerId: a.dataset.ivc}); });
   $('#iv-new').onclick = () => go('register');
-  $('#iv-store') && ($('#iv-store').value = S.invStore || '', $('#iv-store').onchange = e => { S.invStore = e.target.value; viewInvoices(el); });
+}
+
+/* ---------------- INVOICE PAGE (like RepairShopr) ----------------
+   Ticket → Make invoice makes a numbered invoice that starts unpaid and opens here. Edit the lines (qty, price, Taxable),
+   add items, glass or a discount, then Take payment. Paid invoices show how they were paid, with Receipt and Refund. */
+async function openInvoiceFor(t, chargeIds){
+  try { const inv = await Store.makeInvoice(S.user, S.store, t.id, chargeIds || null); go('invoice', {invoiceId: inv.id}); }
+  catch (e) { toast(e.message); }
+}
+async function viewInvoice(el){
+  let inv = await Store.invoice(S.invoiceId); if (!inv) { toast('Invoice not found.'); return go('invoices'); }
+  const custs = await Store.customers(); let c = custById(custs)[inv.customerId] || null; let t = null;
+  if (inv.ticketId) { await Store.loadTicket(inv.ticketId).catch(() => {}); t = (await Store.tickets()).find(x => x.id === inv.ticketId) || null; }
+  if ((!c && inv.customerId) || (!t && inv.ticketId)) { const r = await Store.invoiceRefs(inv.customerId ? [inv.customerId] : [], inv.ticketId ? [inv.ticketId] : []).catch(() => ({cust: {}, tix: {}})); c = c || r.cust[inv.customerId] || null; t = t || r.tix[inv.ticketId] || null; }
+  const open = inv.paid === false && !inv.rsId; const L = (inv.lines || []).map(l => ({...l, qty: +l.qty || 1}));
+  const lt = l => Math.round((+l.price || 0) * (+l.qty || 1) * 100) / 100;
+  const refunds = inv.refundOf ? [] : (await Store.allInvoices(inv.store).catch(() => [])).filter(r => r.refundOf === inv.id);
+  el.innerHTML = `
+  <div class="crumb"><a id="iv-back">Invoices</a><span class="muted">›</span><b class="num">#${inv.number}</b>
+    ${inv.total < 0 ? '<span class="pill bad">Refund</span>' : open ? '<span class="pill bad">Not paid</span>' : inv.paid === false ? '<span class="pill bad">Not paid (RepairShopr)</span>' : (inv.refunded || []).length ? '<span class="pill warn">Paid · refunded</span>' : '<span class="pill ok">Paid</span>'}
+    ${t ? `<span class="muted">›</span><a id="iv-tk">Ticket #${t.number}</a>` : ''}</div>
+  <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));align-items:start">
+    <div class="stack" style="grid-column:span 2;min-width:0">
+      <div class="panel stack">
+        <div class="row" style="justify-content:space-between"><h2>Invoice #${inv.number}</h2><span class="small muted">${STORES[inv.store] || inv.store} · ${fmtDate(inv.at)} ${fmtTime(inv.at)}${inv.by ? ' · ' + esc(staffName(inv.by)) : ''}</span></div>
+        <dl class="kv"><dt>Customer</dt><dd>${c ? `<a id="iv-c" style="color:var(--accent);cursor:pointer">${esc(c.name)}</a> · <span class="num">${fmtPhone(c.phone)}</span>` : '<span class="muted">Walk-in</span>'}</dd>
+          ${t ? `<dt>Ticket</dt><dd><a id="iv-t" style="color:var(--accent);cursor:pointer">#${t.number}</a> · ${esc(t.device || '')} · ${esc(t.subject || '')}</dd>` : ''}</dl>
+        <div class="tbl"><table><thead><tr><th>Item</th><th class="r" style="width:70px">Qty</th><th class="r" style="width:110px">Price</th><th style="width:80px;text-align:center">Taxable</th><th class="r" style="width:100px">Total</th>${open ? '<th style="width:44px"></th>' : ''}</tr></thead><tbody>
+        ${L.map((l, i) => open ? `<tr><td><input data-ld="${i}" value="${esc(l.desc)}" aria-label="Item" style="min-height:36px"><div class="small muted">${esc(l.cat || '')}${l.chargeId ? ' · from the ticket' : ''}${l.glass ? ' · lifetime warranty' : ''}</div></td>
+            <td class="r"><input data-lq="${i}" value="${l.qty}" inputmode="numeric" aria-label="Qty" style="width:60px;min-height:36px;text-align:right" ${l.cat === 'Diagnostic credit' || l.cat === 'Discount' ? 'disabled' : ''}></td>
+            <td class="r"><input data-lp="${i}" value="${(+l.price).toFixed(2)}" inputmode="decimal" aria-label="Price" style="width:100px;min-height:36px;text-align:right" ${l.cat === 'Diagnostic credit' ? 'disabled' : ''}></td>
+            <td style="text-align:center"><input type="checkbox" data-lt="${i}" ${isTaxable(l) ? 'checked' : ''} aria-label="Taxable" style="width:22px;height:22px"></td>
+            <td class="r num">${cents(lt(l))}</td><td class="r"><button data-lx="${i}" aria-label="Remove ${esc(l.desc)}" style="min-height:32px;padding:2px 8px">✕</button></td></tr>`
+          : `<tr><td>${esc(l.desc)}<div class="small muted">${esc(l.cat || '')}</div></td><td class="r num">${l.qty}</td><td class="r num">${cents(l.price)}</td><td style="text-align:center">${isTaxable(l) ? '✓' : '<span class="muted">no</span>'}</td><td class="r num">${cents(lt(l))}</td></tr>`).join('')
+          || `<tr><td colspan="6" class="muted">${inv.rsId ? 'RepairShopr didn\'t send the line items for this invoice.' : 'No items yet. Add one below.'}</td></tr>`}
+        </tbody></table></div>
+        ${open ? `<div class="stack" style="gap:8px;border-top:1px solid var(--line);padding-top:10px">
+          <div class="row" style="gap:6px"><input id="iv-add" placeholder="Add an item: scan or search inventory (case, charger, cable…)" style="flex:1;min-width:220px" autocomplete="off"></div>
+          <div id="iv-hits"></div>
+          <div class="row" style="gap:6px"><button data-ia="regular">+ Tempered glass ${cents(GLASS.regular)}</button><button data-ia="privacy">+ Privacy glass ${cents(GLASS.privacy)}</button><button data-ia="custom">+ Custom item</button><button data-ia="discount">+ Discount</button></div>
+        </div>` : ''}
+      </div>
+    </div>
+    <div class="stack">
+      <div class="panel stack">
+        <div class="row" style="justify-content:space-between"><span class="muted">Subtotal</span><span class="num">${cents(inv.subtotal ?? inv.total)}</span></div>
+        <div class="row" style="justify-content:space-between"><span class="muted">Sales tax 8.25%</span><span class="num">${cents(inv.tax || 0)}</span></div>
+        <div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding-top:8px"><b>Total</b><b class="num" style="font-size:26px">${cents(inv.total)}</b></div>
+        ${open ? `<div class="row" style="justify-content:space-between"><span>Balance due</span><b class="num" style="color:var(--bad);font-size:20px">${cents(inv.total)}</b></div>
+          <div class="err" id="iv-err" role="alert"></div>
+          <button class="primary" id="iv-pay" style="min-height:56px;font-size:17px" ${L.length ? '' : 'disabled'}>Take payment · ${cents(inv.total)}</button>
+          <button id="iv-del" class="danger" style="align-self:flex-start">Delete this invoice</button>
+          <span class="small muted">Nothing is charged until you take payment. Deleting puts the ticket's charges back on the ticket.</span>`
+        : inv.paid === false ? `<div class="banner warn small">This RepairShopr invoice isn't paid. Collect it from the ticket (Make invoice), then void it in RepairShopr.</div>`
+        : `<div class="stack" style="gap:4px"><span class="label">Paid</span>${(inv.payments && inv.payments.length ? inv.payments : [{method: inv.payment, amount: inv.total}]).map(p => `<div class="row" style="justify-content:space-between"><span>${esc(p.method || '')}</span><span class="num">${cents(p.amount)}</span></div>`).join('')}
+            ${refunds.map(r => `<div class="row" style="justify-content:space-between;color:var(--bad)"><a data-goinv="${r.id}" style="cursor:pointer">Refund #${r.number} · ${fmtDate(r.at)}</a><span class="num">${cents(r.total)}</span></div>`).join('')}
+            ${inv.refundOf ? `<a data-goinv="${inv.refundOf}" style="color:var(--accent);cursor:pointer">Refund of an earlier invoice · open it</a>` : ''}</div>
+          <div class="row"><button class="primary" id="iv-rcpt">Receipt (print / text / email)</button>${inv.total > 0 && !inv.refundOf && !inv.rsId ? '<button id="iv-ref">Refund</button>' : ''}</div>`}
+      </div>
+    </div>
+  </div>`;
+  $('#iv-back').onclick = () => go('invoices');
+  [$('#iv-tk'), $('#iv-t')].forEach(a => a && (a.onclick = () => go('ticket', {ticketId: t.id})));
+  $('#iv-c') && ($('#iv-c').onclick = () => go('customer', {customerId: c.id}));
+  el.querySelectorAll('[data-goinv]').forEach(a => a.onclick = () => go('invoice', {invoiceId: a.dataset.goinv}));
+  if (!open) {
+    $('#iv-rcpt') && ($('#iv-rcpt').onclick = () => receiptSheet(inv, {c: c || {}, t, after: () => viewInvoice(el)}));
+    $('#iv-ref') && ($('#iv-ref').onclick = () => refundSheet(inv, () => viewInvoice(el)));
+    return;
+  }
+  const err = m => { const e = $('#iv-err'); if (e) e.textContent = m || ''; };
+  const save = async lines => { try { await Store.saveInvoice(S.user, S.store, inv.id, lines); await viewInvoice(el); } catch (e) { err(e.message); toast(e.message); } };
+  el.querySelectorAll('[data-ld]').forEach(x => x.onchange = () => { L[+x.dataset.ld].desc = x.value; save(L); });
+  el.querySelectorAll('[data-lq]').forEach(x => x.onchange = () => { L[+x.dataset.lq].qty = Math.max(1, parseInt(x.value, 10) || 1); save(L); });
+  el.querySelectorAll('[data-lp]').forEach(x => x.onchange = () => { const v = parseFloat(String(x.value).replace(/[$,]/g, '')); const l = L[+x.dataset.lp]; l.price = l.cat === 'Discount' ? -Math.abs(v || 0) : (v || 0); save(L); });
+  el.querySelectorAll('[data-lt]').forEach(x => x.onchange = () => { L[+x.dataset.lt].taxable = x.checked; save(L); });
+  el.querySelectorAll('[data-lx]').forEach(b => b.onclick = () => { const l = L[+b.dataset.lx]; L.splice(+b.dataset.lx, 1); save(L); if (l.chargeId) toast('Removed from the invoice. The charge is back on the ticket as due.'); });
+  // add from inventory
+  const hits = $('#iv-hits'); let tm;
+  const drawHits = async q => { if (!q.trim()) { hits.innerHTML = ''; return; }
+    if (!S.prods || Date.now() - (S.prodsAt || 0) > 120000) { S.prods = await Store.products().catch(() => []); S.prodsAt = Date.now(); }
+    const hs = S.prods.filter(p => prodMatch(p, q)).sort((a, b) => (b.qty?.[S.store] || 0) - (a.qty?.[S.store] || 0)).slice(0, 8);
+    hits.innerHTML = hs.length ? `<div class="tbl"><table><tbody>${hs.map(p => `<tr data-ip="${p.id}" style="cursor:pointer"><td>${esc(p.name)}<div class="small muted">${esc(p.category || '')}</div></td><td class="r small">${p.qty?.[S.store] ?? 0} at ${S.store}</td><td class="r num"><b>${cents(p.price)}</b></td></tr>`).join('')}</tbody></table></div>` : '<span class="small muted">Nothing in inventory matches. Use + Custom item.</span>';
+    hits.querySelectorAll('[data-ip]').forEach(tr => tr.onclick = () => { const p = S.prods.find(x => x.id === tr.dataset.ip);
+      const gl = /tempered|glass protector|screen protector/i.test(p.name) ? (/privacy/i.test(p.name) ? 'privacy' : 'regular') : null;
+      if (!(gl ? GLASS[gl] : p.price > 0)) { toast(`${p.name} has no price in inventory. Use + Custom item.`); return; }
+      L.push(gl ? {desc: p.name + ' (lifetime warranty)', cat: 'Tempered glass', price: GLASS[gl], qty: 1, taxable: true, productId: p.id, glass: gl, device: t?.device || ''} : {desc: p.name, cat: 'Accessory', price: p.price, qty: 1, taxable: true, productId: p.id}); save(L); }); };
+  $('#iv-add').oninput = e => { clearTimeout(tm); tm = setTimeout(() => drawHits(e.target.value), 250); };
+  $('#iv-add').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); clearTimeout(tm); drawHits(e.target.value).then(() => { const one = hits.querySelectorAll('[data-ip]'); if (one.length === 1) one[0].click(); }); } };
+  el.querySelectorAll('[data-ia]').forEach(b => b.onclick = () => { const k = b.dataset.ia;
+    if (k === 'regular' || k === 'privacy') { L.push({desc: (k === 'privacy' ? 'Privacy tempered glass' : 'Tempered glass') + ' (lifetime warranty)', cat: 'Tempered glass', price: GLASS[k], qty: 1, taxable: true, glass: k, device: t?.device || ''}); return save(L); }
+    if (k === 'custom') return sheet(`<div class="row" style="justify-content:space-between"><h3>Custom item</h3><button data-close>Close</button></div>
+        <div class="field"><label class="label" for="ci-d">Item</label><input id="ci-d" placeholder="Water damage cleaning"></div>
+        <div class="grid g2"><div class="field"><label class="label" for="ci-p">Price</label><input id="ci-p" inputmode="decimal" placeholder="0.00"></div><div class="field"><label class="label" for="ci-q">Qty</label><input id="ci-q" inputmode="numeric" value="1"></div></div>
+        <div class="field"><label class="label" for="ci-c">Category</label><select id="ci-c">${LINE_CATS.map(x => `<option ${x === 'Other' ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+        <label class="row" style="gap:10px;cursor:pointer"><input type="checkbox" id="ci-t" checked style="width:22px;height:22px"><span>Taxable</span></label>
+        <div class="err" id="ci-e" role="alert"></div><button class="primary" id="ci-go">Add to invoice</button>`,
+      (S2, close) => { S2.querySelector('#ci-c').onchange = e => { S2.querySelector('#ci-t').checked = isTaxable({cat: e.target.value}); };
+        S2.querySelector('#ci-go').onclick = () => { const d = S2.querySelector('#ci-d').value.trim(), pr = parseFloat(S2.querySelector('#ci-p').value);
+          if (!d) { S2.querySelector('#ci-e').textContent = 'Name the item.'; return; } if (!(pr > 0)) { S2.querySelector('#ci-e').textContent = 'Enter a price above $0.'; return; }
+          const line = {desc: d, cat: S2.querySelector('#ci-c').value, price: pr, qty: Math.max(1, parseInt(S2.querySelector('#ci-q').value, 10) || 1), taxable: S2.querySelector('#ci-t').checked}; close(); L.push(line); save(L); }; });
+    const base = L.filter(l => l.price > 0).reduce((a, l) => a + lt(l), 0);
+    sheet(`<div class="row" style="justify-content:space-between"><h3>Discount</h3><button data-close>Close</button></div>
+      <div class="row" style="gap:6px"><button data-dk="amt" class="primary">$ off</button><button data-dk="pct">% off</button></div>
+      <div class="field"><label class="label" for="dc-v" id="dc-l">Dollars off</label><input id="dc-v" inputmode="decimal" placeholder="10"></div>
+      <div class="field"><label class="label" for="dc-r">Reason (optional)</label><input id="dc-r" placeholder="Returning customer"></div>
+      <div class="small muted" id="dc-p"></div><div class="err" id="dc-e" role="alert"></div><button class="primary" id="dc-go">Add discount</button>
+      <span class="small muted">A discount lowers the taxable amount, so tax goes down with it. To change one item's price instead, edit its price on the invoice.</span>`,
+      (S2, close) => { let kind = 'amt'; const amt = () => { const v = parseFloat(S2.querySelector('#dc-v').value) || 0; return Math.round((kind === 'pct' ? base * v / 100 : v) * 100) / 100; };
+        const prev = () => { S2.querySelector('#dc-p').textContent = amt() > 0 ? `Takes ${cents(amt())} off ${cents(base)} before tax.` : ''; };
+        S2.querySelectorAll('[data-dk]').forEach(b => b.onclick = () => { kind = b.dataset.dk; S2.querySelectorAll('[data-dk]').forEach(x => x.classList.toggle('primary', x === b)); S2.querySelector('#dc-l').textContent = kind === 'pct' ? 'Percent off' : 'Dollars off'; prev(); });
+        S2.querySelector('#dc-v').oninput = prev;
+        S2.querySelector('#dc-go').onclick = () => { const a = amt(); if (!(a > 0)) { S2.querySelector('#dc-e').textContent = 'Enter how much off.'; return; } if (a > base) { S2.querySelector('#dc-e').textContent = 'That\'s more than the invoice.'; return; }
+          const r = S2.querySelector('#dc-r').value.trim(); const v = parseFloat(S2.querySelector('#dc-v').value);
+          close(); L.push({desc: 'Discount' + (kind === 'pct' ? ` (${v}%)` : '') + (r ? ' · ' + r : ''), cat: 'Discount', price: -a, qty: 1, taxable: true}); save(L); }; });
+  });
+  $('#iv-del').onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Delete invoice #${inv.number}?</h3><button data-close>Keep it</button></div>
+      <p style="margin:0">It was never paid, so nothing is refunded. ${t ? 'The ticket\'s charges go back on the ticket as due.' : ''}</p><div class="err" id="vd-e" role="alert"></div><button class="danger" id="vd-go">Delete invoice</button>`,
+    (S2, close) => S2.querySelector('#vd-go').onclick = async () => { try { await Store.voidInvoice(S.user, S.store, inv.id); close(); toast(`Invoice #${inv.number} deleted`); t ? go('ticket', {ticketId: t.id}) : go('invoices'); } catch (e) { S2.querySelector('#vd-e').textContent = e.message; } });
+  $('#iv-pay').onclick = () => payInvoiceSheet(inv, t, c, el);
+}
+function payInvoiceSheet(inv, t, c, el){
+  const TRp = {credits: [], use: true, cashBack: true}; const tot = Math.round(inv.total * 100) / 100;
+  const diagOnly = inv.lines.length && inv.lines.every(l => l.cat === 'Diagnostic');
+  const dueLeft = t ? (t.charges || []).filter(x => !x.invoiceId).length : 0;
+  let resolve = !!t && t.status !== 'resolved' && !diagOnly && !dueLeft;
+  sheet(`<div class="row" style="justify-content:space-between"><h3>Take payment · invoice #${inv.number}</h3><button data-close>Close</button></div>
+    <div class="row" style="justify-content:space-between"><span class="label">Total</span><span class="num" style="font-size:28px">${cents(tot)}</span></div>
+    <div id="pi-trade"></div>
+    ${t && t.status !== 'resolved' ? `<label class="row" style="gap:10px;align-items:flex-start;cursor:pointer;background:var(--soft);border-radius:var(--r);padding:10px 12px"><input type="checkbox" id="pi-res" style="width:22px;height:22px;margin-top:2px">
+      <span><b>Repair is done: close ticket #${t.number}</b><span class="small muted" style="display:block">${dueLeft ? `${dueLeft} charge${dueLeft === 1 ? ' is' : 's are'} still on the ticket and not on this invoice.` : diagOnly ? 'Diagnostic only: the ticket usually stays open.' : 'Ticket moves to Resolved and the customer gets the review text.'}</span></span></label>
+    <div id="pi-bh" class="grid g2" hidden><div class="field"><label class="label" for="pi-bhv">Battery health % (needed to close this iPhone ticket)</label><input id="pi-bhv" inputmode="numeric" placeholder="87"></div>
+      <div class="field"><label class="label" for="pi-bhs">Or: couldn't read it because</label><select id="pi-bhs"><option value="">—</option><option>Disabled / passcode unknown</option><option>No display / can't see it</option><option>Won't turn on</option><option>Boot looping</option></select></div></div>` : ''}
+    <div class="field" id="pi-payf"><label class="label" for="pi-pay">Paid with</label><select id="pi-pay">${PAYMENTS.map(p => `<option>${p}</option>`).join('')}</select></div>
+    <div class="banner warn small" id="pi-sq">Charge the card on the Square iPad first, then record it here.</div>
+    <div class="err" id="pi-err" role="alert"></div>
+    <button class="primary" id="pi-go" style="min-height:52px;font-size:16px"></button>`,
+  (L, close) => {
+    const draw = () => { const tk = tradeCalc(TRp.credits, tot, TRp); L.querySelector('#pi-trade').innerHTML = tradeBox(TRp.credits, tot, TRp); bindTradeBox(L.querySelector('#pi-trade'), TRp, draw);
+      L.querySelector('#pi-payf').hidden = tk.applied > 0 && tk.due <= 0; L.querySelector('#pi-payf .label').textContent = tk.applied > 0 ? 'Balance paid with' : 'Paid with';
+      const r = L.querySelector('#pi-res'); if (r) { r.checked = resolve; L.querySelector('#pi-bh').hidden = !(resolve && needsBH(t) && !t.bh && !t.bhSkip); }
+      L.querySelector('#pi-go').textContent = `Record ${cents(tk.applied ? tk.due : tot)} payment${tk.applied ? ' (+ ' + cents(tk.applied) + ' trade-in credit)' : ''}${resolve ? ' and close ticket' : ''}`; };
+    draw();
+    if (c?.phone) Store.tradeCredits(c.phone).then(cr => { TRp.credits = cr || []; if (TRp.credits.length) draw(); }).catch(() => {});
+    L.querySelector('#pi-res') && (L.querySelector('#pi-res').onchange = e => { resolve = e.target.checked; draw(); });
+    const pay = L.querySelector('#pi-pay'); const sq = () => { L.querySelector('#pi-sq').hidden = !pay.value.startsWith('Square'); }; pay.onchange = sq; sq();
+    L.querySelector('#pi-go').onclick = async () => { const btn = L.querySelector('#pi-go'); const tk = tradeCalc(TRp.credits, tot, TRp);
+      if (L.querySelector('#pi-bh') && !L.querySelector('#pi-bh').hidden) { const v = L.querySelector('#pi-bhv').value.trim(), sk = L.querySelector('#pi-bhs').value;
+        if (v && !(+v >= 1 && +v <= 100)) { L.querySelector('#pi-err').textContent = 'Battery health: enter a number from 1 to 100.'; return; }
+        if (!v && !sk) { L.querySelector('#pi-err').textContent = "Record the battery health % (or pick why it couldn't be read) before closing."; return; }
+        try { await Store.updateTicket(S.user, S.store, t.id, v ? {bh: +v, bhSkip: null} : {bhSkip: sk}); Object.assign(t, v ? {bh: +v} : {bhSkip: sk}); } catch (e) { L.querySelector('#pi-err').textContent = e.message; return; } }
+      btn.disabled = true;
+      try { const r = await Store.checkout(S.user, S.store, {invoiceId: inv.id, ticketId: inv.ticketId || null, customerId: inv.customerId || c?.id || null, payment: pay.value, resolve: !!t && resolve,
+          ...(tk.applied > 0 ? {credits: tk.alloc, cashBack: tk.left > 0 && TRp.cashBack} : {})});
+        close(); await viewInvoice(el); receiptSheet(r, {c: c || {}, t, justPaid: true, note: t ? (resolve ? 'ticket closed' : 'ticket stays open') : '', cashBack: r.cashBack || 0, creditLeft: tk.applied > 0 && !TRp.cashBack ? tk.left : 0});
+      } catch (e) { L.querySelector('#pi-err').textContent = e.message; btn.disabled = false; } };
+  });
 }
 
 /* ---------------- CLOCK ---------------- */
