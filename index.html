@@ -2614,16 +2614,27 @@ function barcodeSVG(text, h = 34){
   try { if (!window.JsBarcode) throw 0; const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); JsBarcode(svg, String(text), {format: 'CODE128', displayValue: false, height: h, margin: 0, width: 1.6}); return svg.outerHTML; }
   catch { return `<div style="font:700 14px monospace">*${esc(text)}*</div>`; }
 }
+/* device label, same layout the stores already use:
+   line 1  Model - Storage - Carrier              (price, if set)
+   line 2  Grade  IMEI
+   line 3  Date added - Color - cost backwards - BH % - initials - BB ID      + barcode of the stock # (scan it to open the device) */
+const GRADE_LETTER = {new: 'NEW', mint: 'A', used: 'B', heavy: 'C', glass: 'D', damaged: 'D'};
+const costCode = c => { const n = Math.round(+c || 0); return n > 0 ? String(n).padStart(3, '0').split('').reverse().join('') : ''; };
+const initials = name => String(name || '').trim().split(/\s+/).filter(Boolean).map(w => w[0].toUpperCase()).join('').slice(0, 3);
 function labelHTML(dv){
   const L = LABELS[labelSize()]; const small = parseFloat(L.h) < 1;
-  const grade = (CONDS.find(c => c[0] === dv.cond) || [,''])[1];
-  return {css: `@page{size:${L.w} ${L.h};margin:0}*{box-sizing:border-box}html,body{margin:0}body{width:${L.w};height:${L.h};padding:.05in .08in;font:600 ${small ? 7 : 8.5}px/1.15 Arial,Helvetica,sans-serif;color:#000;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden}
-    .t{display:flex;justify-content:space-between;gap:4px}.m{font-size:${small ? 9 : 11}px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bc svg{width:100%;height:${small ? 16 : 26}px;display:block}.s{font-weight:400}`,
-    body: `<div class="t"><span>CELLULAR ZONE · ${dv.bbId || dv.store}</span><span>#${dv.stockNo}</span></div>
-      <div class="m">${esc(dv.model)} ${esc(dv.storage || '')}</div>
-      <div class="t s"><span>${esc(dv.carrier || '')}${dv.color ? ' · ' + esc(dv.color) : ''} · ${esc(grade)}${dv.battery ? ' · BH ' + dv.battery + '%' : ''}</span><span>${fmtDate(dv.createdAt)}</span></div>
-      <div class="bc">${barcodeSVG(dv.stockNo, small ? 16 : 26)}</div>
-      ${dv.needs?.length && !small ? `<div class="s">NEEDS: ${esc(dv.needs.join(', '))}</div>` : ''}`};
+  const dt = new Date(dv.createdAt || Date.now()); const md = `${dt.getMonth() + 1}/${dt.getDate()}/${String(dt.getFullYear()).slice(2)}`;
+  const l1 = [dv.model, dv.storage, dv.carrier].filter(Boolean).join(' - ');
+  const l2 = [GRADE_LETTER[dv.cond] || '', dv.imei || ''].filter(Boolean).join(' ');
+  const who = dv.by ? initials(staffName(dv.by)) : '';
+  const l3 = [md, dv.color, costCode(dv.cost), dv.battery ? 'BH ' + dv.battery + '%' : '', who, dv.bbId || ''].filter(Boolean).join(' - ');
+  const price = dv.listPrice || dv.swappa?.price || null;
+  return {css: `@page{size:${L.w} ${L.h};margin:0}*{box-sizing:border-box}html,body{margin:0}body{width:${L.w};height:${L.h};padding:.05in .09in .04in;font:400 ${small ? 7 : 8.5}px/1.2 Arial,Helvetica,sans-serif;color:#000;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden}
+    .t{display:flex;justify-content:space-between;align-items:baseline;gap:6px}.m{font-size:${small ? 8.5 : 10.5}px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.p{font-weight:800;font-size:${small ? 8.5 : 10.5}px;white-space:nowrap}
+    .l{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rule{border-top:1.2px solid #000;margin:1px 0 2px}.bc{display:flex;align-items:flex-end;gap:6px}.bc svg{flex:1;height:${small ? 14 : 22}px;display:block}.sn{font-size:${small ? 7 : 8}px;font-weight:700;white-space:nowrap}`,
+    body: `<div><div class="t"><span class="m">${esc(l1)}</span>${price ? `<span class="p">${cents(price)}</span>` : ''}</div>
+      <div class="l">${esc(l2)}</div><div class="l">${esc(l3)}</div></div>
+      <div class="rule"></div><div class="bc">${barcodeSVG(dv.stockNo, small ? 14 : 22)}<span class="sn">#${dv.stockNo}</span></div>`};
 }
 function labelSheet(dv){
   const render = L => { const h = labelHTML(dv); const sz = LABELS[labelSize()];
