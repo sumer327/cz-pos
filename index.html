@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794430672";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794430926";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -2174,10 +2174,10 @@ async function chargeSheet(t, c, after, opts = {}){
         if (!S.prods || Date.now() - S.prodsAt > 120000) { B.innerHTML = '<p class="muted">Loading inventory…</p>'; S.prods = await Store.products().catch(() => []); S.prodsAt = Date.now(); }
         const iq = (S.chq || '').trim(); const hits = iq ? S.prods.filter(p => prodMatch(p, iq)).sort((a, b) => (b.qty?.[S.store] || 0) - (a.qty?.[S.store] || 0)).slice(0, 12) : [];
         B.innerHTML = `<div class="field"><label class="label" for="cs-i">Scan or search (${S.prods.length} items)</label><input id="cs-i" value="${esc(iq)}" placeholder="Scan the barcode, or type: clear case 15 pro" autocomplete="off"></div>
-          <div class="row" style="gap:6px"><button data-gq="regular">Tempered glass ${cents(GLASS.regular)}</button><button data-gq="privacy">Privacy glass ${cents(GLASS.privacy)}</button></div>
+          <div class="row" style="gap:6px"><button data-gq="regular">Tempered glass… (pick model)</button><button data-gq="privacy">Privacy glass… (pick model)</button></div>
           ${hits.length ? `<div class="tbl"><table><tbody>${hits.map(p => `<tr data-pi="${p.id}" style="cursor:pointer"><td>${esc(p.name)}<div class="small muted">${esc(p.category || '')}</div></td><td class="r num">${p.qty?.[S.store] ?? 0} at ${S.store}</td><td class="r num"><b>${cents(/tempered|glass protector|screen protector/i.test(p.name) ? GLASS[/privacy/i.test(p.name) ? 'privacy' : 'regular'] : p.price)}</b></td></tr>`).join('')}</tbody></table></div>` : iq ? '<p class="muted small">Nothing matches.</p>' : ''}`;
         const inp = L.querySelector('#cs-i'); let tm; inp.oninput = () => { clearTimeout(tm); tm = setTimeout(() => { S.chq = inp.value; body().then(() => { const n = L.querySelector('#cs-i'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 200); };
-        L.querySelectorAll('[data-gq]').forEach(b => b.onclick = () => { const g = b.dataset.gq; add({desc: (g === 'privacy' ? 'Privacy tempered glass' : 'Tempered glass') + ' (lifetime warranty)', cat: 'Tempered glass', price: GLASS[g], glass: g}, b); });
+        L.querySelectorAll('[data-gq]').forEach(b => b.onclick = () => glassPicker(b.dataset.gq, t.device, line => chargeSheet(t, c, after, {...opts, tab: 'items', pendingAdd: line})));
         L.querySelectorAll('[data-pi]').forEach(tr => tr.onclick = () => { const p = S.prods.find(x => x.id === tr.dataset.pi);
           const gl = /tempered|glass protector|screen protector/i.test(p.name) ? (/privacy/i.test(p.name) ? 'privacy' : 'regular') : null;
           if (!(gl ? GLASS[gl] : p.price > 0)) { toast(`${p.name} has no price in inventory. Use Custom.`); return; }
@@ -2202,6 +2202,7 @@ async function chargeSheet(t, c, after, opts = {}){
     L.querySelectorAll('[data-close]').forEach(b => b.onclick = () => { close(); after && after(); });
     L.querySelector('.sheet').addEventListener('click', e => { if (e.target.classList.contains('sheet')) after && after(); });
     body(); foot(L, close);
+    if (opts.pendingAdd) { const x = opts.pendingAdd; delete opts.pendingAdd; add({desc: x.desc, cat: x.cat, price: x.price, glass: x.glass, ...(x.productId ? {productId: x.productId} : {})}); }
   });
   return L0;
 }
@@ -2495,7 +2496,7 @@ async function viewRegister(el){
         l.price = Math.round(v * 100) / 100; close(); viewRegister(el); };
       L.querySelector('#ep-go').onclick = go; L.querySelector('#ep-p').onkeydown = e => { if (e.key === 'Enter') go(); }; setTimeout(() => L.querySelector('#ep-p').select(), 50); }); });
   el.querySelectorAll('[data-gl]').forEach(b => b.onclick = () => { const k = b.dataset.gl;
-    if (k !== 'replace') { S.cart.push({desc: (k === 'privacy' ? 'Privacy tempered glass' : 'Tempered glass') + ' (lifetime warranty)', cat: 'Tempered glass', price: GLASS[k], glass: k}); return viewRegister(el); }
+    if (k !== 'replace') return glassPicker(k, '', line => { delete line.qty; delete line.taxable; S.cart.push(line); viewRegister(el); });
     glassReplaceSheet(S.cartPhone || '', line => { S.cart.push(line); if (line.phone && !S.cartPhone) S.cartPhone = line.phone; viewRegister(el); }); });
   const addProd = p => {
     const gl = /tempered|glass protector|screen protector/i.test(p.name) ? (/privacy/i.test(p.name) ? 'privacy' : 'regular') : null;
@@ -2778,6 +2779,40 @@ async function viewInvoices(el){
   $('#iv-new').onclick = () => go('register');
 }
 
+/* ---------- tempered glass: pick the model so that model's glass comes out of inventory ---------- */
+const isGlassProd = p => /tempered|glass protector|screen protector/i.test(p.name || '') && !/lens|camera/i.test(p.name || '');
+function glassFits(name, device){
+  const key = partKey(device); if (!key) return true; const n = partNorm(name);
+  const k2 = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp('[\\s/]' + k2 + '(?=[\\s/])(?!\\s*(max|mini|ultra|pro|\\+|fe|e|lite)\\b)(?!\\+)').test(n);
+}
+/* kind: 'regular' | 'privacy'; device: prefill (ticket device); onPick(line) gets a ready line with productId */
+async function glassPicker(kind, device, onPick){
+  if (!S.prods || Date.now() - (S.prodsAt || 0) > 120000) { S.prods = await Store.products().catch(() => []); S.prodsAt = Date.now(); }
+  const all = S.prods.filter(isGlassProd); let q = device || '';
+  sheet(`<div class="row" style="justify-content:space-between"><h3>Tempered glass · pick the model</h3><button data-close>Close</button></div>
+    <div class="row" style="gap:6px"><button data-gk="regular">Regular ${cents(GLASS.regular)}</button><button data-gk="privacy">Privacy ${cents(GLASS.privacy)}</button></div>
+    <div class="field"><label class="label" for="gp-q">Model</label><input id="gp-q" value="${esc(q)}" placeholder="15 pro max, s24 ultra…" autocomplete="off"></div>
+    <div id="gp-list" class="stack" style="gap:6px;max-height:50vh;overflow:auto"></div>
+    <span class="small muted">Every glass sold comes out of this store's count and gets the lifetime warranty (replacement ${cents(GLASS.replace)}).</span>`,
+  (L, close) => {
+    const draw = () => { L.querySelectorAll('[data-gk]').forEach(b => b.classList.toggle('primary', b.dataset.gk === kind));
+      const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      let hits = all.filter(p => kind === 'privacy' ? /privacy/i.test(p.name) : !/privacy/i.test(p.name));
+      const fit = q.trim() ? hits.filter(p => glassFits(p.name, q)) : [];
+      hits = fit.length ? fit : q.trim() ? hits.filter(p => { const n = partNorm(p.name); return words.every(w => n.includes(w.replace(/^iphone$|^galaxy$|^samsung$|^apple$/, ''))); }) : hits;
+      hits = hits.sort((a, b) => (b.qty?.[S.store] || 0) - (a.qty?.[S.store] || 0) || a.name.localeCompare(b.name)).slice(0, 25);
+      L.querySelector('#gp-list').innerHTML = (hits.length ? hits.map(p => { const n = p.qty?.[S.store] || 0;
+          return `<button data-gp="${p.id}" style="justify-content:space-between;text-align:left;min-height:46px;gap:10px"><span style="flex:1;min-width:0">${esc(p.name)}</span><span class="small ${n ? '' : 'muted'}" style="white-space:nowrap">${n} at ${S.store}</span></button>`; }).join('')
+        : `<span class="small muted">No ${kind === 'privacy' ? 'privacy ' : ''}glass in inventory for "${esc(q)}". Try fewer words (like "15 pro").</span>`)
+        + `<button data-gp="" style="min-height:40px" class="small">Not in inventory: add ${kind === 'privacy' ? 'privacy ' : ''}glass for ${esc(q || 'this phone')} without a count</button>`;
+      L.querySelectorAll('[data-gp]').forEach(b => b.onclick = () => { const p = all.find(x => x.id === b.dataset.gp);
+        if (p && !(p.qty?.[S.store] > 0)) toast(`${STORES[S.store]} shows 0 of this glass. It still sells; fix the count in Inventory.`);
+        close(); onPick({desc: (p ? p.name : `${kind === 'privacy' ? 'Privacy tempered glass' : 'Tempered glass'}${q ? ' · ' + q.trim() : ''}`) + ' (lifetime warranty)', cat: 'Tempered glass', price: GLASS[kind], qty: 1, taxable: true, glass: kind, device: q.trim() || device || '', ...(p ? {productId: p.id} : {})}); }); };
+    L.querySelectorAll('[data-gk]').forEach(b => b.onclick = () => { kind = b.dataset.gk; draw(); });
+    const inp = L.querySelector('#gp-q'); inp.oninput = () => { q = inp.value; draw(); }; draw(); setTimeout(() => { inp.focus(); inp.select(); }, 50);
+  });
+}
 /* ---------------- INVOICE PAGE (like RepairShopr) ----------------
    Ticket → Make invoice makes a numbered invoice that starts unpaid and opens here. Edit the lines (qty, price, Taxable),
    add items, glass or a discount, then Take payment. Paid invoices show how they were paid, with Receipt and Refund. */
@@ -2815,7 +2850,7 @@ async function viewInvoice(el){
         ${open ? `<div class="stack" style="gap:8px;border-top:1px solid var(--line);padding-top:10px">
           <div class="row" style="gap:6px"><input id="iv-add" placeholder="Add an item: scan or search inventory (case, charger, cable…)" style="flex:1;min-width:220px" autocomplete="off"></div>
           <div id="iv-hits"></div>
-          <div class="row" style="gap:6px"><button data-ia="regular">+ Tempered glass ${cents(GLASS.regular)}</button><button data-ia="privacy">+ Privacy glass ${cents(GLASS.privacy)}</button><button data-ia="custom">+ Custom item</button><button data-ia="discount">+ Discount</button></div>
+          <div class="row" style="gap:6px"><button data-ia="regular">+ Tempered glass…</button><button data-ia="privacy">+ Privacy glass…</button><button data-ia="custom">+ Custom item</button><button data-ia="discount">+ Discount</button></div>
         </div>` : ''}
       </div>
     </div>
@@ -2866,7 +2901,7 @@ async function viewInvoice(el){
   $('#iv-add').oninput = e => { clearTimeout(tm); tm = setTimeout(() => drawHits(e.target.value), 250); };
   $('#iv-add').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); clearTimeout(tm); drawHits(e.target.value).then(() => { const one = hits.querySelectorAll('[data-ip]'); if (one.length === 1) one[0].click(); }); } };
   el.querySelectorAll('[data-ia]').forEach(b => b.onclick = () => { const k = b.dataset.ia;
-    if (k === 'regular' || k === 'privacy') { L.push({desc: (k === 'privacy' ? 'Privacy tempered glass' : 'Tempered glass') + ' (lifetime warranty)', cat: 'Tempered glass', price: GLASS[k], qty: 1, taxable: true, glass: k, device: t?.device || ''}); return save(L); }
+    if (k === 'regular' || k === 'privacy') return glassPicker(k, t?.device || '', line => { L.push(line); save(L); });
     if (k === 'custom') return sheet(`<div class="row" style="justify-content:space-between"><h3>Custom item</h3><button data-close>Close</button></div>
         <div class="field"><label class="label" for="ci-d">Item</label><input id="ci-d" placeholder="Water damage cleaning"></div>
         <div class="grid g2"><div class="field"><label class="label" for="ci-p">Price</label><input id="ci-p" inputmode="decimal" placeholder="0.00"></div><div class="field"><label class="label" for="ci-q">Qty</label><input id="ci-q" inputmode="numeric" value="1"></div></div>
