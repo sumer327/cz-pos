@@ -1091,6 +1091,7 @@ function enterStore(emp, store, openP){
   S.tf.store = 'mine'; S.rf.store = 'mine'; S.inv.store = 'mine'; S.cf.store = 'mine'; S.invStore = ''; S.sw.store = 'mine'; S.sw.tab = 'listed';
   S.user = emp; S.lastAct = Date.now();
   S.tab = openP ? (['clock','staff','hours','dashboard','invoices'].includes(S.tab) && !can(2) ? 'tickets' : (S.tab === 'clock' ? 'tickets' : S.tab)) : 'clock';
+  try { history.replaceState({pos: 0}, ''); history.pushState(navState(), ''); } catch {}
   renderShell();
 }
 
@@ -1326,7 +1327,22 @@ const NAV = [
 ];
 const MORE = [['counts','Counts',0],['transfers','Transfers',0],['closeout','Close out',0],['invoices','Invoices',2],['hours','Timesheets',2],['staff','Admin',3]];
 const ALIAS = {ticket: 'tickets', newticket: 'tickets', customer: 'customers', repair: 'repairs', calls: 'inbox'};
-function go(tab, extra = {}){ Object.assign(S, {tab}, extra); renderShell(); window.scrollTo(0, 0); }
+/* browser Back / Forward: every screen change is a history entry; Back closes an open popup first, and never leaves the POS */
+const NAV_KEYS = ['customerId', 'ticketId', 'deviceId', 'q'];
+const navState = () => ({pos: 1, tab: S.tab, ...Object.fromEntries(NAV_KEYS.filter(k => S[k] != null && S[k] !== '').map(k => [k, S[k]]))});
+function go(tab, extra = {}, fromHistory = false){ Object.assign(S, {tab}, extra);
+  if (!fromHistory) { try { const st = navState(), cur = history.state;
+    if (cur && cur.pos && cur.tab === 'clock') history.replaceState(st, '');   /* the clock-in screen isn't a place to go back to */
+    else if (!cur || !cur.pos || cur.tab !== st.tab || NAV_KEYS.some(k => cur[k] !== st[k])) history.pushState(st, ''); } catch {} }
+  renderShell(); window.scrollTo(0, 0); }
+window.addEventListener('popstate', e => {
+  const st = e.state, layer = $('#layer'), stay = () => { try { history.pushState(navState(), ''); } catch {} };
+  if (!S.user) return stay();                                       /* locked: nothing to go back to */
+  if (layer && layer.innerHTML.trim()) { layer.innerHTML = ''; return stay(); }   /* Back closes the popup, page stays */
+  const hb = $('#helpbox'); if (hb && !hb.hidden) { helpClose(); return stay(); }
+  if (!st || !st.pos) { stay(); toast('That\'s the first screen. Use the menu to move around.'); return; }
+  const extra = {}; NAV_KEYS.forEach(k => { extra[k] = st[k] ?? null; }); go(st.tab, extra, true);
+});
 const myNotes = list => list.filter(n => (!n.store || n.store === S.store) && (!n.role || RANK[S.user.role] >= (n.role === 'owner' ? 3 : 2)));
 
 async function renderShell(){
