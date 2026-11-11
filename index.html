@@ -1906,7 +1906,7 @@ async function viewRegister(el){
   const set = await Store.settings();
   if (!S.prods || Date.now() - S.prodsAt > 120000) { S.prods = await Store.products().catch(() => []); S.prodsAt = Date.now(); }
   const pq = (S.rgq || '').trim(); const exact = pq && S.prods.find(p => p.upc && p.upc === pq);
-  const hits = pq ? S.prods.filter(p => prodMatch(p, pq)).sort((a, b) => (b.qty?.[S.store] || 0) - (a.qty?.[S.store] || 0)).slice(0, 15) : [];
+  const hits = pq ? S.prods.filter(p => p.category !== 'Phone Sale' && prodMatch(p, pq)).sort((a, b) => (b.qty?.[S.store] || 0) - (a.qty?.[S.store] || 0)).slice(0, 15) : [];
   /* phones in this store's stock can be sold here too: search by stock #, IMEI or model */
   if (pq && (!S.rgDevs || Date.now() - S.rgDevsAt > 60000)) { S.rgDevs = (await Store.devices().catch(() => [])).filter(d => d.store === S.store && ['hot', 'tolist', 'swappa', 'testing'].includes(d.status) && !d.transferId); S.rgDevsAt = Date.now(); }
   const pql = pq.toLowerCase().replace(/^#/, '');
@@ -1926,13 +1926,15 @@ async function viewRegister(el){
         <button data-gl="replace" style="min-height:64px;text-align:left"><b>Lifetime replacement</b><div class="small muted num">${cents(GLASS.replace)} · look up their glass</div></button></div></div>
       <div class="field"><label class="label" for="rg-q">Scan or search inventory (${S.prods.length} items)</label><input id="rg-q" value="${esc(S.rgq || '')}" placeholder="Scan the barcode, or type: clear case 15 pro" autocomplete="off"></div>
       ${devHits.length ? `<div class="stack" style="gap:4px"><span class="label">Phones in stock</span><div class="tbl"><table><tbody>${devHits.map(d => `<tr class="click" data-dev="${d.id}"><td><b>#${d.stockNo} ${esc(d.model)} ${esc(d.storage || '')}</b><div class="small muted">${esc(d.carrier || '')} · ${esc(STATUS_LABEL[d.status])} · IMEI ${esc(d.imei || '—')}</div></td><td class="r num">${d.swappa?.price || d.listPrice ? cents(d.swappa?.price || d.listPrice) : '<span class="muted small">set price</span>'}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
-      ${pq ? `<div class="tbl"><table><tbody>${hits.map(p => { const q = p.qty?.[S.store] || 0; return `<tr class="click" data-prod="${p.id}"><td><b>${esc(p.name)}</b><div class="small muted">${esc(p.category || '')}${p.upc ? ' · ' + esc(p.upc) : ''}</div></td><td class="r num">${cents(p.price)}</td><td class="r"><span class="pill ${q > 0 ? 'ok' : 'bad'}">${q} here</span></td></tr>`; }).join('') || '<tr><td class="muted">Nothing matches. Use "Other item" below.</td></tr>'}</tbody></table></div>` : ''}
+      ${pq ? `<div class="tbl"><table><tbody>${hits.map(p => { const q = p.qty?.[S.store] || 0; return `<tr class="click" data-prod="${p.id}"><td><b>${esc(p.name)}</b><div class="small muted">${esc(p.category || '')}${p.upc ? ' · ' + esc(p.upc) : ''}</div></td><td class="r num">${cents(p.price)}</td><td class="r">${q > 0 ? `<span class="pill ok">${q} here</span>` : ''}</td></tr>`; }).join('') || '<tr><td class="muted">Nothing in inventory matches.</td></tr>'}
+        <tr class="click" data-manual="1"><td colspan="3"><b>+ Ring up “${esc(pq)}” as a manual item</b><div class="small muted">Not in the system? Type the price and it goes on the sale.</div></td></tr></tbody></table></div>` : ''}
       <div class="grid g3">${set.accessories.map(([n, p, c], i) => `<button data-acc="${i}" style="min-height:64px;text-align:left"><b>${esc(n)}</b><div class="small muted num">${cents(p)}</div></button>`).join('')}
-        <button data-acc="custom" style="min-height:64px;text-align:left"><b>Other item</b><div class="small muted">Type a name and price</div></button></div>
+        <button data-acc="custom" style="min-height:64px;text-align:left;border:2px dashed var(--line,#bbb)"><b>+ Manual item</b><div class="small muted">Anything not in inventory</div></button>
+        <button data-acc="phone" style="min-height:64px;text-align:left;border:2px dashed var(--line,#bbb)"><b>+ Phone / device sale</b><div class="small muted">Not in phone stock</div></button></div>
       ${upsellBox(set)}
     </div>
     <div class="panel stack"><h2>Sale</h2>
-      ${S.cart.length ? `<div class="tbl"><table><tbody>${S.cart.map((l, i) => `<tr><td>${esc(l.desc)}<div class="small muted">${esc(l.cat)}</div></td><td class="r num">${cents(l.price)}</td><td class="r"><button data-rmc="${i}" aria-label="Remove ${esc(l.desc)}" style="min-height:32px;padding:2px 10px">✕</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">Tap an item to add it.</p>'}
+      ${S.cart.length ? `<div class="tbl"><table><tbody>${S.cart.map((l, i) => `<tr><td>${esc(l.desc)}<div class="small muted">${esc(l.cat)}</div></td><td class="r num"><button data-edp="${i}" class="num" title="Change price" style="min-height:32px;padding:2px 8px;border-style:dashed">${cents(l.price)}</button></td><td class="r"><button data-rmc="${i}" aria-label="Remove ${esc(l.desc)}" style="min-height:32px;padding:2px 10px">✕</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">Tap an item to add it.</p>'}
       ${S.cart.length ? taxRow(sub, rtax) : ''}<div class="row" style="justify-content:space-between"><span class="label">Total with tax</span><span class="num" style="font-size:26px">${cents(total)}</span></div>
       <div class="field"><label class="label" for="rg-ph">Customer phone (${S.cart.some(l => l.glass) ? 'required for the glass warranty' : 'optional'})</label><input id="rg-ph" inputmode="tel" value="${esc(S.cartPhone || '')}" placeholder="Leave blank for walk-in"></div>
       <div id="rg-trade">${S.cart.length ? tradeBox(TR.credits, total, TR) : (TR.credits.length ? `<div class="banner ok small">${esc(TR.credits[0].name || 'This customer')} has ${cents(tradeCalc(TR.credits, 1e9, {use: true}).avail)} trade-in credit. Add what they're buying.</div>` : '')}</div>
@@ -1941,21 +1943,35 @@ async function viewRegister(el){
       <div class="err" id="rg-err" role="alert"></div>
       <button class="primary" id="rg-go" ${S.cart.length ? '' : 'disabled'} style="min-height:52px;font-size:16px">Record sale</button>
     </div></div>`;
+  const manual = (name = '', cat = 'Accessory') => sheet(`<div class="row" style="justify-content:space-between"><h3>${cat === 'Phone sale' ? 'Phone / device sale' : 'Manual item'}</h3><button data-close>Close</button></div>
+      <p class="small muted" style="margin:0">${cat === 'Phone sale' ? 'For a phone that isn\'t in phone stock yet. Write the model, storage, carrier and IMEI so the manager can match it later.' : 'For anything that isn\'t in inventory. Write what it is so the sale makes sense later.'}</p>
+      <div class="field"><label class="label" for="ci-n">${cat === 'Phone sale' ? 'Phone (model, storage, carrier, IMEI)' : 'Item'}</label><input id="ci-n" value="${esc(name)}" placeholder="${cat === 'Phone sale' ? 'iPhone 13 128GB Unlocked IMEI 35…' : 'Otterbox case iPhone 15'}" autocomplete="off"></div>
+      <div class="grid g2"><div class="field"><label class="label" for="ci-p">Price (before tax)</label><input id="ci-p" inputmode="decimal" placeholder="0.00"></div>
+      <div class="field"><label class="label" for="ci-c">Category</label><select id="ci-c">${LINE_CATS.map(c => `<option ${c === cat ? 'selected' : ''}>${c}</option>`).join('')}</select></div></div>
+      <div class="field"><label class="label" for="ci-q">Quantity</label><input id="ci-q" inputmode="numeric" value="1"></div>
+      <div class="err" id="ci-e" role="alert"></div><button class="primary" id="ci-go">Add to sale</button>`, (L, close) => {
+        const go = () => { const n = L.querySelector('#ci-n').value.trim(), p = parseFloat(String(L.querySelector('#ci-p').value).replace(/[$,]/g, '')), q = Math.max(1, Math.min(50, parseInt(L.querySelector('#ci-q').value) || 1));
+          if (!n || !(p > 0)) { L.querySelector('#ci-e').textContent = 'Enter what it is and its price.'; return; }
+          for (let k = 0; k < q; k++) S.cart.push({desc: n, price: Math.round(p * 100) / 100, cat: L.querySelector('#ci-c').value, manual: true});
+          S.rgq = ''; close(); viewRegister(el).then(() => $('#rg-q')?.focus()); };
+        L.querySelector('#ci-go').onclick = go; L.querySelectorAll('input').forEach(i => i.onkeydown = e => { if (e.key === 'Enter') go(); });
+        setTimeout(() => L.querySelector(name ? '#ci-p' : '#ci-n')?.focus(), 50); });
+  el.querySelectorAll('[data-manual]').forEach(tr => tr.onclick = () => manual(pq));
   el.querySelectorAll('[data-acc]').forEach(b => b.onclick = () => {
-    if (b.dataset.acc === 'custom') return sheet(`<div class="row" style="justify-content:space-between"><h3>Other item</h3><button data-close>Close</button></div>
-      <div class="field"><label class="label" for="ci-n">Item</label><input id="ci-n" placeholder="Otterbox case"></div>
-      <div class="grid g2"><div class="field"><label class="label" for="ci-p">Price</label><input id="ci-p" inputmode="decimal"></div>
-      <div class="field"><label class="label" for="ci-c">Category</label><select id="ci-c">${LINE_CATS.map(c => `<option ${c === 'Accessory' ? 'selected' : ''}>${c}</option>`).join('')}</select></div></div>
-      <div class="err" id="ci-e" role="alert"></div><button class="primary" id="ci-go">Add</button>`, (L, close) => L.querySelector('#ci-go').onclick = () => {
-        const n = L.querySelector('#ci-n').value.trim(), p = parseFloat(L.querySelector('#ci-p').value);
-        if (!n || !(p > 0)) { L.querySelector('#ci-e').textContent = 'Enter the item and its price.'; return; }
-        S.cart.push({desc: n, price: p, cat: L.querySelector('#ci-c').value}); close(); viewRegister(el); });
+    if (b.dataset.acc === 'custom') return manual();
+    if (b.dataset.acc === 'phone') return manual('', 'Phone sale');
     const [n, p, c] = set.accessories[+b.dataset.acc]; S.cart.push({desc: n, price: p, cat: c}); viewRegister(el); });
   el.querySelectorAll('[data-rmc]').forEach(b => b.onclick = () => { S.cart.splice(+b.dataset.rmc, 1); viewRegister(el); });
+  el.querySelectorAll('[data-edp]').forEach(b => b.onclick = () => { const l = S.cart[+b.dataset.edp];
+    sheet(`<div class="row" style="justify-content:space-between"><h3>Change price</h3><button data-close>Close</button></div><p class="small muted" style="margin:0">${esc(l.desc)}</p>
+      <div class="field"><label class="label" for="ep-p">Price (before tax)</label><input id="ep-p" inputmode="decimal" value="${l.price}"></div><div class="err" id="ep-e" role="alert"></div><button class="primary" id="ep-go">Save</button>`, (L, close) => {
+      const go = () => { const v = parseFloat(String(L.querySelector('#ep-p').value).replace(/[$,]/g, '')); if (!(v > 0)) { L.querySelector('#ep-e').textContent = 'Enter a price above $0.'; return; }
+        l.price = Math.round(v * 100) / 100; close(); viewRegister(el); };
+      L.querySelector('#ep-go').onclick = go; L.querySelector('#ep-p').onkeydown = e => { if (e.key === 'Enter') go(); }; setTimeout(() => L.querySelector('#ep-p').select(), 50); }); });
   el.querySelectorAll('[data-gl]').forEach(b => b.onclick = () => { const k = b.dataset.gl;
     if (k !== 'replace') { S.cart.push({desc: (k === 'privacy' ? 'Privacy tempered glass' : 'Tempered glass') + ' (lifetime warranty)', cat: 'Tempered glass', price: GLASS[k], glass: k}); return viewRegister(el); }
     glassReplaceSheet(S.cartPhone || '', line => { S.cart.push(line); if (line.phone && !S.cartPhone) S.cartPhone = line.phone; viewRegister(el); }); });
-  const addProd = p => { if (p.maintainStock && (p.qty?.[S.store] || 0) < 1) toast(`System shows 0 ${p.name} at ${STORES[S.store]}. Added anyway; tell a manager to fix the count.`);
+  const addProd = p => {
     const gl = /tempered|glass protector|screen protector/i.test(p.name) ? (/privacy/i.test(p.name) ? 'privacy' : 'regular') : null;
     S.cart.push(gl ? {desc: p.name + ' (lifetime warranty)', price: GLASS[gl], cat: 'Tempered glass', productId: p.id, glass: gl} : {desc: p.name, price: p.price, cat: 'Accessory', productId: p.id}); S.rgq = ''; viewRegister(el).then(() => $('#rg-q').focus()); };
   el.querySelectorAll('[data-prod]').forEach(tr => tr.onclick = () => addProd(S.prods.find(p => p.id === tr.dataset.prod)));
@@ -1968,8 +1984,10 @@ async function viewRegister(el){
       (L, close) => L.querySelector('#dv-go').onclick = () => { const v = parseFloat(L.querySelector('#dv-p').value); if (!(v > 0)) { L.querySelector('#dv-e').textContent = 'Enter the selling price.'; return; }
         S.cart.push({desc: `${d.model} ${d.storage || ''} ${d.carrier || ''} (stock #${d.stockNo})`.replace(/\s+/g, ' '), cat: 'Phone sale', price: v, deviceId: d.id}); S.rgq = ''; close(); viewRegister(el); }); });
   bindTradeBox(el, TR, () => viewRegister(el));
-  const rq = $('#rg-q'); let rqt; rq.oninput = () => { clearTimeout(rqt); rqt = setTimeout(() => { S.rgq = rq.value; viewRegister(el).then(() => { const n = $('#rg-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 200); };
-  rq.onkeydown = e => { if (e.key === 'Enter') { const v = rq.value.trim(); const p = S.prods.find(x => x.upc && x.upc === v) || (S.prods.filter(x => prodMatch(x, v)).length === 1 ? S.prods.find(x => prodMatch(x, v)) : null); if (p) addProd(p); } };
+  const rq = $('#rg-q'); let rqt;
+  rq.oninput = () => { clearTimeout(rqt); rqt = setTimeout(() => { S.rgq = rq.value; viewRegister(el).then(() => { const n = $('#rg-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 200); };
+  rq.onkeydown = e => { if (e.key === 'Enter') { const v = rq.value.trim(); if (!v) return; clearTimeout(rqt); const m = S.prods.filter(x => x.category !== 'Phone Sale' && prodMatch(x, v)); const p = S.prods.find(x => x.upc && x.upc === v) || (m.length === 1 ? m[0] : null);
+    if (p) addProd(p); else if (!m.length && !(S.rgDevs || []).some(d => String(d.stockNo) === v.replace(/^#/, '') || d.imei === v)) manual(v); } };
   if (exact) { addProd(exact); return; }
   registerPanel($('#rg-day'), () => viewRegister(el)).catch(e => { $('#rg-day').innerHTML = `<div class="banner warn small">Register open/close isn't available: ${esc(e.message)}</div>`; });
   $('#rg-ph').oninput = e => { S.cartPhone = e.target.value; if (e.target.value.replace(/\D/g, '').length === 10 || TR.phone) viewRegister(el).then(() => { const n = $('#rg-ph'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); };
