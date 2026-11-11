@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794432499";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794434026";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -178,6 +178,7 @@ const STATUSES = [
 const STATUS_LABEL = Object.fromEntries(STATUSES);
 const CONDS = [['new','New'],['mint','Mint'],['used','Used'],['heavy','Heavy wear'],['glass','Glass/LCD broken'],['damaged','Damaged']];
 const IDLE_LOCK_MS = 30 * 60000;   /* lock after 30 minutes idle */
+const COST_OPEN = true;   /* TEMPORARY (Nov 11): reps can enter device cost while the counted phones get filled in. Set false to lock again (and re-lock pos_update_device). */
 const GLASS = {regular: 29.99, privacy: 34.99, replace: 5};   /* tempered glass: any model; lifetime warranty = $5 replacement */
 /* Same statuses, issue types and priorities as Cellular Zone's RepairShopr account (checked Nov 9 2026) */
 const TSTATUS = [['new','New','st-new'],['progress','In Progress','st-prog'],['approval','Awaiting Approval','st-appr'],['device','Awaiting Device','st-dev'],
@@ -3842,7 +3843,7 @@ function deviceSheet(d, after){
     </div>
     ${d.notes ? `<p class="small muted">${esc(d.notes)}</p>` : ''}
     <div class="grid g2"><div class="field"><label class="label" for="d-imei">IMEI / serial</label><input id="d-imei" value="${esc(d.imei || '')}" inputmode="numeric" autocomplete="off" placeholder="Dial *#06# or check Settings"></div>
-      ${can(2) ? `<div class="field"><label class="label" for="d-cost">Our cost</label><input id="d-cost" inputmode="decimal" value="${+d.cost ? d.cost : ''}" placeholder="What we paid"></div>` : ''}</div>
+      ${can(2) || COST_OPEN ? `<div class="field"><label class="label" for="d-cost">Our cost</label><input id="d-cost" inputmode="decimal" value="${+d.cost ? d.cost : ''}" placeholder="What we paid"></div>` : ''}</div>
     <div class="field"><label class="label" for="d-s">Move to</label><select id="d-s">${STATUSES.map(([k, l]) => `<option value="${k}" ${d.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
     <div class="field" id="d-list-f"><label class="label" for="d-list">Swappa list price</label><input id="d-list" inputmode="decimal" value="${d.swappa?.price ?? d.listPrice ?? ''}"></div>
     <div class="grid g2" id="d-sold-f">
