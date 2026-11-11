@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794421765";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794422770";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -524,6 +524,8 @@ const DemoStore = {
     if (changes.length) { t.comments.unshift({id: uid(), at: now(), who: emp.id, text: changes.join(' · '), pub: false, sys: true}); this.log(d, emp.id, store, 'Ticket updated', `#${t.number} ${changes.join(' · ')}`); }
     this.save(d); return t;
   },
+  async setPasscode(emp, store, id, v){ const d = this.db(); const t = d.tickets.find(x => x.id === id); v = (v || '').trim().slice(0, 100) || '';
+    t.passcode = v; t.updatedAt = now(); t.comments.unshift({id: uid(), at: now(), who: emp.id, text: !v ? 'Passcode removed' : isPattern(v) ? 'Pattern lock saved' : 'Passcode saved', pub: false, sys: true}); this.save(d); return t; },
   async addComment(emp, store, id, text, pub){
     const d = this.db(); const t = d.tickets.find(x => x.id === id);
     t.comments.unshift({id: uid(), at: now(), who: emp.id, text, pub}); t.updatedAt = now(); this.save(d); return t;
@@ -925,6 +927,7 @@ const LiveStore = {
     this.keep(this.cT, rows); return [...this.cT.values()].sort((a, b) => b.number - a.number); })(); return this._tp; },
   async createTicket(emp, store, t){ return this.rpc('pos_create_ticket', {p_pin: this.pinFor(emp), p_store: store, p_t: t}); },
   async updateTicket(emp, store, id, patch){ return this.rpc('pos_update_ticket', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_patch: patch}); },
+  async setPasscode(emp, store, id, v){ const r = await this.rpc('pos_set_passcode', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_passcode: v || ''}); this.keep(this.cT, [r]); return r; },
   async addComment(emp, store, id, text, pub){ return this.rpc('pos_ticket_comment', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_text: text, p_pub: pub}); },
   async useTicketPart(emp, store, id, partId){ return this.rpc('pos_ticket_part', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_part: partId}); },
   async checkout(emp, store, inv){ const r = await this.rpc('pos_checkout', {p_pin: this.pinFor(emp), p_store: store, p_inv: inv}); if (inv.ticketId) { this.cT.delete(inv.ticketId); await this.loadTicket(inv.ticketId).catch(() => {}); } this.keep(this.cI, [r]); return r; },
@@ -1498,14 +1501,15 @@ async function viewTicket(el){
           <dt>Device</dt><dd>${esc(t.device)}</dd>
           <dt>Issue</dt><dd>${esc(t.issue)}</dd>
           <dt>IMEI / serial</dt><dd class="mono">${esc(t.imei || '—')}</dd>
-          <dt>Passcode</dt><dd class="mono">${t.passcode ? `<span id="pc" data-v="${esc(t.passcode)}">••••</span> <button id="pc-show" style="min-height:30px;padding:2px 8px">Show</button>` : '—'}</dd>
+          <dt>Passcode</dt><dd class="mono">${t.passcode === 'None' ? '<span class="muted">No passcode</span>' : t.passcode ? `<span id="pc">${isPattern(t.passcode) ? 'Pattern ••••' : '••••'}</span> <button id="pc-show" style="min-height:30px;padding:2px 8px">Show</button>` : '<span class="muted">Not given</span>'}
+            <button id="pc-edit" style="min-height:30px;padding:2px 8px;margin-left:4px">${t.passcode ? 'Change' : 'Add'}</button></dd>
           <dt>Estimate</dt><dd class="num">${cents(t.estimate)}</dd>
           <dt>Battery health</dt><dd>${t.bh ? `<b>BH ${t.bh}%</b>` : t.bhSkip ? `<span class="muted">Couldn't read: ${esc(t.bhSkip)}</span>` : needsBH(t) ? '<span class="pill bad">Needed before resolving</span>' : '<span class="muted">—</span>'}
             ${t.status !== 'resolved' ? '<button id="t-bh" style="min-height:30px;padding:2px 8px;margin-left:6px">Record</button>' : ''}</dd>
           <dt>Store</dt><dd>${STORES[t.store]}</dd>
           <dt>Checked in</dt><dd>${new Date(t.createdAt).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})} by ${esc(staffName(t.by))}</dd>
         </dl>
-        ${t.status !== 'resolved' ? `<div class="row"><button id="t-label">Print label</button><button class="primary" id="t-pay">${t.type === 'rework' && !due.length && !tInv.length ? 'Close rework (no charge)' : due.length ? 'Check out · ' + cents(dueSum) + ' due' : tInv.length ? 'Close ticket (paid)' : 'Check out'}</button>${t.status !== 'customer' ? '<button id="t-ready">Ready for pickup</button>' : ''}</div>` : `<div class="row">${t.invoiceId ? '<span class="pill ok">Paid and resolved</span>' : ''}<button id="t-rework">Customer came back: open rework</button></div>`}
+        ${t.status !== 'resolved' ? `<div class="row"><button id="t-label">Print label</button><button id="t-intake">Print intake receipt</button><button class="primary" id="t-pay">${t.type === 'rework' && !due.length && !tInv.length ? 'Close rework (no charge)' : due.length ? 'Check out · ' + cents(dueSum) + ' due' : tInv.length ? 'Close ticket (paid)' : 'Check out'}</button>${t.status !== 'customer' ? '<button id="t-ready">Ready for pickup</button>' : ''}</div>` : `<div class="row">${t.invoiceId ? '<span class="pill ok">Paid and resolved</span>' : ''}<button id="t-intake">Print intake receipt</button><button id="t-rework">Customer came back: open rework</button></div>`}
         ${reworks.length ? `<div class="small">Reworks: ${reworks.map(r => `<a data-goto="${r.id}" style="color:var(--accent);cursor:pointer">#${r.number}</a> ${stPill(r.status)}`).join(' ')}</div>` : ''}
       </div>
       ${parent ? `<div class="panel stack" style="border-left:4px solid var(--accent)">
@@ -1585,14 +1589,20 @@ async function viewTicket(el){
     sheet(`<div class="row" style="justify-content:space-between"><h3>Ticket #${t.number} created</h3><button data-close>Done</button></div>
       <div class="small muted">${esc(c.name || '')} · ${esc(t.device)} · ${esc(t.subject)}</div>
       <button class="primary" id="nt-lbl" style="min-height:48px">Print ticket label</button>
+      <button id="nt-intake" style="min-height:48px">Print intake receipt for the customer</button>
       ${ch.length ? '' : `<button id="nt-diag" style="min-height:48px">Collect diagnostic ${cents(diagFor(t.device, set))} now</button>`}`,
-      (L, close) => { L.querySelector('#nt-lbl').onclick = () => printTicketLabel(t, c);
+      (L, close) => { L.querySelector('#nt-lbl').onclick = () => printTicketLabel(t, c); L.querySelector('#nt-intake').onclick = () => printIntake(t, c);
         L.querySelector('#nt-diag') && (L.querySelector('#nt-diag').onclick = () => { close(); addCh({desc: 'Diagnostic · ' + t.device, cat: 'Diagnostic', price: diagFor(t.device, set)}, true); }); }); }
   el.querySelectorAll('[data-rcpt]').forEach(b => b.onclick = () => receiptSheet([...tInv, ...pInv].find(i => i.id === b.dataset.rcpt), {c, t, after: () => viewTicket(el)}));
   el.querySelectorAll('[data-rfnd]').forEach(b => b.onclick = () => refundSheet(tInv.find(i => i.id === b.dataset.rfnd), () => viewTicket(el)));
   el.querySelectorAll('[data-rmch]').forEach(b => b.onclick = async () => { try { await Store.ticketCharge(S.user, S.store, t.id, null, b.dataset.rmch); toast('Charge removed'); viewTicket(el); } catch (e) { toast(e.message); } });
   $('#t-cust').onclick = () => go('customer', {customerId: c.id});
-  $('#pc-show') && ($('#pc-show').onclick = () => { $('#pc').textContent = $('#pc').dataset.v; $('#pc-show').remove(); });
+  $('#pc-show') && ($('#pc-show').onclick = () => { $('#pc').innerHTML = isPattern(t.passcode) ? `<span style="display:inline-flex;gap:10px;align-items:center;vertical-align:middle">${patSVG(patSeq(t.passcode), 96)}<b>${patSeq(t.passcode).join(' → ')}</b></span>` : esc(t.passcode); $('#pc-show').remove(); });
+  $('#pc-edit').onclick = () => { let v = t.passcode || ''; sheet(`<div class="row" style="justify-content:space-between"><h3>Passcode for #${t.number}</h3><button data-close>Close</button></div>
+      <div id="pe-box" class="stack" style="gap:8px"></div><div class="err" id="pe-e" role="alert"></div><button class="primary" id="pe-go">Save</button>`,
+    (L, close) => { pcField('pe-pc', v, x => { v = x; }).mount(L.querySelector('#pe-box'));
+      L.querySelector('#pe-go').onclick = async () => { try { await Store.setPasscode(S.user, S.store, t.id, v); close(); toast('Passcode saved'); viewTicket(el); } catch (e) { L.querySelector('#pe-e').textContent = e.message; } }; }); };
+  $('#t-intake').onclick = () => printIntake(t, c);
   const copy = async (txt, ok) => { try { await navigator.clipboard.writeText(txt); toast(ok); } catch { toast('Copy blocked here. Select the text and copy it.'); } };
   $('#t-copyph') && ($('#t-copyph').onclick = () => copy(c.phone, 'Phone number copied'));
   S.prefillSms = null;
@@ -1696,8 +1706,8 @@ async function viewNewTicket(el){
         <div class="field"><label class="label" for="nt-iss">Issue</label><select id="nt-iss"><option value="">Pick one…</option>${ISSUES.map(i => `<option ${D.issue === i ? 'selected' : ''}>${i}</option>`).join('')}</select></div>
         <div class="field"><label class="label" for="nt-est">Quoted price</label><input id="nt-est" inputmode="decimal" value="${D.estimate ?? ''}" placeholder="109.99"></div>
         <div class="field"><label class="label" for="nt-imei">IMEI / serial</label><input id="nt-imei" value="${esc(D.imei || '')}" autocomplete="off"></div>
-        <div class="field"><label class="label" for="nt-pc">Passcode (optional)</label><input id="nt-pc" value="${esc(D.passcode || '')}" autocomplete="off"></div>
       </div>
+      <div class="field"><span class="label">Passcode, so the tech can test it</span><div id="nt-pcbox" class="stack" style="gap:8px"></div></div>
       <div class="field"><label class="label" for="nt-sub">Subject</label><input id="nt-sub" value="${esc(D.subject || '')}" placeholder="iPhone 15 Pro lcd replacement"></div>
       <div class="field"><label class="label" for="nt-notes">Notes for the tech</label><textarea id="nt-notes" rows="2" placeholder="Face ID works before repair. Small dent top left.">${esc(D.notes || '')}</textarea></div>
       <div class="field"><label class="label" for="nt-tech">Assign tech</label><select id="nt-tech"><option value="">Unassigned</option>${S.staff.filter(e => e.active).map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select></div>
@@ -1705,8 +1715,9 @@ async function viewNewTicket(el){
       <button class="primary" type="submit">Create ticket</button>
     </div>
   </form>`;
-  const keep = () => { if (!$('#nt-dev')) return; Object.assign(D, {device: $('#nt-dev').value, issue: $('#nt-iss').value, estimate: $('#nt-est').value, imei: $('#nt-imei').value, passcode: $('#nt-pc').value, subject: $('#nt-sub').value, notes: $('#nt-notes').value}); };
+  const keep = () => { if (!$('#nt-dev')) return; Object.assign(D, {device: $('#nt-dev').value, issue: $('#nt-iss').value, estimate: $('#nt-est').value, imei: $('#nt-imei').value, subject: $('#nt-sub').value, notes: $('#nt-notes').value}); };
   $('#back').onclick = () => go('tickets');
+  pcField('nt-pc', D.passcode || '', v => { D.passcode = v; }).mount($('#nt-pcbox'));
   const cq = $('#nt-cq'); let cqt; if (cq) cq.oninput = () => { clearTimeout(cqt); cqt = setTimeout(() => { keep(); D.cq = cq.value; viewNewTicket(el).then(() => { const n = $('#nt-cq'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 250); };
   el.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { keep(); D.customerId = b.dataset.c; viewNewTicket(el); });
   el.querySelectorAll('[data-g]').forEach(b => b.onclick = () => { keep(); const g = callers.find(x => String(x.id) === b.dataset.g);
@@ -1722,7 +1733,7 @@ async function viewNewTicket(el){
     const err = !D.customerId ? 'Pick or add the customer first.' : !D.device.trim() ? 'Enter the device.' : !D.issue ? 'Pick the issue.' : !D.subject.trim() ? 'Enter a subject.' : '';
     $('#nt-err').textContent = err; if (err) return;
     const t = await Store.createTicket(S.user, S.store, {customerId: D.customerId, device: D.device.trim(), issue: D.issue, subject: D.subject.trim(),
-      estimate: parseFloat(D.estimate) || null, imei: D.imei.trim(), passcode: D.passcode.trim(), techId: $('#nt-tech').value || null, notes: D.notes.trim()});
+      estimate: parseFloat(D.estimate) || null, imei: D.imei.trim(), passcode: (D.passcode || '').trim(), techId: $('#nt-tech').value || null, notes: D.notes.trim()});
     S.draft = {}; S.justCreated = t.id; go('ticket', {ticketId: t.id});
   };
 }
@@ -1783,16 +1794,63 @@ function receiptHTML(r){
 function printReceipt(r){
   printHTML('Receipt #' + r.number, receiptHTML(r), '@page{size:72mm 297mm;margin:0}html,body{margin:0;width:72mm}body{padding:2mm 3mm;box-sizing:border-box}body>div{max-width:none!important;font-size:12px!important}');
 }
+/* ---------- passcode / Samsung pattern ----------
+   A pattern is saved in the passcode field as "Pattern 1-2-3-6-9": dots numbered 1-9, left to right, top to bottom. */
+const isPattern = v => /^Pattern [1-9](-[1-9])*$/.test(v || '');
+const patSeq = v => isPattern(v) ? v.slice(8).split('-').map(Number) : [];
+function patSVG(seq, size = 150, live = false){
+  const g = size / 3, xy = n => [((n - 1) % 3) * g + g / 2, Math.floor((n - 1) / 3) * g + g / 2], r = size / 13;
+  const lines = seq.slice(1).map((n, i) => { const [a, b] = xy(seq[i]), [c, d] = xy(n); return `<line x1="${a}" y1="${b}" x2="${c}" y2="${d}" stroke="#2563eb" stroke-width="${size / 30}" stroke-linecap="round"/>`; }).join('');
+  const dots = [1,2,3,4,5,6,7,8,9].map(n => { const [x, y] = xy(n), k = seq.indexOf(n);
+    return `<g ${live ? `data-dot="${n}" style="cursor:pointer"` : ''}>${live ? `<circle cx="${x}" cy="${y}" r="${g / 2.2}" fill="transparent"/>` : ''}<circle cx="${x}" cy="${y}" r="${r}" fill="${k === 0 ? '#16a34a' : k > 0 ? '#2563eb' : '#cbd5e1'}"/>${k >= 0 ? `<text x="${x}" y="${y + r * .38}" text-anchor="middle" font-size="${r * 1.1}" font-weight="700" fill="#fff" font-family="Arial">${k + 1}</text>` : ''}</g>`; }).join('');
+  return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img" aria-label="${seq.length ? 'Pattern ' + seq.join('-') : 'Empty pattern'}">${lines}${dots}</svg>`;
+}
+/* passcode entry: Passcode / Pattern (Samsung) / None. state = {mode, code, seq}; onChange(valueToSave) */
+function pcField(id, value, onChange){
+  const st = {mode: isPattern(value) ? 'pattern' : value === 'None' ? 'none' : 'code', code: isPattern(value) || value === 'None' ? '' : (value || ''), seq: patSeq(value)};
+  const val = () => st.mode === 'pattern' ? (st.seq.length ? 'Pattern ' + st.seq.join('-') : '') : st.mode === 'none' ? 'None' : st.code.trim();
+  const html = () => `<div class="row" style="gap:6px">${[['code', 'Passcode / PIN'], ['pattern', 'Pattern (Samsung)'], ['none', 'No passcode']].map(([k, l]) => `<button type="button" data-pcm="${k}" class="${st.mode === k ? 'primary' : ''}" style="min-height:36px;padding:4px 12px">${l}</button>`).join('')}</div>
+    ${st.mode === 'code' ? `<input id="${id}-in" value="${esc(st.code)}" autocomplete="off" placeholder="So the tech can test it after the repair" aria-label="Passcode">`
+    : st.mode === 'pattern' ? `<div class="row" style="gap:14px;align-items:center"><div id="${id}-pad" style="background:var(--soft);border-radius:12px;padding:6px;touch-action:none">${patSVG(st.seq, 168, true)}</div>
+        <div class="stack" style="gap:6px"><span class="small">${st.seq.length ? `<b>${st.seq.join(' → ')}</b>` : 'Tap the dots in the order the customer draws it. Green is the start.'}</span><button type="button" id="${id}-clr" style="min-height:34px;padding:4px 12px">Clear</button></div></div>`
+    : '<span class="small muted">The customer has no lock on the device.</span>'}`;
+  const mount = box => { box.innerHTML = html();
+    box.querySelectorAll('[data-pcm]').forEach(b => b.onclick = () => { st.mode = b.dataset.pcm; onChange(val()); mount(box); });
+    const inp = box.querySelector(`#${id}-in`); if (inp) inp.oninput = () => { st.code = inp.value; onChange(val()); };
+    box.querySelectorAll('[data-dot]').forEach(g => g.onclick = () => { const n = +g.dataset.dot; if (!st.seq.includes(n)) { st.seq.push(n); onChange(val()); mount(box); } });
+    const clr = box.querySelector(`#${id}-clr`); if (clr) clr.onclick = () => { st.seq = []; onChange(val()); mount(box); }; };
+  return {mount, val};
+}
+/* ---------- drop-off (intake) receipt for the customer, Epson 80 mm ---------- */
+function printIntake(t, c){
+  const si = STORE_INFO[t.store] || {}; const when = new Date(t.createdAt);
+  const paid = (t.charges || []).filter(x => x.invoiceId), due = (t.charges || []).filter(x => !x.invoiceId);
+  const hr = '<hr style="border:0;border-top:1px dashed #999;margin:10px 0">', row = (a, b) => `<div style="display:flex;justify-content:space-between;gap:10px"><span>${a}</span><span style="text-align:right">${b}</span></div>`;
+  const body = `<div style="font:13px/1.45 -apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111">
+    <div style="text-align:center"><div style="font-size:18px;font-weight:700">Cellular Zone</div><div>${esc(STORES[t.store] || '')}</div><div>${esc(si.addr || '')}</div><div>${esc(si.phone || '')} · cellularzonesa.com</div></div>
+    ${hr}<div style="text-align:center;font-size:15px;font-weight:700;letter-spacing:.06em">DROP-OFF RECEIPT</div>
+    <div style="text-align:center;font-size:22px;font-weight:800;margin:4px 0">Ticket #${t.number}</div>
+    <div style="text-align:center">${when.toLocaleString('en-US', {month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'})}</div>
+    ${hr}${row('Customer', esc(c?.name || 'Walk-in'))}${c?.phone ? row('Phone', esc(fmtPhone(c.phone))) : ''}${row('Device', esc(t.device || ''))}${t.imei ? row('IMEI / serial', esc(t.imei)) : ''}
+    ${row('Repair', esc(t.subject || ''))}${t.estimate > 0 ? row('Quoted price', cents(t.estimate) + ' + tax') : ''}
+    ${paid.length ? hr + '<div style="font-weight:700">Paid at drop-off</div>' + paid.map(x => row(esc(x.desc), cents(x.price))).join('') : ''}
+    ${due.length ? hr + '<div style="font-weight:700">Due at pickup</div>' + due.map(x => row(esc(x.desc), cents(x.price))).join('') + '<div style="font-size:11px">Plus tax where it applies.</div>' : ''}
+    ${hr}<div style="font-size:12px">We'll text you when it's ready. Bring this receipt or your photo ID to pick it up.</div>
+    <div style="font-size:12px;margin-top:4px">Repairs carry a 6-month warranty from the day they're paid. Please keep a backup of your data.</div>
+    <div style="text-align:center;margin-top:10px">${barcodeSVG(t.number, 36)}</div>
+    <div style="text-align:center;font-size:12px;margin-top:6px">Thank you for choosing Cellular Zone!</div></div>`;
+  printHTML('Drop-off receipt #' + t.number, body, '@page{size:72mm 297mm;margin:0}html,body{margin:0;width:72mm}body{padding:2mm 3mm;box-sizing:border-box}svg{max-width:100%;height:36px}');
+}
 /* DYMO LabelWriter 450, 3.5 × 1.1 in label stuck on the device: ticket #, customer, phone, device, issue, barcode (scan it into search to open the ticket) */
 function printTicketLabel(t, c){
   const L = LABELS['30252'];
   printHTML('Ticket ' + t.number, `<div class="t"><span>CELLULAR ZONE · ${esc(STORES[t.store] || t.store)}</span><b>#${t.number}</b></div>
     <div class="m">${esc(c?.name || 'Walk-in')} · ${esc(fmtPhone(c?.phone))}</div>
     <div class="s">${esc(t.device || '')} · ${esc((t.subject || '').slice(0, 60))}</div>
-    <div class="t s"><span>In ${fmtDate(t.createdAt)}</span><span>${t.techId ? esc(staffName(t.techId)) : ''}</span></div>
+    <div class="t s"><span>In ${fmtDate(t.createdAt)}${t.passcode && t.passcode !== 'None' ? ` · <b class="pc">PC: ${esc(isPattern(t.passcode) ? 'pattern ' + patSeq(t.passcode).join('') : t.passcode)}</b>` : t.passcode === 'None' ? ' · No passcode' : ''}</span><span>${t.techId ? esc(staffName(t.techId)) : ''}</span></div>
     <div class="bc">${barcodeSVG(t.number, 20)}</div>`,
     `@page{size:${L.w} ${L.h};margin:0}*{box-sizing:border-box}html,body{margin:0}body{width:${L.w};height:${L.h};padding:.04in .08in;font:600 8.5px/1.15 Arial,Helvetica,sans-serif;color:#000;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden}
-     .t{display:flex;justify-content:space-between;gap:4px}.t b{font-size:12px}.m{font-size:11px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.s{font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bc svg{width:100%;height:20px;display:block}`);
+     .t{display:flex;justify-content:space-between;gap:4px}.t b{font-size:12px}.m{font-size:11px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.s{font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bc svg{width:100%;height:20px;display:block}.pc{font-size:10px;font-weight:800}`);
 }
 /* after a payment, or from an invoice: print / text / email the receipt */
 async function receiptSheet(inv, ctx = {}){
