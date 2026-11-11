@@ -178,11 +178,13 @@ const LINE_CATS = ['Repair','Board-level repair','Diagnostic','Water damage trea
 /* Texas sales tax: San Antonio 8.25% (6.25% state + 1.125% city + 0.875% transit districts). Everything is taxed except labor-only
    diagnostics and water damage treatments. The database works out the tax on every invoice the same way; this is for showing it. */
 const TAX_RATE = 0.0825;
+/* how an invoice was paid: split payments (trade-in credit + card) or the single method */
+const payParts = i => i.payments?.length ? i.payments : [{method: i.payment, amount: i.total}];
 const isTaxable = l => !['Diagnostic', 'Diagnostic credit', 'Water damage treatment'].includes(l.cat) && !/water damage/i.test(l.desc || '');
 const taxOf = lines => Math.max(0, Math.round(lines.filter(isTaxable).reduce((a, l) => a + (+l.price || 0) * (l.qty || 1), 0) * TAX_RATE * 100) / 100);
 const taxRow = (sub, tax) => `<div class="row small" style="justify-content:space-between"><span class="muted">Subtotal ${cents(sub)} · Sales tax 8.25% ${cents(tax)}</span>${tax === 0 && sub > 0 ? '<span class="muted">labor only, no tax</span>' : ''}</div>`;
 const PAYMENTS = ['Square (card)','Cash','Acima','Zelle'];
-const PAYOUTS = ['Cash','Apple Pay','Cash App','Zelle','Store credit'];          // how a buyback seller gets paid
+const PAYOUTS = ['Cash','Apple Pay','Cash App','Zelle','Trade-in credit'];          // how a buyback seller gets paid
 const SAM_PAYS = ['Apple Pay','Cash App','Zelle'];                              // these need Sam to send the money
 const isScreenPart = p => /screen|lcd|oled|xo7|x07|aq7|incell|digitizer|display/i.test(p.name + ' ' + (p.kind || ''));
 const isGlassOnly = txt => /glass only/i.test(txt || '');
@@ -380,7 +382,8 @@ const DemoStore = {
     d.devices.unshift(device);
     const bbId = store + (d.bbSeq[store]++);
     const bb = {id: uid(), bbId, receiptNo: d.nextReceipt++, at: now(), store, by: emp.id, override: overrideBy?.id || null, deviceId: device.id, customerId: cust.id,
-      seller: b.seller, max: b.max, paid: b.paid, payout: b.payout, payoutTo: b.payoutTo || '', payoutStatus: SAM_PAYS.includes(b.payout) ? 'requested' : 'paid'};
+      seller: b.seller, max: b.max, paid: b.paid, payout: b.payout, payoutTo: b.payoutTo || '', payoutStatus: SAM_PAYS.includes(b.payout) ? 'requested' : 'paid',
+      ...(b.payout === 'Trade-in credit' ? {creditLeft: b.paid, creditUsed: []} : {})};
     d.buybacks.unshift(bb); device.buybackId = bb.id; device.bbId = bbId;
     if (bb.payoutStatus === 'requested') this.notify(d, null, `Payout request ${bbId}: send ${cents(b.paid)} by ${b.payout} to ${b.payoutTo || 'seller'} (${b.seller.firstName} ${b.seller.lastName}) · ${device.model}`, {tab: 'closeout'}, 'owner');
     this.log(d, emp.id, store, 'Buyback', `#${device.stockNo} ${b.model} ${b.storage} ${b.carrier} · paid ${money(b.paid)} (max ${money(b.max)})` + (overrideBy ? ` · override by ${overrideBy.name}` : '') + (b.needs.length ? ' · to repair stock' : ''));
@@ -528,6 +531,10 @@ const DemoStore = {
       t.charges = t.charges.filter(x => x.id !== removeId); t.comments.unshift({id: uid(), at: now(), who: emp.id, text: `Charge removed: ${c.desc} ${cents(c.price)}`, pub: false, sys: true}); }
     t.updatedAt = now(); this.save(d); return t;
   },
+  async tradeCredits(phone){ const d = this.db(); return d.buybacks.filter(b => b.creditLeft > 0).map(b => { const c = d.customers.find(x => x.id === b.customerId) || {}; const dv = d.devices.find(x => x.id === b.deviceId) || {};
+    return {buybackId: b.id, at: b.at, store: b.store, customerId: b.customerId, phone: c.phone, name: c.name, paid: b.paid, creditLeft: b.creditLeft, model: dv.model, storage: dv.storage, stockNo: dv.stockNo}; }).filter(x => x.phone === phone); },
+  async tradeCashout(emp, store, id){ const d = this.db(); const b = d.buybacks.find(x => x.id === id); if (!(b?.creditLeft > 0)) throw new Error("There's no trade-in credit left on that buy.");
+    const amt = b.creditLeft; Object.assign(b, {creditCash: (b.creditCash || 0) + amt, creditCashAt: now(), creditLeft: 0}); this.log(d, emp.id, store, 'Trade-in credit paid in cash', cents(amt)); this.save(d); return {cash: amt}; },
   async atlasBatches(){ return (this.db().atlasBatches || []).slice().sort((a, b) => new Date(b.at) - new Date(a.at)); },
   async wholesaleShip(emp, store, ids, tracking, notes){
     const d = this.db(); const devs = d.devices.filter(x => ids.includes(x.id) && x.store === store && x.status === 'wholesale');
@@ -559,9 +566,24 @@ const DemoStore = {
       if (rep < cr) throw new Error('The diagnostic credit is more than the repair on this payment. Add the repair charge first.');
       credit = cs.map(x => ({desc: `Diagnostic credit (paid on invoice #${x.invoiceNo})`, cat: 'Diagnostic credit', price: -x.price})); }
     const lines = [...inv.lines, ...credit];
-    const subtotal = Math.round(lines.reduce((a, l) => a + l.price, 0) * 100) / 100; const tax = taxOf(lines);
-    const row = {id: uid(), number: d.nextInvoice++, at: now(), by: emp.id, store, ...inv, lines, subtotal, tax, total: Math.round((subtotal + tax) * 100) / 100};
-    delete row.chargeIds; delete row.resolve; delete row.creditIds; if (!resolve) row.partsCost = 0;
+    const subtotal = Math.round(lines.reduce((a, l) => a + l.price, 0) * 100) / 100; const tax = taxOf(lines); const total = Math.round((subtotal + tax) * 100) / 100;
+    const tc = inv.credits || []; let tcSum = 0;
+    tc.forEach(x => { const bb = d.buybacks.find(b => b.id === x.buybackId); if (!bb) throw new Error("That trade-in wasn't found.");
+      if (!inv.customerId || bb.customerId !== inv.customerId) throw new Error('Trade-in credit can only be used by the person who sold us the device. Enter their phone number.');
+      if (!(x.amount > 0) || x.amount > (bb.creditLeft || 0) + 0.001) throw new Error(`Only ${cents(bb.creditLeft || 0)} of trade-in credit is left on that buy.`); tcSum += x.amount; });
+    tcSum = Math.round(tcSum * 100) / 100; if (tcSum > total + 0.001) throw new Error(`The trade-in credit applied (${cents(tcSum)}) is more than the sale (${cents(total)}).`);
+    if (lines.some(l => l.deviceId && ['sold', 'atlas'].includes(d.devices.find(x => x.id === l.deviceId)?.status))) throw new Error('One of those phones is already marked sold. Reload the register.');
+    const pay = inv.payment || 'Cash'; const rest = Math.round((total - tcSum) * 100) / 100;
+    const payments = [...(tcSum > 0 ? [{method: 'Trade-in credit', amount: tcSum}] : []), ...(rest > 0 ? [{method: pay, amount: rest}] : [])];
+    const devCost = lines.filter(l => l.deviceId).reduce((a, l) => { const dv = d.devices.find(x => x.id === l.deviceId); return a + (+dv?.cost || 0) + (+dv?.partsCost || 0); }, 0);
+    const row = {id: uid(), number: d.nextInvoice++, at: now(), by: emp.id, store, ...inv, lines, subtotal, tax, total, payments, payment: tcSum > 0 ? (rest > 0 ? 'Trade-in credit + ' + pay : 'Trade-in credit') : pay};
+    delete row.chargeIds; delete row.resolve; delete row.creditIds; delete row.credits; delete row.cashBack; if (!resolve) row.partsCost = 0; row.partsCost = (row.partsCost || 0) + devCost;
+    let cashBack = 0;
+    tc.forEach(x => { const bb = d.buybacks.find(b => b.id === x.buybackId); bb.creditLeft = Math.round((bb.creditLeft - x.amount) * 100) / 100; (bb.creditUsed = bb.creditUsed || []).push({invoiceId: row.id, invoiceNo: row.number, amount: x.amount, at: now()});
+      if (inv.cashBack && bb.creditLeft > 0) { cashBack += bb.creditLeft; bb.creditCash = (bb.creditCash || 0) + bb.creditLeft; bb.creditCashAt = now(); bb.creditLeft = 0; } });
+    lines.filter(l => l.deviceId).forEach(l => { const dv = d.devices.find(x => x.id === l.deviceId); Object.assign(dv, {status: 'sold', soldPrice: l.price, soldAt: now(), updatedAt: now(), channel: /^acima/i.test(pay) ? 'In store · Acima' : 'In store'});
+      (dv.log = dv.log || []).unshift({at: now(), who: emp.id, text: `Sold in store · invoice #${row.number} · ${cents(l.price)}`}); });
+    row.cashBack = Math.round(cashBack * 100) / 100;
     if (credit.length) { const t0 = d.tickets.find(x => x.id === inv.ticketId); t0.charges.forEach(x => { if (inv.creditIds.includes(x.id)) x.creditedOn = row.number; }); }
     d.invoices.unshift(row);
     if (inv.ticketId && inv.chargeIds?.length) { const t0 = d.tickets.find(x => x.id === inv.ticketId); (t0.charges || []).forEach(x => { if (inv.chargeIds.includes(x.id)) Object.assign(x, {invoiceId: row.id, invoiceNo: row.number, paidAt: now()}); }); }
@@ -674,8 +696,10 @@ const DemoStore = {
   /* ---------- register open / close (drawer + buyback fund) ---------- */
   regTotals(d, store, day){ const same = x => x.store === store && dayKey(x.at) === day && !x.rsId;
     const inv = d.invoices.filter(same); const sum = (a, f) => a.reduce((t, x) => t + f(x), 0);
-    return {cashSales: sum(inv.filter(i => i.payment === 'Cash'), i => i.total), cardSales: sum(inv.filter(i => /^Square/.test(i.payment)), i => i.total),
-      otherSales: sum(inv.filter(i => i.payment !== 'Cash' && !/^Square/.test(i.payment)), i => i.total), cashBuys: sum(d.buybacks.filter(b => same(b) && /^cash/i.test(b.payout || '')), b => b.paid)}; },
+    const parts = inv.flatMap(payParts);
+    return {cashSales: sum(parts.filter(p => p.method === 'Cash'), p => p.amount), cardSales: sum(parts.filter(p => /^Square/.test(p.method)), p => p.amount),
+      otherSales: sum(parts.filter(p => p.method !== 'Cash' && !/^Square/.test(p.method) && p.method !== 'Trade-in credit'), p => p.amount),
+      cashBuys: sum(d.buybacks.filter(b => same(b) && /^cash/i.test(b.payout || '')), b => b.paid) + sum(d.buybacks.filter(b => b.store === store && b.creditCashAt && dayKey(b.creditCashAt) === day), b => b.creditCash || 0)}; },
   async registerDays(){ return (this.db().registers || []); },
   async registerToday(store){ const d = this.db(); const r = (d.registers || []).find(x => x.store === store && !x.closedAt); return r ? {id: r.id, day: r.day, ...this.regTotals(d, store, r.day)} : null; },
   async openRegister(emp, store, drawer, fund){ const d = this.db(); d.registers = d.registers || []; const day = dayKey(new Date());
@@ -859,6 +883,8 @@ const LiveStore = {
   async useTicketPart(emp, store, id, partId){ return this.rpc('pos_ticket_part', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_part: partId}); },
   async checkout(emp, store, inv){ const r = await this.rpc('pos_checkout', {p_pin: this.pinFor(emp), p_store: store, p_inv: inv}); if (inv.ticketId) { this.cT.delete(inv.ticketId); await this.loadTicket(inv.ticketId).catch(() => {}); } this.keep(this.cI, [r]); return r; },
   async ticketCharge(emp, store, id, add, removeId){ const r = await this.rpc('pos_ticket_charge', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_add: add || null, p_remove: removeId || null}); this.keep(this.cT, [r]); return r; },
+  async tradeCredits(phone){ const {data, error} = await this.sb.from('trade_credits_v').select('*').eq('phone', phone).order('at'); if (error) throw error; return data; },
+  async tradeCashout(emp, store, id){ return this.rpc('pos_trade_cashout', {p_pin: this.pinFor(emp), p_store: store, p_id: id}); },
   async atlasBatches(){ const {data, error} = await this.sb.from('atlas_batches_v').select('*').order('at', {ascending: false}).limit(200); if (error) throw error; return data; },
   async wholesaleShip(emp, store, ids, tracking, notes){ return this.rpc('pos_wholesale_ship', {p_pin: this.pinFor(emp), p_store: store, p_ids: ids, p_tracking: tracking || '', p_notes: notes || ''}); },
   async atlasPayout(emp, id, amount){ return this.rpc('pos_atlas_payout', {p_pin: this.pinFor(emp), p_id: id, p_amount: amount}); },
@@ -1432,6 +1458,29 @@ async function viewNewTicket(el){
 /* ---------------- TICKET CHARGES → INVOICE ----------------
    Charges build up on the ticket (diagnostic, the repair, glass, a case...). "Take payment" turns the ones you tick into one invoice.
    Paying only the diagnostic keeps the ticket open; paying everything at pickup closes it. */
+/* ---------------- TRADE-IN CREDIT ----------------
+   A buy paid as "Trade-in credit" leaves that amount on the seller. At checkout the credit comes off the total; the rest is paid
+   the normal way. If the credit is bigger than the sale, the rest goes back to them in cash (from the buyback fund) or stays as credit. */
+const tradeCalc = (credits, total, st) => { const avail = Math.round(credits.reduce((a, c) => a + (+c.creditLeft || 0), 0) * 100) / 100;
+  const applied = st.use ? Math.min(avail, Math.round(total * 100) / 100) : 0; const due = Math.round((total - applied) * 100) / 100; const left = st.use ? Math.round((avail - applied) * 100) / 100 : 0;
+  let rem = applied; const alloc = credits.map(c => { const a = Math.min(+c.creditLeft || 0, rem); rem = Math.round((rem - a) * 100) / 100; return {buybackId: c.buybackId, amount: Math.round(a * 100) / 100}; }).filter(x => x.amount > 0);
+  return {avail, applied, due, left, alloc}; };
+function tradeBox(credits, total, st){
+  if (!credits?.length) return '';
+  const k = tradeCalc(credits, total, st);
+  return `<div class="stack" style="gap:6px;background:var(--ok-soft);border-radius:var(--r);padding:10px 12px">
+    <label class="row" style="gap:10px;cursor:pointer;align-items:flex-start"><input type="checkbox" data-tr="use" ${st.use ? 'checked' : ''} style="width:20px;height:20px;margin-top:2px">
+      <span><b>Use trade-in credit: ${cents(k.avail)}</b><span class="small muted" style="display:block">${credits.map(c => `${esc([c.model, c.storage].filter(Boolean).join(' ') || 'Device')} bought ${fmtDate(c.at)}${c.paid !== c.creditLeft ? ` (${cents(c.creditLeft)} left of ${cents(c.paid)})` : ''}`).join(' · ')}</span></span></label>
+    ${st.use ? `<div class="row" style="justify-content:space-between"><span>Trade-in credit</span><b class="num">−${cents(k.applied)}</b></div>
+      <div class="row" style="justify-content:space-between"><span>Balance to pay</span><b class="num" style="font-size:18px">${cents(k.due)}</b></div>
+      ${k.left > 0 ? `<div class="stack small" style="gap:4px;border-top:1px solid var(--line);padding-top:6px"><b>${cents(k.left)} of credit is left over.</b>
+        <label class="row" style="gap:8px;cursor:pointer"><input type="radio" name="tr-left" data-tr="cash" ${st.cashBack ? 'checked' : ''}> Give ${cents(k.left)} back in cash now (from the buyback fund)</label>
+        <label class="row" style="gap:8px;cursor:pointer"><input type="radio" name="tr-left" data-tr="keep" ${st.cashBack ? '' : 'checked'}> Keep it as trade-in credit for their next visit</label></div>` : ''}` : ''}
+  </div>`;
+}
+function bindTradeBox(root, st, redraw){
+  root.querySelectorAll('[data-tr]').forEach(i => i.onchange = () => { const k = i.dataset.tr; if (k === 'use') st.use = i.checked; else st.cashBack = k === 'cash'; redraw(); });
+}
 /* ---------------- RECEIPTS: print, text, email ---------------- */
 const STORE_INFO = {DZ: {addr: '6565 Babcock Rd, San Antonio, TX 78249', phone: '(726) 227-4782'},
   BV: {addr: '17910 Bulverde Rd Suite 106, San Antonio, TX 78259', phone: '(726) 227-4665'},
@@ -1451,7 +1500,9 @@ function receiptHTML(r){
     <div style="display:flex;justify-content:space-between"><span>Subtotal</span><span>${cents(sub)}</span></div>
     <div style="display:flex;justify-content:space-between"><span>Sales tax (8.25%)</span><span>${cents(tax)}</span></div>
     <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:700"><span>Total</span><span>${cents(r.total)}</span></div>
-    <div style="display:flex;justify-content:space-between"><span>Paid with</span><span>${esc(r.payment || '')}</span></div>
+    ${(r.payments?.length > 1 ? r.payments : [{method: r.payment, amount: r.total}]).map(p => `<div style="display:flex;justify-content:space-between"><span>${r.payments?.length > 1 ? esc(p.method) : 'Paid with'}</span><span>${r.payments?.length > 1 ? cents(p.amount) : esc(p.method || '')}</span></div>`).join('')}
+    ${r.cashBack > 0 ? `<div style="display:flex;justify-content:space-between"><span>Trade-in credit given back in cash</span><span>${cents(r.cashBack)}</span></div>` : ''}
+    ${r.creditLeft > 0 ? `<div style="display:flex;justify-content:space-between"><span>Trade-in credit still on file</span><span>${cents(r.creditLeft)}</span></div>` : ''}
     <hr style="border:0;border-top:1px dashed #999;margin:10px 0">
     <div style="text-align:center;font-size:12px">${repair ? '<div>Repairs carry a 6-month warranty from today.</div>' : ''}${glass ? '<div>Tempered glass: lifetime warranty. Bring it back any time for a new one for $5.</div>' : ''}<div style="margin-top:6px">Thank you for choosing Cellular Zone!</div></div></div>`;
 }
@@ -1474,13 +1525,15 @@ function printTicketLabel(t, c){
 async function receiptSheet(inv, ctx = {}){
   const c = ctx.c || (inv.customerId ? (await Store.customers().catch(() => [])).find(x => x.id === inv.customerId) : null) || {};
   const t = ctx.t || null;
-  const r = {number: inv.number, at: inv.at, store: inv.store, lines: inv.lines, subtotal: inv.subtotal ?? inv.total, tax: inv.tax || 0, total: inv.total, payment: inv.payment,
+  const r = {number: inv.number, at: inv.at, store: inv.store, lines: inv.lines, subtotal: inv.subtotal ?? inv.total, tax: inv.tax || 0, total: inv.total, payment: inv.payment, payments: inv.payments, cashBack: ctx.cashBack || 0, creditLeft: ctx.creditLeft || 0,
     ticket: t?.number || null, device: t?.device || null, customer: (c.name || '').split(' ')[0]};
   const link = Store.mode === 'demo' ? null : Store.receiptLink(inv.id);
   const first = (c.name || '').split(' ')[0];
   const textMsg = `Hi${first ? ' ' + first : ''}, thanks for choosing Cellular Zone ${STORES[inv.store]}! Receipt #${inv.number}: ${cents(inv.total)} paid${link ? '. View it here: ' + link : ''}`;
   sheet(`<div class="row" style="justify-content:space-between"><h3>${ctx.justPaid ? 'Paid · ' + cents(inv.total) : 'Receipt #' + inv.number}</h3><button data-close>Done</button></div>
     ${ctx.justPaid ? `<div class="small muted">Invoice #${inv.number} · ${esc(inv.payment)}${ctx.note ? ' · ' + esc(ctx.note) : ''}</div>` : ''}
+    ${ctx.cashBack > 0 ? `<div class="banner warn" style="font-size:16px"><b>Give the customer ${cents(ctx.cashBack)} cash back</b> from the buyback fund (the rest of their trade-in credit).</div>` : ''}
+    ${ctx.creditLeft > 0 ? `<div class="banner ok small">${cents(ctx.creditLeft)} trade-in credit stays on file. It comes up automatically next time you enter their phone in the Register.</div>` : ''}
     <div style="background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:14px;max-height:340px;overflow:auto">${receiptHTML(r)}</div>
     <button class="primary" id="rc-print" style="min-height:48px">Print receipt</button>
     <div class="grid g2" style="align-items:end"><div class="field"><label class="label" for="rc-ph">Text to</label><input id="rc-ph" inputmode="tel" value="${esc(fmtPhone(c.phone) === '—' ? '' : c.phone || '')}" placeholder="Customer's mobile"></div><button id="rc-text" style="min-height:44px">Text receipt</button></div>
@@ -1513,6 +1566,7 @@ function paySheet(t, c, opts = {}){
   const due = (t.charges || []).filter(x => !x.invoiceId); if (!due.length) { toast('Nothing due on this ticket.'); return; }
   const pick = new Set(opts.only ? [opts.only] : due.map(x => x.id));
   let resolve = null;   /* null = follow the default until someone taps the box */
+  const TRp = {credits: [], use: true, cashBack: true};
   const credits = (t.charges || []).filter(x => x.cat === 'Diagnostic' && x.invoiceId && !x.creditedOn); let useCredit = true;
   const creditFor = sel => { const rep = chSum(sel.filter(x => REPAIR_CATS.includes(x.cat))); const cr = chSum(credits); return credits.length && rep >= cr ? cr : 0; };
   const autoResolve = () => opts.resolve === false && resolve === null ? false : pick.size === due.length && !due.filter(x => pick.has(x.id)).every(x => x.cat === 'Diagnostic');
@@ -1520,11 +1574,12 @@ function paySheet(t, c, opts = {}){
     ${c?.name ? `<div class="small muted">${esc(c.name)} · ${fmtPhone(c.phone)} · ${esc(t.device)}</div>` : ''}
     <div id="py-lines"></div>
     <div id="py-tax"></div><div class="row" style="justify-content:space-between"><span class="label">Total with tax</span><span class="num" style="font-size:28px" id="py-total"></span></div>
+    <div id="py-trade"></div>
     <label class="row" style="gap:10px;align-items:flex-start;cursor:pointer;background:var(--soft);border-radius:var(--r);padding:10px 12px"><input type="checkbox" id="py-res" style="width:22px;height:22px;margin-top:2px">
       <span><b>Repair is done: close the ticket</b><span class="small muted" style="display:block" id="py-reshint"></span></span></label>
     <div id="py-bh" class="grid g2" hidden><div class="field"><label class="label" for="py-bhv">Battery health % (needed to close this iPhone ticket)</label><input id="py-bhv" inputmode="numeric" placeholder="87"></div>
       <div class="field"><label class="label" for="py-bhs">Or: couldn't read it because</label><select id="py-bhs"><option value="">—</option><option>Disabled / passcode unknown</option><option>No display / can't see the screen</option><option>Won't turn on</option><option>Boot looping</option></select></div></div>
-    <div class="field"><label class="label" for="py-pay">Paid with</label><select id="py-pay">${PAYMENTS.map(p => `<option>${p}</option>`).join('')}</select></div>
+    <div class="field" id="py-payf"><label class="label" for="py-pay">Paid with</label><select id="py-pay">${PAYMENTS.map(p => `<option>${p}</option>`).join('')}</select></div>
     <div class="banner warn small" id="py-sq">Charge the card on the Square iPad first, then record it here.</div>
     <div class="err" id="py-err" role="alert"></div>
     <button class="primary" id="py-go" style="min-height:52px;font-size:16px"></button>`,
@@ -1540,17 +1595,22 @@ function paySheet(t, c, opts = {}){
       L.querySelector('#py-cr') && (L.querySelector('#py-cr').onchange = e => { useCredit = e.target.checked; draw(); });
       const ptLines = [...sel, ...(cr ? [{cat: 'Diagnostic credit', price: -cr}] : [])]; const ptax = taxOf(ptLines);
       L.querySelector('#py-tax').innerHTML = taxRow(tot, ptax); L.querySelector('#py-total').textContent = cents(tot + ptax);
+      const tk = tradeCalc(TRp.credits, Math.round((tot + ptax) * 100) / 100, TRp); L.querySelector('#py-trade').innerHTML = sel.length ? tradeBox(TRp.credits, Math.round((tot + ptax) * 100) / 100, TRp) : '';
+      bindTradeBox(L.querySelector('#py-trade'), TRp, draw); L.querySelector('#py-payf').hidden = tk.applied > 0 && tk.due <= 0;
+      L.querySelector('#py-payf .label').textContent = tk.applied > 0 ? 'Balance paid with' : 'Paid with';
       L.querySelector('#py-res').checked = res; L.querySelector('#py-bh').hidden = !(res && needsBH(t) && !t.bh && !t.bhSkip);
       L.querySelector('#py-reshint').textContent = res ? (sel.length < due.length ? "Can't close yet: tick every charge, or remove the ones that aren't happening." : 'Ticket moves to Resolved and the customer gets the review text.')
         : 'Ticket stays open (diagnostic or deposit paid up front). Charge the rest at pickup.';
-      const go = L.querySelector('#py-go'); go.textContent = sel.length ? `Record ${cents(tot + ptax)} payment${res ? ' and close ticket' : ''}` : 'Tick what they are paying for'; go.disabled = !sel.length || (res && sel.length < due.length);
+      const go = L.querySelector('#py-go'); go.textContent = sel.length ? `Record ${cents(tk.applied ? tk.due : tot + ptax)} payment${tk.applied ? ' (+ ' + cents(tk.applied) + ' trade-in credit)' : ''}${res ? ' and close ticket' : ''}` : 'Tick what they are paying for'; go.disabled = !sel.length || (res && sel.length < due.length);
       L.querySelectorAll('[data-pk]').forEach(tr => tr.onclick = () => { const id = tr.dataset.pk; pick.has(id) ? pick.delete(id) : pick.add(id); draw(); });
     };
     draw();
+    if (c?.phone) Store.tradeCredits(c.phone).then(cr => { TRp.credits = cr || []; if (TRp.credits.length) draw(); }).catch(() => {});
     L.querySelector('#py-res').onchange = e => { resolve = e.target.checked; draw(); };
     const pay = L.querySelector('#py-pay'); const sq = () => { L.querySelector('#py-sq').hidden = !pay.value.startsWith('Square'); }; pay.onchange = sq; sq();
     L.querySelector('#py-go').onclick = async () => {
       const sel = due.filter(x => pick.has(x.id)); const res = resolve ?? autoResolve(); const btn = L.querySelector('#py-go');
+      const crAmt = useCredit ? creditFor(sel) : 0; const grand = Math.round((chSum(sel) - crAmt + taxOf([...sel, ...(crAmt ? [{cat: 'Diagnostic credit', price: -crAmt}] : [])])) * 100) / 100; const tk = tradeCalc(TRp.credits, grand, TRp);
       if (!L.querySelector('#py-bh').hidden) { const v = L.querySelector('#py-bhv').value.trim(), sk = L.querySelector('#py-bhs').value;
         if (v && !(+v >= 1 && +v <= 100)) { L.querySelector('#py-err').textContent = 'Battery health: enter a number from 1 to 100.'; return; }
         if (!v && !sk) { L.querySelector('#py-err').textContent = "Record the battery health % (or pick why it couldn't be read) before closing."; return; }
@@ -1558,10 +1618,10 @@ function paySheet(t, c, opts = {}){
       btn.disabled = true;
       try {
         const inv = await Store.checkout(S.user, S.store, {ticketId: t.id, customerId: c?.id || t.customerId || null, chargeIds: sel.map(x => x.id), resolve: res, payment: pay.value,
-          creditIds: useCredit && creditFor(sel) ? credits.map(x => x.id) : [],
+          creditIds: useCredit && creditFor(sel) ? credits.map(x => x.id) : [], ...(tk.applied > 0 ? {credits: tk.alloc, cashBack: tk.left > 0 && TRp.cashBack} : {}),
           partsCost: res ? t.partsUsed.reduce((a, p) => a + (+p.cost || 0), 0) : 0,
           lines: sel.map(x => ({desc: x.desc, cat: x.cat, price: +x.price, ...(x.productId ? {productId: x.productId} : {}), ...(x.glass ? {glass: x.glass, device: t.device} : {})}))});
-        close(); viewTicket($('#main')); receiptSheet(inv, {c, t, justPaid: true, note: res ? 'ticket closed' : 'ticket stays open'});
+        close(); viewTicket($('#main')); receiptSheet(inv, {c, t, justPaid: true, note: res ? 'ticket closed' : 'ticket stays open', cashBack: inv.cashBack || 0, creditLeft: tk.applied > 0 && !TRp.cashBack ? tk.left : 0});
       } catch (e) { L.querySelector('#py-err').textContent = e.message; btn.disabled = false; }
     };
   });
@@ -1847,7 +1907,16 @@ async function viewRegister(el){
   if (!S.prods || Date.now() - S.prodsAt > 120000) { S.prods = await Store.products().catch(() => []); S.prodsAt = Date.now(); }
   const pq = (S.rgq || '').trim(); const exact = pq && S.prods.find(p => p.upc && p.upc === pq);
   const hits = pq ? S.prods.filter(p => prodMatch(p, pq)).sort((a, b) => (b.qty?.[S.store] || 0) - (a.qty?.[S.store] || 0)).slice(0, 15) : [];
-  const sub = S.cart.reduce((a, l) => a + l.price * (l.qty || 1), 0), rtax = taxOf(S.cart), total = sub + rtax;
+  /* phones in this store's stock can be sold here too: search by stock #, IMEI or model */
+  if (pq && (!S.rgDevs || Date.now() - S.rgDevsAt > 60000)) { S.rgDevs = (await Store.devices().catch(() => [])).filter(d => d.store === S.store && ['hot', 'tolist', 'swappa', 'testing'].includes(d.status) && !d.transferId); S.rgDevsAt = Date.now(); }
+  const pql = pq.toLowerCase().replace(/^#/, '');
+  const devHits = pq ? (S.rgDevs || []).filter(d => !S.cart.some(l => l.deviceId === d.id) && (String(d.stockNo) === pql || (d.imei || '').toLowerCase() === pql || (pql.length >= 3 && pql.split(/\s+/).every(w => `${d.model} ${d.storage} ${d.carrier} ${d.imei} ${d.stockNo}`.toLowerCase().includes(w))))).slice(0, 8) : [];
+  const sub = S.cart.reduce((a, l) => a + l.price * (l.qty || 1), 0), rtax = taxOf(S.cart), total = Math.round((sub + rtax) * 100) / 100;
+  const ph10 = (S.cartPhone || '').replace(/\D/g, '');
+  const TR = S.rgTrade = S.rgTrade || {phone: '', credits: [], use: true, cashBack: true};
+  if (ph10.length === 10 && TR.phone !== ph10) { TR.phone = ph10; TR.credits = await Store.tradeCredits(ph10).catch(() => []); TR.use = true; }
+  if (ph10.length !== 10) { TR.phone = ''; TR.credits = []; }
+  const tk = tradeCalc(TR.credits, total, TR);
   el.innerHTML = `<div id="rg-day" style="margin-bottom:14px"></div><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));align-items:start">
     <div class="panel stack"><h2>Register</h2>
       <p class="muted small" style="margin:0">Accessories and walk-in sales. No customer needed. Add their phone if they want a receipt or might come back.</p>
@@ -1856,6 +1925,7 @@ async function viewRegister(el){
         <button data-gl="privacy" style="min-height:64px;text-align:left"><b>Privacy glass</b><div class="small muted num">${cents(GLASS.privacy)}</div></button>
         <button data-gl="replace" style="min-height:64px;text-align:left"><b>Lifetime replacement</b><div class="small muted num">${cents(GLASS.replace)} · look up their glass</div></button></div></div>
       <div class="field"><label class="label" for="rg-q">Scan or search inventory (${S.prods.length} items)</label><input id="rg-q" value="${esc(S.rgq || '')}" placeholder="Scan the barcode, or type: clear case 15 pro" autocomplete="off"></div>
+      ${devHits.length ? `<div class="stack" style="gap:4px"><span class="label">Phones in stock</span><div class="tbl"><table><tbody>${devHits.map(d => `<tr class="click" data-dev="${d.id}"><td><b>#${d.stockNo} ${esc(d.model)} ${esc(d.storage || '')}</b><div class="small muted">${esc(d.carrier || '')} · ${esc(STATUS_LABEL[d.status])} · IMEI ${esc(d.imei || '—')}</div></td><td class="r num">${d.swappa?.price || d.listPrice ? cents(d.swappa?.price || d.listPrice) : '<span class="muted small">set price</span>'}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
       ${pq ? `<div class="tbl"><table><tbody>${hits.map(p => { const q = p.qty?.[S.store] || 0; return `<tr class="click" data-prod="${p.id}"><td><b>${esc(p.name)}</b><div class="small muted">${esc(p.category || '')}${p.upc ? ' · ' + esc(p.upc) : ''}</div></td><td class="r num">${cents(p.price)}</td><td class="r"><span class="pill ${q > 0 ? 'ok' : 'bad'}">${q} here</span></td></tr>`; }).join('') || '<tr><td class="muted">Nothing matches. Use "Other item" below.</td></tr>'}</tbody></table></div>` : ''}
       <div class="grid g3">${set.accessories.map(([n, p, c], i) => `<button data-acc="${i}" style="min-height:64px;text-align:left"><b>${esc(n)}</b><div class="small muted num">${cents(p)}</div></button>`).join('')}
         <button data-acc="custom" style="min-height:64px;text-align:left"><b>Other item</b><div class="small muted">Type a name and price</div></button></div>
@@ -1865,7 +1935,8 @@ async function viewRegister(el){
       ${S.cart.length ? `<div class="tbl"><table><tbody>${S.cart.map((l, i) => `<tr><td>${esc(l.desc)}<div class="small muted">${esc(l.cat)}</div></td><td class="r num">${cents(l.price)}</td><td class="r"><button data-rmc="${i}" aria-label="Remove ${esc(l.desc)}" style="min-height:32px;padding:2px 10px">✕</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">Tap an item to add it.</p>'}
       ${S.cart.length ? taxRow(sub, rtax) : ''}<div class="row" style="justify-content:space-between"><span class="label">Total with tax</span><span class="num" style="font-size:26px">${cents(total)}</span></div>
       <div class="field"><label class="label" for="rg-ph">Customer phone (${S.cart.some(l => l.glass) ? 'required for the glass warranty' : 'optional'})</label><input id="rg-ph" inputmode="tel" value="${esc(S.cartPhone || '')}" placeholder="Leave blank for walk-in"></div>
-      <div class="field"><label class="label" for="rg-pay">Paid with</label><select id="rg-pay">${PAYMENTS.map(p => `<option>${p}</option>`).join('')}</select></div>
+      <div id="rg-trade">${S.cart.length ? tradeBox(TR.credits, total, TR) : (TR.credits.length ? `<div class="banner ok small">${esc(TR.credits[0].name || 'This customer')} has ${cents(tradeCalc(TR.credits, 1e9, {use: true}).avail)} trade-in credit. Add what they're buying.</div>` : '')}</div>
+      <div class="field" ${S.cart.length && tk.applied > 0 && tk.due <= 0 ? 'hidden' : ''}><label class="label" for="rg-pay">${tk.applied > 0 ? 'Balance paid with' : 'Paid with'}</label><select id="rg-pay">${PAYMENTS.map(p => `<option ${S.rgPay === p ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
       <div class="banner warn small" id="rg-sq">Charge the card on the Square iPad first, then record it here.</div>
       <div class="err" id="rg-err" role="alert"></div>
       <button class="primary" id="rg-go" ${S.cart.length ? '' : 'disabled'} style="min-height:52px;font-size:16px">Record sale</button>
@@ -1888,19 +1959,31 @@ async function viewRegister(el){
     const gl = /tempered|glass protector|screen protector/i.test(p.name) ? (/privacy/i.test(p.name) ? 'privacy' : 'regular') : null;
     S.cart.push(gl ? {desc: p.name + ' (lifetime warranty)', price: GLASS[gl], cat: 'Tempered glass', productId: p.id, glass: gl} : {desc: p.name, price: p.price, cat: 'Accessory', productId: p.id}); S.rgq = ''; viewRegister(el).then(() => $('#rg-q').focus()); };
   el.querySelectorAll('[data-prod]').forEach(tr => tr.onclick = () => addProd(S.prods.find(p => p.id === tr.dataset.prod)));
+  el.querySelectorAll('[data-dev]').forEach(tr => tr.onclick = () => { const d = S.rgDevs.find(x => x.id === tr.dataset.dev); const cost = (+d.cost || 0) + (+d.partsCost || 0);
+    sheet(`<div class="row" style="justify-content:space-between"><h3>Sell #${d.stockNo} ${esc(d.model)} ${esc(d.storage || '')}</h3><button data-close>Close</button></div>
+      <div class="small muted">${esc(d.carrier || '')} · IMEI ${esc(d.imei || '—')} · ${esc(STATUS_LABEL[d.status])}${d.status === 'swappa' ? ' · <b style="color:var(--warn)">listed on Swappa: take the listing down after the sale</b>' : ''}</div>
+      <div class="field" style="max-width:220px"><label class="label" for="dv-p">Selling price (before tax)</label><input id="dv-p" inputmode="decimal" value="${d.swappa?.price || d.listPrice || ''}" placeholder="0.00"></div>
+      ${can(2) ? `<div class="small muted">Cost ${cents(cost)}</div>` : ''}
+      <div class="err" id="dv-e" role="alert"></div><button class="primary" id="dv-go">Add to sale</button>`,
+      (L, close) => L.querySelector('#dv-go').onclick = () => { const v = parseFloat(L.querySelector('#dv-p').value); if (!(v > 0)) { L.querySelector('#dv-e').textContent = 'Enter the selling price.'; return; }
+        S.cart.push({desc: `${d.model} ${d.storage || ''} ${d.carrier || ''} (stock #${d.stockNo})`.replace(/\s+/g, ' '), cat: 'Phone sale', price: v, deviceId: d.id}); S.rgq = ''; close(); viewRegister(el); }); });
+  bindTradeBox(el, TR, () => viewRegister(el));
   const rq = $('#rg-q'); let rqt; rq.oninput = () => { clearTimeout(rqt); rqt = setTimeout(() => { S.rgq = rq.value; viewRegister(el).then(() => { const n = $('#rg-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 200); };
   rq.onkeydown = e => { if (e.key === 'Enter') { const v = rq.value.trim(); const p = S.prods.find(x => x.upc && x.upc === v) || (S.prods.filter(x => prodMatch(x, v)).length === 1 ? S.prods.find(x => prodMatch(x, v)) : null); if (p) addProd(p); } };
   if (exact) { addProd(exact); return; }
   registerPanel($('#rg-day'), () => viewRegister(el)).catch(e => { $('#rg-day').innerHTML = `<div class="banner warn small">Register open/close isn't available: ${esc(e.message)}</div>`; });
-  $('#rg-ph').oninput = e => { S.cartPhone = e.target.value; };
-  $('#rg-pay').onchange = e => { $('#rg-sq').hidden = !e.target.value.startsWith('Square'); };
+  $('#rg-ph').oninput = e => { S.cartPhone = e.target.value; if (e.target.value.replace(/\D/g, '').length === 10 || TR.phone) viewRegister(el).then(() => { const n = $('#rg-ph'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); };
+  $('#rg-pay').onchange = e => { S.rgPay = e.target.value; $('#rg-sq').hidden = !e.target.value.startsWith('Square'); };
   $('#rg-go').onclick = async () => {
     const ph = (S.cartPhone || '').replace(/\D/g, ''); let cust = null;
     if (ph && ph.length !== 10) { $('#rg-err').textContent = 'Phone should be 10 digits, or leave it blank.'; return; }
     if (!ph && S.cart.some(l => l.glass)) { $('#rg-err').textContent = "Tempered glass comes with the lifetime warranty: enter the customer's phone so it's on file."; return; }
     if (ph) { cust = (await Store.customerByPhone(ph)) || await Store.saveCustomer(S.user, S.store, {name: 'Walk-in ' + ph.slice(-4), phone: ph, heardFrom: 'Walk in / drive by'}); }
-    const inv = await Store.checkout(S.user, S.store, {ticketId: null, customerId: cust?.id || null, lines: S.cart.map(l => ({desc: l.desc, cat: l.cat, price: l.price, ...(l.productId ? {productId: l.productId} : {}), ...(l.glass ? {glass: l.glass} : {}), ...(l.glassWarrantyId ? {glassWarrantyId: l.glassWarrantyId} : {})})), partsCost: 0, payment: $('#rg-pay').value});
-    S.cart = []; S.cartPhone = ''; S.prods = null; viewRegister(el); receiptSheet(inv, {c: cust || {}, justPaid: true});
+    const useTr = tk.applied > 0;
+    let inv; try { inv = await Store.checkout(S.user, S.store, {ticketId: null, customerId: cust?.id || null, lines: S.cart.map(l => ({desc: l.desc, cat: l.cat, price: l.price, ...(l.productId ? {productId: l.productId} : {}), ...(l.deviceId ? {deviceId: l.deviceId} : {}), ...(l.glass ? {glass: l.glass} : {}), ...(l.glassWarrantyId ? {glassWarrantyId: l.glassWarrantyId} : {})})), partsCost: 0, payment: $('#rg-pay').value,
+      ...(useTr ? {credits: tk.alloc, cashBack: tk.left > 0 && TR.cashBack} : {})}); } catch (e) { $('#rg-err').textContent = e.message; return; }
+    S.cart = []; S.cartPhone = ''; S.prods = null; S.rgDevs = null; S.rgTrade = null; viewRegister(el);
+    receiptSheet(inv, {c: cust || {}, justPaid: true, cashBack: inv.cashBack || 0, creditLeft: useTr && !TR.cashBack ? tk.left : 0});
   };
 }
 
@@ -1912,9 +1995,12 @@ async function viewCloseout(el){
   const inv = invs.filter(i => i.store === S.store);
   const bbs = bbsAll.filter(b => b.store === S.store && new Date(b.at) >= t0 && new Date(b.at) < t1);
   const sum = (arr, f) => arr.reduce((a, x) => a + f(x), 0);
-  const by = PAYMENTS.map(p => [p, sum(inv.filter(i => i.payment === p), i => i.total)]);
+  const parts = inv.flatMap(payParts);
+  const by = [...PAYMENTS, 'Trade-in credit'].map(p => [p, sum(parts.filter(x => x.method === p), x => x.amount)]);
   const out = PAYOUTS.map(p => [p, sum(bbs.filter(b => b.payout === p), b => b.paid)]);
-  const cashIn = by.find(x => x[0] === 'Cash')[1], cashOut = out.find(x => x[0] === 'Cash')[1];
+  const tradeCash = sum(bbsAll.filter(b => b.store === S.store && b.creditCashAt && new Date(b.creditCashAt) >= t0 && new Date(b.creditCashAt) < t1), b => b.creditCash || 0);
+  if (tradeCash) out.push(['Trade-in credit given back in cash', tradeCash]);
+  const cashIn = by.find(x => x[0] === 'Cash')[1], cashOut = out.find(x => x[0] === 'Cash')[1] + tradeCash;
   const done = closes.find(c => c.store === S.store && c.day === day);
   const expected = (done?.float ?? set.float) + cashIn - cashOut;
   const pending = bbsAll.filter(b => b.payoutStatus === 'requested' && (can(3) || b.store === S.store));
@@ -2311,7 +2397,7 @@ async function viewBuyback(el){
         <h2>4 · Pay</h2>
         <div class="grid g2">
           <div class="field"><label class="label" for="f-paid">Paying the seller</label><input id="f-paid" data-b="paid" inputmode="decimal" placeholder="${max}" value="${esc(B.paid)}"></div>
-          <div class="field"><label class="label" for="f-pay">Pay the seller by</label><select id="f-pay" data-b="payout">${PAYOUTS.concat(['Trade-in toward purchase']).map(x => `<option ${B.payout === x ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+          <div class="field"><label class="label" for="f-pay">Pay the seller by</label><select id="f-pay" data-b="payout">${PAYOUTS.map(x => `<option ${B.payout === x ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
         </div>
         <div class="field" id="f-to-f" ${SAM_PAYS.includes(B.payout) ? '' : 'hidden'}><label class="label" for="f-to">${esc(B.payout)} phone, email or $cashtag</label><input id="f-to" data-b="payoutTo" value="${esc(B.payoutTo || '')}" placeholder="$mariag or 210-555-0142"></div>
         <div class="banner acc small" id="f-to-note" ${SAM_PAYS.includes(B.payout) ? '' : 'hidden'}>Completing the buy sends Sam a payout request with the buyback ID. The seller waits until Sam sends it.</div>
@@ -2379,6 +2465,9 @@ async function viewBuybackDone(el){
     <div class="small muted">Stock #${dv.stockNo} · receipt #${bb?.receiptNo}</div>
     ${bb?.payoutStatus === 'requested' ? `<div class="banner warn">Payout request sent to Sam: ${cents(bb.paid)} by ${esc(bb.payout)} to <b>${esc(bb.payoutTo)}</b>. Tell the seller it's on the way. You'll get an alert when it's sent.</div>` : ''}
     <p style="margin:0">Added to ${STORES[dv.store]} ${esc(where)}.</p>
+    ${bb?.payout === 'Trade-in credit' ? (bb.creditLeft > 0 ? `<div class="banner ok stack" style="gap:8px"><span><b>${cents(bb.creditLeft)} trade-in credit</b> is on file for ${esc([bb.seller?.firstName, bb.seller?.lastName].filter(Boolean).join(' ') || 'the seller')}. No cash leaves the buyback fund unless they take some back.</span>
+      <div class="row" style="gap:8px"><button class="primary" id="d-trade">Use it now: ring up their purchase</button><button id="d-tcash">They want cash instead</button></div></div>`
+      : `<div class="banner small">Trade-in credit used${bb.creditCash ? ` · ${cents(bb.creditCash)} given back in cash` : ''}.</div>`) : ''}
     <div class="stack" style="gap:8px">
       <button class="primary" id="d-bos" style="min-height:52px;font-size:16px">1 · Print bill of sale for signature</button>
       <button id="d-label" style="min-height:52px;font-size:16px">2 · Print label</button>
@@ -2394,6 +2483,10 @@ async function viewBuybackDone(el){
   el.querySelectorAll('[data-dest]').forEach(b => b.onclick = async () => { if (b.getAttribute('aria-pressed') === 'true') return;
     try { await Store.updateDevice(S.user, S.store, dv.id, {status: b.dataset.dest}); toast(b.dataset.dest === 'wholesale' ? `Added to ${STORES[dv.store]} wholesale` : `Moved to ${STATUS_LABEL[b.dataset.dest]}`); viewBuybackDone(el); } catch (e) { toast(e.message); } });
   $('#d-bos').onclick = () => bosSheet(S.bbDone.buybackId, dv.id);
+  $('#d-trade') && ($('#d-trade').onclick = () => { S.cart = []; S.cartPhone = (bb.seller?.phone || bb.phone || '').replace(/\D/g, ''); S.rgTrade = null; S.bbDone = null; go('register'); });
+  $('#d-tcash') && ($('#d-tcash').onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Pay the trade-in in cash</h3><button data-close>Close</button></div>
+    <p style="margin:0">Give the seller <b>${cents(bb.creditLeft)}</b> cash from the buyback fund. Their trade-in credit goes to $0.</p><div class="err" id="tc-e" role="alert"></div><button class="primary" id="tc-go">Paid ${cents(bb.creditLeft)} cash</button>`,
+    (L, close) => L.querySelector('#tc-go').onclick = async () => { try { await Store.tradeCashout(S.user, S.store, bb.id); close(); toast(`${cents(bb.creditLeft)} paid in cash from the buyback fund`); viewBuybackDone(el); } catch (e) { L.querySelector('#tc-e').textContent = e.message; } }));
   $('#d-label').onclick = () => labelSheet(dv);
   $('#d-rep') && ($('#d-rep').onclick = () => { S.bbDone = null; go('repair', {deviceId: dv.id}); });
   $('#d-next').onclick = () => { S.bbDone = null; viewBuyback(el); };
