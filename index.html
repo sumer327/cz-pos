@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794438236";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794438685";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -1967,10 +1967,10 @@ function printTicketLabel(t, c){
   const L = LABELS['30252'];
   printHTML('Ticket ' + t.number, `<div class="t"><span>CELLULAR ZONE · ${esc(STORES[t.store] || t.store)}</span><b>#${t.number}</b></div>
     <div class="m">${esc(c?.name || 'Walk-in')} · ${esc(fmtPhone(c?.phone))}</div>
-    <div class="s">${esc(t.device || '')} · ${esc((t.subject || '').slice(0, 60))}</div>
-    <div class="t s"><span>In ${fmtDate(t.createdAt)}${t.passcode && t.passcode !== 'None' ? ` · <b class="pc">PC: ${esc(isPattern(t.passcode) ? 'pattern ' + patSeq(t.passcode).join('') : t.passcode)}</b>` : t.passcode === 'None' ? ' · No passcode' : ''}</span><span>${t.techId ? esc(staffName(t.techId)) : ''}</span></div>
+    <div class="s">${esc([t.device, (t.subject || '').slice(0, 60)].filter(Boolean).join(' · '))}</div>
+    <div class="t s"><span>In ${fmtDate(t.createdAt)}${t.passcode && t.passcode !== 'None' ? ` · <b class="pc">PC: ${esc(isPattern(t.passcode) ? 'pattern ' + patSeq(t.passcode).join('') : t.passcode)}</b>` : t.passcode === 'None' ? ' · No passcode' : ''}</span><span style="white-space:nowrap">${t.techId ? esc(staffName(t.techId).split(' ')[0]) : ''}</span></div>
     <div class="bc">${barcodeSVG(t.number, 20)}</div>`,
-    `@page{size:${L.w} ${L.h};margin:0}*{box-sizing:border-box}html,body{margin:0}body{width:${L.w};height:${L.h};padding:.04in .08in;font:600 8.5px/1.15 Arial,Helvetica,sans-serif;color:#000;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden}
+    `@page{size:${L.w} ${L.h};margin:0}*{box-sizing:border-box}html,body{margin:0}body{width:${L.w};height:${L.h};padding:${L.pad};font:600 8.5px/1.15 Arial,Helvetica,sans-serif;color:#000;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden}
      .t{display:flex;justify-content:space-between;gap:4px}.t b{font-size:12px}.m{font-size:11px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.s{font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bc svg{width:100%;height:20px;display:block}.pc{font-size:10px;font-weight:800}`);
 }
 /* after a payment, or from an invoice: print / text / email the receipt */
@@ -3282,10 +3282,10 @@ async function viewClock(el){
 
 /* ---------------- PRINTING (bill of sale, DYMO labels) ---------------- */
 const LABELS = {
-  '30252': {name: 'DYMO 30252 Address · 3½ × 1.1 in (LabelWriter 450)', w: '3.5in', h: '1.097in'},
-  '30336': {name: 'DYMO 30336 Small multipurpose · 2⅛ × 1 in', w: '2.125in', h: '1in'},
-  '30334': {name: 'DYMO 30334 Multipurpose · 2¼ × 1¼ in', w: '2.25in', h: '1.25in'},
-  '30330': {name: 'DYMO 30330 Return address · 2 × ¾ in', w: '2in', h: '0.75in'}
+  '30252': {name: 'DYMO 30252 Address · 3½ × 1.1 in (LabelWriter 450)', w: '3.5in', h: '1.097in', pad: '.09in .34in .06in .16in'},
+  '30336': {name: 'DYMO 30336 Small multipurpose · 2⅛ × 1 in', w: '2.125in', h: '1in', pad: '.07in .2in .05in .12in'},
+  '30334': {name: 'DYMO 30334 Multipurpose · 2¼ × 1¼ in', w: '2.25in', h: '1.25in', pad: '.08in .2in .06in .12in'},
+  '30330': {name: 'DYMO 30330 Return address · 2 × ¾ in', w: '2in', h: '0.75in', pad: '.06in .18in .04in .1in'}
 };
 const labelSize = () => LABELS[ls.get('czpos-label', '30252')] ? ls.get('czpos-label', '30252') : '30252';
 function printHTML(title, body, css){
@@ -3315,7 +3315,7 @@ function labelHTML(dv){
   const who = dv.by ? initials(staffName(dv.by)) : '';
   const l3 = [md, dv.color, costCode(dv.cost), dv.battery ? 'BH ' + dv.battery + '%' : '', who, dv.bbId || ''].filter(Boolean).join(' - ');
   const price = dv.listPrice || dv.swappa?.price || null;
-  return {css: `@page{size:${L.w} ${L.h};margin:0}*{box-sizing:border-box}html,body{margin:0}body{width:${L.w};height:${L.h};padding:.05in .09in .04in;font:400 ${small ? 7 : 8.5}px/1.2 Arial,Helvetica,sans-serif;color:#000;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden}
+  return {css: `@page{size:${L.w} ${L.h};margin:0}*{box-sizing:border-box}html,body{margin:0}body{width:${L.w};height:${L.h};padding:${L.pad};font:400 ${small ? 7 : 8.5}px/1.2 Arial,Helvetica,sans-serif;color:#000;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden}
     .t{display:flex;justify-content:space-between;align-items:baseline;gap:6px}.m{font-size:${small ? 8.5 : 10.5}px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.p{font-weight:800;font-size:${small ? 8.5 : 10.5}px;white-space:nowrap}
     .l{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rule{border-top:1.2px solid #000;margin:1px 0 2px}.bc{display:flex;align-items:flex-end;gap:6px}.bc svg{flex:1;height:${small ? 14 : 22}px;display:block}.sn{font-size:${small ? 7 : 8}px;font-weight:700;white-space:nowrap}`,
     body: `<div><div class="t"><span class="m">${esc(l1)}</span>${price ? `<span class="p">${cents(price)}</span>` : ''}</div>
