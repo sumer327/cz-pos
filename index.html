@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794437557";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794438236";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -410,6 +410,7 @@ const DemoStore = {
     this.save(d); return {device, buyback: bb};
   },
   async buyback(id){ return this.db().buybacks.find(b => b.id === id); },
+  async payoutAlert(){ return {ok: true, demo: true}; },
   async buybackPayTo(emp, store, id, to){ if (!String(to || '').trim()) throw new Error('Enter where the payment goes.'); const d = this.db(); const b = d.buybacks.find(x => x.id === id); b.payoutTo = to.trim(); this.save(d); return b; },
   async repairUpdate(emp, store, id, patch, note){
     const d = this.db(); const row = d.devices.find(x => x.id === id); const msgs = [];
@@ -936,6 +937,7 @@ const LiveStore = {
   async buybacks(from, to){ const {data, error} = await this.sb.from('buybacks_v').select('*').gte('at', from.toISOString()).lt('at', to.toISOString()); if (error) throw error; return data; },
   async devices(){ const {data, error} = await this.sb.from('devices_v').select('*').order('createdAt', {ascending: false}).limit(2000); if (error) throw error; return data; },
   async buyback(id){ const {data} = await this.sb.from('buybacks_v').select('*').eq('id', id).maybeSingle(); if (data && !data.payoutTo) data.payoutTo = data.seller?.payoutTo || ''; return data; },
+  async payoutAlert(id){ const {data, error} = await this.sb.functions.invoke('payout-alert', {body: {buybackId: id}}); if (error) { let m = error.message; try { m = (await error.context.json()).error || m; } catch {} throw new Error(m); } if (data?.error) throw new Error(data.error); return data; },
   async buybackPayTo(emp, store, id, to){ return this.rpc('pos_buyback_payto', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_to: to}); },
   async repairUpdate(emp, store, id, patch, note){ return this.rpc('pos_repair_update', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_patch: patch, p_note: note || null}); },
   async deviceUsePart(emp, store, id, partId){ return this.rpc('pos_device_part', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_part: partId}); },
@@ -3534,12 +3536,14 @@ async function viewBuyback(el){
 async function viewBuybackDone(el){
   const dv = (await Store.devices()).find(x => x.id === S.bbDone.deviceId);
   const bb = await Store.buyback(S.bbDone.buybackId);
+  const slack = bb && SAM_PAYS.includes(bb.payout) ? (S.bbDone.slack = S.bbDone.slack || Store.payoutAlert(bb.id)) : null;
+  if (slack) slack.then(() => { const n = $('#bd-slack'); if (n) n.textContent = 'Sam got it on Slack.'; }).catch(e => { const n = $('#bd-slack'); if (n) n.innerHTML = `<b>Slack alert didn't go through</b> (${esc(e.message)}). Text Sam the buy ID, amount and where to send it.`; });
   const where = dv.status === 'repair' ? `repair stock (needs ${dv.needs.join(', ')})` : STATUS_LABEL[dv.status];
   el.innerHTML = `<div class="panel stack" style="max-width:640px">
     <span class="pill ok" style="align-self:flex-start">Buy complete</span>
     <h2>${esc(bb?.bbId || '')} · ${esc(dv.model)} ${esc(dv.storage)} · ${cents(dv.cost)}</h2>
     <div class="small muted">Stock #${dv.stockNo} · receipt #${bb?.receiptNo}</div>
-    ${bb?.payoutStatus === 'requested' ? `<div class="banner warn">Payout request sent to Sam: ${cents(bb.paid)} by ${esc(bb.payout)} to <b>${esc(bb.payoutTo)}</b>. Tell the seller it's on the way. You'll get an alert when it's sent.</div>` : ''}
+    ${bb && SAM_PAYS.includes(bb.payout) ? `<div class="banner warn" id="bd-pay">Payout request: ${cents(bb.paid)} by ${esc(bb.payout)} to <b>${esc(bb.payoutTo || bb.seller?.payoutTo || '?')}</b>. <span id="bd-slack">Sending it to Sam on Slack…</span> Tell the seller it's on the way.</div>` : ''}
     <p style="margin:0">Added to ${STORES[dv.store]} ${esc(where)}.</p>
     ${bb?.payout === 'Trade-in credit' ? (bb.creditLeft > 0 ? `<div class="banner ok stack" style="gap:8px"><span><b>${cents(bb.creditLeft)} trade-in credit</b> is on file for ${esc([bb.seller?.firstName, bb.seller?.lastName].filter(Boolean).join(' ') || 'the seller')}. No cash leaves the buyback fund unless they take some back.</span>
       <div class="row" style="gap:8px"><button class="primary" id="d-trade">Use it now: ring up their purchase</button><button id="d-tcash">They want cash instead</button></div></div>`
