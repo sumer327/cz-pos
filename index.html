@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794445282";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794445429";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -2890,6 +2890,7 @@ const vNorm = t => ' ' + String(t || '').toLowerCase()
   .replace(/\b(a t and t|at and t|a t t|at t|att)\b/g, ' att ').replace(/\bt mobile\b/g, ' tmobile ')
   .replace(/\b(\d+)\s*(?:gigs?|gigabytes?|gb)\b/g, ' $1 ').replace(/\b(?:1|one)\s*(?:tb|terabytes?|tera)\b/g, ' 1024 ')
   .replace(/\b([a-z]+)\b/g, w => NUMW[w] !== undefined ? ' ' + NUMW[w] + ' ' : w)
+  .replace(/\b(?:x|times)\s*([1-9])\b(?!\s*(?:gb|\d))/g, ' $1 ').replace(/\b(\d{1,2})s\b/g, '$1')
   .replace(/\bx\s*s\s*max\b/g, ' xs max ').replace(/\bx\s*s\b/g, ' xs ').replace(/\bx\s*r\b/g, ' xr ').replace(/\bs\s*e\b/g, ' se ')
   .replace(/\bpro\s*max\b/g, ' promax ').replace(/\bx\s*o\s*7\b|\bx\s*0\s*7\b|\bxo7\b|\bx07\b|\bsoft oled\b|\bsoft\b/g, ' oled ')
   .replace(/\ba\s*q\s*7\b|\baq7\b|\bhard oled\b|\bhard\b/g, ' aq7 ').replace(/\bin\s*cell\b/g, ' incell ')
@@ -2935,9 +2936,10 @@ function vPhones(text, phones, checked){
   vChunks(text).forEach(ch => { const c = vParse(ch);
     if (c.stock) { const d = phones.find(x => String(x.stockNo) === c.stock); if (d) { hits.push({ch, d, again: used.has(d.id)}); used.add(d.id); return; } }
     const cands = items.map(x => [x, vMatch(c, x.f, 'phone')]).filter(([, sc]) => sc >= 0).sort((a, b) => b[1] - a[1]);
-    const pick = cands.find(([x]) => !used.has(x.d.id));
-    if (pick) { used.add(pick[0].d.id); hits.push({ch, d: pick[0].d, many: cands.length > 1}); }
-    else miss.push({ch, why: cands.length ? 'already checked all of those' : 'no phone like that on the list'}); });
+    const want = c.count && c.count <= 20 ? c.count : 1; let got = 0;
+    for (const [x] of cands) { if (got >= want) break; if (used.has(x.d.id)) continue; used.add(x.d.id); hits.push({ch, d: x.d, of: want > 1 ? `${got + 1} of ${want}` : ''}); got++; }
+    if (!cands.length) miss.push({ch, why: 'no phone like that on the list'});
+    else if (got < want) miss.push({ch, why: got ? `you said ${want}, the list only has ${got} more like that` : 'already checked all of those'}); });
   return {hits, miss};
 }
 /* screens: "iPhone 13 AQ7 three" → count 3 for that screen */
@@ -3026,10 +3028,10 @@ async function viewEod(el){
     if (E.checked.has(hit.id)) toast(`#${hit.stockNo} was already checked`); else { E.checked.add(hit.id); toast(`✓ #${hit.stockNo} ${hit.model}`); }
     viewEod(el); }; }
   const vRow = (ok, a, b) => `<div class="row" style="gap:8px;flex-wrap:nowrap;padding:6px 8px;border:1px solid var(--line);border-radius:var(--r);${ok ? 'background:var(--ok-soft)' : ''}"><span style="flex:none">${ok ? '✓' : '✗'}</span><span style="flex:1;min-width:0">${a}<div class="small muted">heard “${esc(b)}”</div></span></div>`;
-  $('#eo-voice') && ($('#eo-voice').onclick = () => voiceSheet({title: 'Read the safe out loud', tips: 'Stand at the safe and read each phone: <b>model, storage, carrier</b> (for example “iPhone 13 Pro Max 256 unlocked”, “Galaxy S23 Ultra 512”). Same phone twice? Say it twice. Or read the stock # off the label.',
+  $('#eo-voice') && ($('#eo-voice').onclick = () => voiceSheet({title: 'Read the safe out loud', tips: 'Stand at the safe and read each phone: <b>model, storage, carrier</b> (for example “iPhone 13 Pro Max 256 unlocked”, “Galaxy S23 Ultra 512”). Several of the same? Say how many: “iPhone 12 64, we have 3 of them”. Or read the stock # off the label.',
     onText: t => { const r = vPhones(t, L.phones, E.checked);
       sheet(`<div class="row" style="justify-content:space-between"><h3>Matched ${r.hits.length} phone${r.hits.length === 1 ? '' : 's'}</h3><button data-close>Cancel</button></div>
-        <div class="stack" style="gap:4px;max-height:55vh;overflow:auto">${r.hits.map(h => vRow(true, lbl(h.d) + (h.again ? ' <span class="pill">already checked</span>' : ''), h.ch)).join('')}${r.miss.map(m => vRow(false, `<b>Didn't match</b> · ${esc(m.why)}`, m.ch)).join('')}</div>
+        <div class="stack" style="gap:4px;max-height:55vh;overflow:auto">${r.hits.map(h => vRow(true, lbl(h.d) + (h.of ? ` <span class="pill">${h.of}</span>` : '') + (h.again ? ' <span class="pill">already checked</span>' : ''), h.ch)).join('')}${r.miss.map(m => vRow(false, `<b>Didn't match</b> · ${esc(m.why)}`, m.ch)).join('')}</div>
         ${r.miss.length ? '<p class="small muted" style="margin:0">Scan or tap the ones it didn\'t match.</p>' : ''}
         <button class="primary" id="vm-go" ${r.hits.length ? '' : 'disabled'}>Check these ${r.hits.length}</button>`,
         (S2, close) => S2.querySelector('#vm-go').onclick = () => { r.hits.forEach(h => E.checked.add(h.d.id)); close(); toast(`✓ ${r.hits.length} checked`); viewEod(el); }); } }));
