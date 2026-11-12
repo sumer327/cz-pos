@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794446123";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794459731";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -203,6 +203,8 @@ const taxRow = (sub, tax) => `<div class="row small" style="justify-content:spac
 const PAYMENTS = ['Cash','Square (card)'];   // we only take cash or card (card runs on the Square iPad)
 const DENOMS = [['b100', 100, '$100 bills'], ['b50', 50, '$50 bills'], ['b20', 20, '$20 bills'], ['b10', 10, '$10 bills'], ['b5', 5, '$5 bills'], ['b1', 1, '$1 bills'],
   ['c25', 0.25, 'Quarters'], ['c10', 0.10, 'Dimes'], ['c5', 0.05, 'Nickels'], ['c1', 0.01, 'Pennies']];
+/* "Reffered By" options from the Buyback Log (2026) sheet */
+const HEARD_FROM = ['Walk In / Drive By', 'Returning Customer', 'Referred', 'Google', 'Apple Maps', 'Website', 'Facebook', 'Instagram', 'OfferUp', 'OfferUp - Sam', 'Chat GPT'];
 const PAYOUTS = ['Cash','Apple Pay','Cash App','Zelle','PayPal','Trade-in credit'];          // how a buyback seller gets paid
 const SAM_PAYS = ['Apple Pay','Cash App','Zelle','PayPal'];
 const payToLabel = p => p + (p === 'Cash App' ? ' $cashtag or phone' : p === 'PayPal' ? ' email or phone' : ' phone or email');                              // these need Sam to send the money
@@ -3517,7 +3519,7 @@ async function bosSheet(bbId, dvId){
 
 /* ---------------- BUYBACK: appraise → test → seller → pay → bill of sale + label ---------------- */
 const newBB = () => ({q:'', model:null, carrier:null, storage:null, cond:null, checks:{}, battery:'', color:'', imei:'', notes:'', paid:'', payout:'Cash', payoutTo:'',
-  seller:{firstName:'', lastName:'', phone:'', address:'', city:'San Antonio', state:'TX', zip:'', dob:'', idType: ID_TYPES[0], idNumber:'', idState:'TX', idExp:''}});
+  seller:{firstName:'', lastName:'', phone:'', email:'', heardFrom:'', address:'', city:'San Antonio', state:'TX', zip:'', dob:'', idType: ID_TYPES[0], idNumber:'', idState:'TX', idExp:''}});
 S.bb = newBB();
 function bbNeeds(B){
   const n = [];
@@ -3573,7 +3575,7 @@ async function viewBbLog(el){
       <td class="small">${(l => l === 'Unlocked' ? '<span class="pill ok">Unlocked</span>' : l === 'Financed' ? '<span class="pill bad">Financed</span>' : l === 'Locked' || l === 'Locked / financed' ? `<span class="pill warn">${l}</span>` : '<span class="muted">—</span>')(lockOf(d?.carrier))}</td>
       <td class="r num"><b>${cents(b.paid)}</b>${d && +d.partsCost ? `<div class="small muted">+ ${cents(d.partsCost)} parts</div>` : ''}</td>
       <td class="small">${esc(b.payout || '')}</td>
-      <td>${esc([s.firstName, s.lastName].filter(Boolean).join(' '))}<div class="small muted">${fmtPhone(s.phone || b.phone || '')}</div></td>
+      <td>${esc([s.firstName, s.lastName].filter(Boolean).join(' '))}<div class="small muted">${fmtPhone(s.phone || b.phone || '')}${s.email ? '<br>' + esc(s.email) : ''}${s.heardFrom ? '<br>Heard: ' + esc(s.heardFrom) : ''}</div></td>
       <td class="small">${esc(b.by ? staffName(b.by) : '')}</td>
       <td>${stPill(d)}</td>
       <td class="r"><button data-blb="${b.id}" style="min-height:32px;padding:2px 10px">Bill of sale</button></td></tr>`).join('') || '<tr><td colspan="11" class="muted">No buys match.</td></tr>'}
@@ -3654,6 +3656,8 @@ async function viewBuyback(el){
           <div class="field"><label class="label" for="s-dob">Date of birth</label><input id="s-dob" data-s="dob" type="date" value="${sv('dob')}"></div>
           <div class="field"><label class="label" for="s-first">First name</label><input id="s-first" data-s="firstName" value="${sv('firstName')}"></div>
           <div class="field"><label class="label" for="s-last">Last name</label><input id="s-last" data-s="lastName" value="${sv('lastName')}"></div>
+          <div class="field"><label class="label" for="s-email">Email</label><input id="s-email" data-s="email" type="email" inputmode="email" value="${sv('email')}" placeholder="name@gmail.com"></div>
+          <div class="field"><label class="label" for="s-heard">How did they hear about us?</label><select id="s-heard" data-s="heardFrom"><option value="">Pick one…</option>${HEARD_FROM.map(h => `<option ${B.seller.heardFrom === h ? 'selected' : ''}>${h}</option>`).join('')}</select></div>
         </div>
         <div class="grid g2">
           <div class="field"><label class="label" for="s-idt">Photo ID</label><select id="s-idt" data-s="idType">${ID_TYPES.map(t => `<option ${B.seller.idType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
@@ -3693,7 +3697,7 @@ async function viewBuyback(el){
   $('#s-phone').addEventListener('change', async () => {
     const ph = B.seller.phone.replace(/\D/g, ''); if (ph.length !== 10) return;
     const c = await Store.customerByPhone(ph);
-    if (c) { const [f, ...r] = c.name.split(' '); if (!B.seller.firstName) { B.seller.firstName = f; $('#s-first').value = f; } if (!B.seller.lastName) { B.seller.lastName = r.join(' '); $('#s-last').value = B.seller.lastName; } $('#s-known').innerHTML = `<span class="pill acc">Returning customer: ${esc(c.name)}</span>`; }
+    if (c) { const [f, ...r] = c.name.split(' '); if (!B.seller.firstName) { B.seller.firstName = f; $('#s-first').value = f; } if (!B.seller.lastName) { B.seller.lastName = r.join(' '); $('#s-last').value = B.seller.lastName; } if (c.email && !B.seller.email) { B.seller.email = c.email; $('#s-email').value = c.email; } if (!B.seller.heardFrom) { B.seller.heardFrom = 'Returning Customer'; $('#s-heard').value = 'Returning Customer'; } $('#s-known').innerHTML = `<span class="pill acc">Returning customer: ${esc(c.name)}</span>`; }
   });
   const warn = () => { const v = parseFloat(B.paid);
     $('#f-warn').innerHTML = v > max ? `<div class="banner warn small">${money(v)} is ${money(v - max)} over max buy. A manager PIN will be needed.</div>` : (row.atlas && v > row.atlas ? `<div class="banner warn small">Paying more than Atlas pays (${money(row.atlas)}). Only do this if it will sell in store or on Swappa.</div>` : ''); };
@@ -3708,6 +3712,8 @@ async function viewBuyback(el){
       : B.battery !== '' && !(+B.battery >= 1 && +B.battery <= 100) ? 'Battery health should be a number from 1 to 100.'
       : !sl.firstName.trim() || !sl.lastName.trim() ? "Enter the seller's first and last name."
       : ph.length !== 10 ? "Enter the seller's 10-digit phone number."
+      : !/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test((sl.email || '').trim()) ? "Enter the seller's email address (name@gmail.com)."
+      : !sl.heardFrom ? 'Pick how they heard about us.'
       : !sl.dob ? "Enter the seller's date of birth." : age < 18 ? 'Seller must be 18 or older. Do not buy.'
       : !sl.idNumber.trim() ? 'Enter the ID number from the photo ID.' : !sl.idExp ? 'Enter the ID expiration date.' : new Date(sl.idExp) < new Date(new Date().toDateString()) ? 'That ID is expired. Ask for a current photo ID.'
       : !(paid > 0) ? 'Enter what you are paying the seller.'
@@ -3717,7 +3723,7 @@ async function viewBuyback(el){
     if (paid > max) { override = await askPin(`Manager approval: paying ${money(paid)} (max ${money(max)})`, 2); if (!override) return; }
     const r = await Store.recordBuyback(S.user, S.store, {model: B.model, storage: B.storage, carrier: B.carrier, cond: B.cond, color: B.color.trim(), imei: B.imei.trim(),
       battery: B.battery === '' ? null : +B.battery, checklist: {...B.checks}, needs, paid, max, payout: B.payout, payoutTo: (B.payoutTo || '').trim(), notes: B.notes.trim(),
-      seller: {...sl, phone: ph, firstName: sl.firstName.trim(), lastName: sl.lastName.trim(), state: sl.state.toUpperCase()}}, override);
+      seller: {...sl, phone: ph, email: (sl.email || '').trim().toLowerCase(), firstName: sl.firstName.trim(), lastName: sl.lastName.trim(), state: sl.state.toUpperCase()}}, override);
     S.bbDone = {deviceId: r.device.id, buybackId: r.buyback.id};
     S.bb = newBB(); window.scrollTo(0, 0); viewBuyback(el);
   };
