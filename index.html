@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794467087";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794506234";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -201,6 +201,7 @@ const invTotals = inv => { const sub = Math.round(inv.lines.reduce((a, l) => a +
 const taxOf = lines => Math.max(0, Math.round(lines.filter(isTaxable).reduce((a, l) => a + (+l.price || 0) * (l.qty || 1), 0) * TAX_RATE * 100) / 100);
 const taxRow = (sub, tax) => `<div class="row small" style="justify-content:space-between"><span class="muted">Subtotal ${cents(sub)} · Sales tax 8.25% ${cents(tax)}</span>${tax === 0 && sub > 0 ? '<span class="muted">labor only, no tax</span>' : ''}</div>`;
 const PAYMENTS = ['Cash','Square (card)'];   // we only take cash or card (card runs on the Square iPad)
+const DRAWER_KEEP = 100;   /* the drawer keeps $100; everything above it goes into the buyback fund at close */
 const DENOMS = [['b100', 100, '$100 bills'], ['b50', 50, '$50 bills'], ['b20', 20, '$20 bills'], ['b10', 10, '$10 bills'], ['b5', 5, '$5 bills'], ['b1', 1, '$1 bills'],
   ['c25', 0.25, 'Quarters'], ['c10', 0.10, 'Dimes'], ['c5', 0.05, 'Nickels'], ['c1', 0.01, 'Pennies']];
 /* "Reffered By" options from the Buyback Log (2026) sheet */
@@ -642,7 +643,7 @@ const DemoStore = {
   async newInvoice(emp, store, customerId){ const d = this.db(); const inv = {id: uid(), number: d.nextInvoice++, at: now(), store, by: emp.id, ticketId: null, customerId: customerId || null, lines: [], payment: 'Unpaid', payments: [], paid: false, partsCost: 0, subtotal: 0, tax: 0, total: 0}; d.invoices.unshift(inv); this.save(d); return inv; },
   async invoiceCustomer(emp, store, id, cid){ const d = this.db(); const inv = d.invoices.find(i => i.id === id); inv.customerId = cid; this.save(d); return inv; },
   async eodList(store){ const d = this.db(); return {phones: d.devices.filter(x => x.store === store && ['testing', 'repair', 'hot', 'tolist', 'swappa', 'wholesale'].includes(x.status)).map(x => ({id: x.id, stockNo: x.stockNo, model: x.model, storage: x.storage, color: x.color, imei: x.imei, status: x.status})),
-    parts: d.parts.filter(p => p.kind === 'Screen' || isScreenPart(p)).map(p => ({id: p.id, name: p.name, kind: p.kind})), rma: d.rmaLog.filter(x => x.store === store && x.status === 'held' && x.screen).length, refurb: d.refurbLog.filter(x => x.store === store && x.status === 'held').length}; },
+    parts: d.parts.filter(p => p.kind === 'Screen' || isScreenPart(p)).map(p => ({id: p.id, name: p.name, kind: p.kind, sort: p.sort, qty: +(p.qty?.[store] || 0)})), rma: d.rmaLog.filter(x => x.store === store && x.status === 'held' && x.screen).length, refurb: d.refurbLog.filter(x => x.store === store && x.status === 'held').length}; },
   async eodCounts(store){ return (this.db().eod || []).filter(x => x.store === store); },
   async saveEod(emp, store, c){ const d = this.db(); const L = await this.eodList(store);
     const phones = L.phones.map(x => ({id: x.id, stockNo: x.stockNo, label: [x.model, x.storage, x.color].filter(Boolean).join(' '), status: x.status, here: c.checked.includes(x.id), note: c.missingNotes?.[x.id] || null}));
@@ -818,7 +819,7 @@ const DemoStore = {
     this.log(d, emp.id, store, 'Register opened', `Drawer ${cents(drawer)} · buyback fund ${cents(fund)}`); this.save(d); return r; },
   async closeRegister(emp, store, c){ const d = this.db(); const r = (d.registers || []).find(x => x.store === store && !x.closedAt); if (!r) throw new Error('Open the register first.');
     if (!(c.drawer >= 0) || !(c.fund >= 0)) throw new Error('Count the drawer and the buyback fund.');
-    const t = this.regTotals(d, store, r.day); const dexp = r.openDrawer + t.cashSales, dep = Math.max(0, Math.round((c.drawer - r.openDrawer) * 100) / 100), fexp = r.openFund - t.cashBuys + dep;
+    const t = this.regTotals(d, store, r.day); const dexp = r.openDrawer + t.cashSales, dep = Math.max(0, Math.round((c.drawer - DRAWER_KEEP) * 100) / 100), fexp = r.openFund - t.cashBuys + dep;
     if ((Math.abs(c.drawer - dexp) >= 5 || Math.abs(c.fund - fexp) >= 5) && !(c.notes || '').trim()) throw new Error('Something is over or short by $5 or more. Add a note explaining it.');
     Object.assign(r, t, {closedBy: emp.id, closedAt: now(), drawerExpected: dexp, drawerCounted: c.drawer, deposit: dep, fundExpected: fexp, fundCounted: c.fund, squareApp: c.square, notes: c.notes || ''});
     if (Math.abs(c.drawer - dexp) >= 5 || Math.abs(c.fund - fexp) >= 5) this.notify(d, null, `${STORES[store]} register ${r.day}: drawer ${cents(c.drawer - dexp)} · buyback fund ${cents(c.fund - fexp)} off`, {tab: 'closeout'}, 'manager');
@@ -908,6 +909,7 @@ const DemoStore = {
     this.notify(d, dv.store, `SOLD on Swappa: #${dv.stockNo} ${dv.model} ${dv.storage}. Pull it now, power it off, and pack it for shipping.`, {tab: 'swappa', sub: 'ship'});
     this.log(d, emp.id, store, 'Swappa sale', `#${dv.stockNo} ${dv.model} ${cents(salePrice)}`); this.save(d); return dv; },
   async ships(){ return this.db().ships; },
+  async swappaSkip(emp, store, id, reason){ const d = this.db(); const dv = d.devices.find(x => x.id === id); dv.swappa = Object.assign({}, dv.swappa || {}, reason ? {skip: true, skipReason: reason, skipAt: now(), skipBy: emp.id} : {skip: false, skipReason: null}); this.save(d); return dv; },
   async updateShip(emp, store, id, patch){ const d = this.db(); const s = d.ships.find(x => x.id === id); Object.assign(s, patch, {[patch.status + 'At']: now()}); this.log(d, emp.id, store, 'Shipping', `${s.label}: ${patch.status}${patch.tracking ? ' · ' + patch.tracking : ''}`); this.save(d); return s; },
   async reset(){ ls.set(this.k, null); try { localStorage.removeItem(this.k); } catch {} delete mem[this.k]; await this.init(); }
 };
@@ -1085,6 +1087,7 @@ const LiveStore = {
   async swappaDrop(emp, store, id, price){ return this.rpc('pos_swappa_drop', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_price: price}); },
   async swappaSold(emp, store, id, price, buyer){ return this.rpc('pos_swappa_sold', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_price: price, p_buyer: buyer || ''}); },
   async ships(){ const {data, error} = await this.sb.from('ships_v').select('*').order('at', {ascending: false}).limit(300); if (error) throw error; return data; },
+  async swappaSkip(emp, store, id, reason){ return this.rpc('pos_swappa_skip', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_reason: reason || null}); },
   async updateShip(emp, store, id, patch){ return this.rpc('pos_update_ship', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_status: patch.status, p_tracking: patch.tracking || ''}); },
   async signIn(email, password){ const {error} = await this.sb.auth.signInWithPassword({email, password}); if (error) throw error; }
 };
@@ -1113,7 +1116,9 @@ function sheet(html, onMount){
   const L = $('#layer');
   L.innerHTML = `<div class="sheet" role="dialog" aria-modal="true"><div class="panel stack">${html}</div></div>`;
   const close = () => { L.innerHTML = ''; };
-  L.querySelector('.sheet').addEventListener('click', e => { if (e.target.classList.contains('sheet')) close(); });
+  let dirty = false; L.querySelector('.sheet').addEventListener('input', () => { dirty = true; });
+  L.querySelector('.sheet').addEventListener('click', e => { if (!e.target.classList.contains('sheet')) return;
+    if (dirty) { toast('Your numbers are kept. Tap Close if you really want to leave.'); return; } close(); });
   L.querySelectorAll('[data-close]').forEach(b => b.onclick = close);
   onMount && onMount(L, close);
   return close;
@@ -2444,6 +2449,21 @@ async function glassReplaceSheet(phone0, add){
   });
 }
 
+/* every sale, card payment and buyback that makes up today's register numbers */
+async function regActivity(day){
+  const t0 = new Date(day + 'T00:00'), t1 = new Date(t0); t1.setDate(t1.getDate() + 1);
+  const [invs, bbs] = await Promise.all([Store.invoices(t0, t1).catch(() => []), Store.buybacks(t0, t1).catch(() => [])]);
+  const iv = invs.filter(i => i.store === S.store && i.paid !== false && (!i.rsId || i.by)).sort((a, b) => new Date(a.at) - new Date(b.at));
+  const bb = bbs.filter(b => b.store === S.store).sort((a, b) => new Date(a.at) - new Date(b.at));
+  const rows = [...iv.flatMap(i => payParts(i).map(p => ({at: i.at, what: `Sale #${i.number}${i.ticketId ? '' : ''}`, who: i.by ? staffName(i.by) : '', method: p.method, amt: +p.amount || 0}))),
+    ...bb.map(b => ({at: b.at, what: `Buyback ${b.store}${b.receiptNo}`, who: staffName(b.by), method: b.payout, amt: -(+b.paid || 0)}))].sort((a, b) => new Date(a.at) - new Date(b.at));
+  const by = {}; rows.forEach(r => { const k = /^square/i.test(r.method) ? 'Square (card)' : r.method || 'Other'; by[k] = (by[k] || 0) + r.amt; });
+  const html = `<details class="panel" style="padding:10px"><summary style="cursor:pointer"><b>Today's transactions (${rows.length})</b> · ${Object.entries(by).map(([k, v]) => `${esc(k)} ${cents(v)}`).join(' · ') || 'none yet'}</summary>
+    <div class="tbl" style="margin-top:8px"><table><thead><tr><th>Time</th><th>What</th><th>By</th><th>How</th><th class="r">Amount</th></tr></thead><tbody>
+    ${rows.map(r => `<tr><td class="small num">${fmtTime(r.at)}</td><td>${esc(r.what)}</td><td class="small">${esc(r.who)}</td><td class="small">${esc(r.method || '')}</td><td class="r num" style="${r.amt < 0 ? 'color:var(--bad)' : ''}">${cents(r.amt)}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">Nothing yet.</td></tr>'}
+    </tbody></table></div><p class="small muted" style="margin:6px 0 0">Buybacks are negative. Cash buybacks come out of the buyback fund; Zelle / Cash App / Apple Pay / PayPal are sent by Sam.</p></details>`;
+  return {html, rows, by};
+}
 /* Register open/close panel: drawer (float + cash sales → deposit) and buyback fund (start − cash buys + deposit). */
 async function registerPanel(box, again){
   const [days, today] = await Promise.all([Store.registerDays(), Store.registerToday(S.store)]);
@@ -2453,24 +2473,37 @@ async function registerPanel(box, again){
   if (open && today) {
     const dexp = open.openDrawer + today.cashSales, fnow = open.openFund - today.cashBuys;
     box.innerHTML = `<div class="panel stack"><div class="row" style="justify-content:space-between"><h3>Register open · ${STORES[S.store]}</h3><span class="small muted">Opened ${fmtTime(open.openedAt)} by ${esc(staffName(open.openedBy))}${open.day !== tk ? ` · <b style="color:var(--bad)">still open from ${fmtDate(open.day + 'T12:00')}</b>` : ''}</span></div>
-      <div class="grid g2"><div class="stack" style="gap:4px"><span class="label">Cash drawer</span><div class="small">Started ${cents(open.openDrawer)} + cash sales ${cents(today.cashSales)}</div><div class="num" style="font-size:22px">${cents(dexp)} <span class="small muted">should be in the drawer</span></div></div>
+      <div class="grid g2"><div class="stack" style="gap:4px"><span class="label">Cash drawer</span><div class="small">Started ${cents(open.openDrawer)} + cash sales ${cents(today.cashSales)}</div><div class="num" style="font-size:22px">${cents(dexp)} <span class="small muted">should be in the drawer</span></div><div class="small muted">At close, everything over ${cents(DRAWER_KEEP)} goes into the buyback fund.</div></div>
         <div class="stack" style="gap:4px"><span class="label">Buyback fund</span><div class="small">Started ${cents(open.openFund)} − cash buys ${cents(today.cashBuys)}</div><div class="num" style="font-size:22px">${cents(fnow)} <span class="small muted">should be in the fund (before tonight's deposit)</span></div></div></div>
       <div class="small muted">Today so far: Square ${cents(today.cardSales)} · cash ${cents(today.cashSales)} · other ${cents(today.otherSales)}</div>
-      <button class="primary" id="rg-close" style="align-self:flex-start">Close register</button></div>`;
-    box.querySelector('#rg-close').onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Close register · ${STORES[S.store]}</h3><button data-close>Close</button></div>
-      <div class="field"><label class="label" for="cr-d">1 · Count the cash drawer (should be ${cents(dexp)})</label><input id="cr-d" inputmode="decimal" placeholder="${dexp.toFixed(2)}"></div>
-      <div class="banner acc small" id="cr-dep">Deposit = drawer count − ${cents(open.openDrawer)} float. Leave the float in the drawer.</div>
+      <div class="row" style="gap:8px"><button class="primary" id="rg-close">Close register</button><button id="rg-act">Today's transactions</button></div></div>`;
+    box.querySelector('#rg-close').onclick = async () => { const act = await regActivity(open.day);
+      sheet(`<div class="row" style="justify-content:space-between"><h3>Close register · ${STORES[S.store]}</h3><button data-close>Close</button></div>
+      <div class="stack" style="gap:6px"><span class="label">1 · Count the cash drawer · each bill and coin</span>
+        <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px">${DENOMS.map(([k, v, l]) => `<div class="field" style="margin:0"><label class="label" for="cr-${k}" style="text-transform:none">${l}</label><input id="cr-${k}" data-den="${v}" inputmode="numeric" placeholder="0" autocomplete="off"></div>`).join('')}</div>
+        <div class="row" style="justify-content:space-between;align-items:baseline"><span class="small muted">Should be ${cents(dexp)} (started ${cents(open.openDrawer)} + cash sales ${cents(today.cashSales)})</span><span>Drawer total <b class="num" id="cr-dt" style="font-size:22px">$0.00</b></span></div></div>
+      <div class="banner acc small" id="cr-dep">Count the drawer first. Everything over ${cents(DRAWER_KEEP)} goes into the buyback fund.</div>
       <div class="field"><label class="label" for="cr-f" id="cr-fl">2 · Put the deposit in the buyback fund, then count the fund</label><input id="cr-f" inputmode="decimal"></div>
-      <div class="field"><label class="label" for="cr-s">3 · Square app total for today (should match ${cents(today.cardSales)})</label><input id="cr-s" inputmode="decimal" placeholder="${today.cardSales.toFixed(2)}"></div>
+      <div class="small muted" id="cr-fx">Buyback fund: started ${cents(open.openFund)} − cash buybacks ${cents(today.cashBuys)} + tonight's deposit</div>
+      <div class="field"><label class="label" for="cr-s">3 · Square app total for today (POS has ${cents(today.cardSales)})</label><input id="cr-s" inputmode="decimal" placeholder="${today.cardSales.toFixed(2)}"><div class="small" id="cr-sx"></div></div>
       <div class="field"><label class="label" for="cr-n">Notes (required if anything is $5+ over or short)</label><input id="cr-n"></div>
+      ${act.html}
       <div class="err" id="cr-e" role="alert"></div><button class="primary" id="cr-go">Close register</button>`, (L, close) => {
-        const upd = () => { const dc = parseFloat(L.querySelector('#cr-d').value); if (isNaN(dc)) return; const dep = Math.max(0, dc - open.openDrawer); const fexp = fnow + dep;
-          L.querySelector('#cr-dep').innerHTML = `Drawer ${off(dc, dexp)} · <b>Deposit ${cents(dep)}</b> goes into the buyback fund. Leave ${cents(open.openDrawer)} in the drawer.`;
-          L.querySelector('#cr-fl').textContent = `2 · Put the ${cents(dep)} deposit in the buyback fund, then count the fund (should be ${cents(fexp)})`; L.querySelector('#cr-f').placeholder = fexp.toFixed(2); };
-        L.querySelector('#cr-d').oninput = upd;
-        L.querySelector('#cr-go').onclick = async () => { const drawer = parseFloat(L.querySelector('#cr-d').value), fund = parseFloat(L.querySelector('#cr-f').value), sq = L.querySelector('#cr-s').value === '' ? null : parseFloat(L.querySelector('#cr-s').value);
-          if (isNaN(drawer) || isNaN(fund)) { L.querySelector('#cr-e').textContent = 'Count the drawer and the buyback fund.'; return; }
-          try { await Store.closeRegister(S.user, S.store, {drawer, fund, square: sq, notes: L.querySelector('#cr-n').value.trim()}); close(); toast('Register closed'); again(); } catch (e) { L.querySelector('#cr-e').textContent = e.message; } }; });
+        const ins = [...L.querySelectorAll('[data-den]')];
+        const total = () => Math.round(ins.reduce((a, i) => a + (parseInt(i.value, 10) || 0) * +i.dataset.den, 0) * 100) / 100;
+        const upd = () => { const dc = total(); L.querySelector('#cr-dt').textContent = cents(dc); if (!ins.some(i => i.value !== '')) return;
+          const dep = Math.max(0, Math.round((dc - DRAWER_KEEP) * 100) / 100), fexp = fnow + dep;
+          L.querySelector('#cr-dep').innerHTML = `Drawer ${off(dc, dexp)} · <b>Take ${cents(dep)} out and put it in the buyback fund.</b> Leave ${cents(Math.min(dc, DRAWER_KEEP))} in the drawer.`;
+          L.querySelector('#cr-fl').textContent = `2 · Put the ${cents(dep)} in the buyback fund, then count the fund (should be ${cents(fexp)})`; L.querySelector('#cr-f').placeholder = fexp.toFixed(2);
+          L.querySelector('#cr-fx').textContent = `Buyback fund should be ${cents(fexp)}: started ${cents(open.openFund)} − cash buybacks ${cents(today.cashBuys)} + deposit ${cents(dep)}`; };
+        ins.forEach(i => i.oninput = () => { i.value = i.value.replace(/\D/g, ''); upd(); });
+        L.querySelector('#cr-s').oninput = e => { const v = parseFloat(e.target.value); L.querySelector('#cr-sx').innerHTML = isNaN(v) ? '' : `Square ${off(v, today.cardSales)}${Math.abs(v - today.cardSales) >= 1 ? ' · check the list below for a card sale that was rung up somewhere else' : ''}`; };
+        setTimeout(() => ins[0]?.focus(), 50);
+        L.querySelector('#cr-go').onclick = async () => { const drawer = total(), fund = parseFloat(L.querySelector('#cr-f').value), sq = L.querySelector('#cr-s').value === '' ? null : parseFloat(L.querySelector('#cr-s').value);
+          if (!ins.some(i => i.value !== '')) { L.querySelector('#cr-e').textContent = 'Count the drawer: type how many of each bill and coin (0 if none).'; return; }
+          if (isNaN(fund)) { L.querySelector('#cr-e').textContent = 'Count the buyback fund.'; return; }
+          try { await Store.closeRegister(S.user, S.store, {drawer, fund, square: sq, notes: L.querySelector('#cr-n').value.trim()}); close(); toast('Register closed'); again(); } catch (e) { L.querySelector('#cr-e').textContent = e.message; } }; }); };
+    const ab = box.querySelector('#rg-act'); ab && (ab.onclick = async () => { const act = await regActivity(open.day); sheet(`<div class="row" style="justify-content:space-between"><h3>Today's transactions · ${STORES[S.store]}</h3><button data-close>Close</button></div>${act.html.replace('<details', '<details open')}`); });
     return;
   }
   const prevDrawer = last ? last.openDrawer : 100, prevFund = last ? last.fundCounted : 0;
@@ -2982,6 +3015,17 @@ function voiceSheet({title, tips, onText}){
     L.querySelector('#vc-go').onclick = () => { stop(); const t = ta.value.trim(); if (!t) { live.textContent = 'Nothing heard yet.'; return; } close(); onText(t); };
   });
 }
+/* the warning under a screen whose count doesn't match the POS, with the tickets that could explain it */
+function eodFlagHTML(E, p){
+  const f = E.flag?.[p.id]; if (!f) return '';
+  const n = f.first, short = n < p.qty, since = Date.now() - 4 * 86400000;
+  const tk = (E.tix || []).filter(t => t.store === E.store && new Date(t.updatedAt || t.createdAt) >= since && partsFor([p], t.device || t.subject || '').length);
+  const used = tk.filter(t => (t.charges || []).some(c => c.partId === p.id));
+  const cands = short ? tk.filter(t => !used.includes(t)) : used;
+  const hint = cands.length ? `Possible: ${cands.slice(0, 3).map(t => `ticket <b>#${t.number}</b> ${esc((t.device || '').slice(0, 30))}${short ? ' (no screen charged yet)' : ' (screen charged)'}`).join(', ')}` : '';
+  return f.kept ? `<div class="small" style="color:var(--warn);padding:2px 10px 6px">Recounted and kept at ${n}. It'll show as off on the report.${hint ? ' ' + hint + '.' : ''}</div>`
+    : `<div class="small" style="color:var(--bad);padding:2px 10px 6px"><b>Doesn't match the POS. Count it again</b> and type the number (same number twice keeps it).${hint ? '<br>' + hint + '.' : ''}</div>`;
+}
 async function viewEod(el){
   const today = new Date().toLocaleDateString('en-CA', {timeZone: 'America/Chicago'});
   const hist = await Store.eodCounts(S.store).catch(() => []);
@@ -2990,8 +3034,12 @@ async function viewEod(el){
   if (done && !S.eodAgain) return eodResult(el, done, hist);
   if (!S.eod || S.eod.store !== S.store || S.eod.day !== today) {
     el.innerHTML = '<p class="muted">Loading tonight\'s count…</p>';
-    const list = await Store.eodList(S.store);
-    S.eod = {store: S.store, day: today, list, checked: new Set(), parts: {}, rma: '', refurb: '', notes: {}, note: '', open: 'phones'};
+    const [list, tix] = await Promise.all([Store.eodList(S.store), Store.tickets().catch(() => [])]);
+    S.eod = {store: S.store, day: today, list, tix, checked: new Set(), parts: {}, rma: '', refurb: '', notes: {}, note: '', open: 'phones', flag: {}};
+    /* "Count again" starts from what was entered last time, so only the ones that were off need a second look */
+    if (done) { (done.phones || []).filter(x => x.here).forEach(x => S.eod.checked.add(x.id)); (done.phones || []).forEach(x => { if (x.note) S.eod.notes[x.id] = x.note; });
+      (done.parts || []).forEach(x => { S.eod.parts[x.id] = String(x.counted); });
+      S.eod.rma = String(done.bins?.rma?.counted ?? ''); S.eod.refurb = String(done.bins?.refurb?.counted ?? ''); S.eod.note = done.note || ''; S.eod.again = true; }
   }
   const E = S.eod, L = E.list;
   const SECT = [['In the safe (for sale, to list, on Swappa, testing)', d => ['hot', 'tolist', 'testing', 'swappa'].includes(d.status)], ['Repair stock', d => d.status === 'repair'], ['Wholesale (waiting to ship)', d => d.status === 'wholesale']];
@@ -3003,7 +3051,7 @@ async function viewEod(el){
   const lbl = d => `<b class="num">#${d.stockNo}</b> ${esc([d.model, d.storage, d.color].filter(Boolean).join(' '))}${d.imei ? ` <span class="small muted num">…${esc(String(d.imei).slice(-4))}</span>` : ''}`;
   el.innerHTML = `<div class="stack">
     <div class="row" style="justify-content:space-between"><h2>End-of-day count · ${STORES[S.store]}</h2><span class="muted">${new Date().toLocaleDateString('en-US', {weekday: 'long', month: 'short', day: 'numeric'})}</span></div>
-    <div class="banner small">Count what's physically here. Don't look anything up: the POS compares your numbers to what it expects after you submit.</div>
+    <div class="row" style="gap:8px;align-items:center"><div class="banner small" style="flex:1">Count what's physically here. If a number doesn't match the POS, it asks you to count that one again.${E.again ? ' <b>Recount: your last numbers are filled in.</b>' : ''}</div>${hist.length ? '<button id="eo-past" class="small">Past counts ↓</button>' : ''}</div>
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
       ${[['phones', '1 · Phones', `${nC} of ${nP} checked`, nC === nP], ['parts', '2 · Screens', `${nE} of ${nS} counted`, nE === nS], ['bins', '3 · RMA + refurb bins', binsOk ? 'counted' : 'not counted', binsOk]]
         .map(([k, t, s, ok]) => `<button data-eo="${k}" style="flex-direction:column;align-items:flex-start;min-height:64px;${E.open === k ? 'border:2px solid var(--accent)' : ''}"><b>${t}</b><span class="small ${ok ? '' : 'muted'}" style="${ok ? 'color:var(--ok)' : ''}">${ok ? '✓ ' : ''}${s}</span></button>`).join('')}
@@ -3016,15 +3064,15 @@ async function viewEod(el){
         <button class="primary" data-eo="parts" style="align-self:flex-end">Next: screens →</button>`
     : E.open === 'parts' ? `<div class="row" style="gap:8px;align-items:center"><div class="banner small" style="flex:1">Same order as the shelf: go top to bottom. Type 0 when there are none. Enter jumps to the next one.</div><button id="eo-pvoice" class="small">🎤 Read it out</button></div>${pg.map(([b, ps]) => `<div class="stack" style="gap:4px"><span class="label">${b} (${ps.length})</span>
           <div class="stack" style="gap:4px;max-width:560px">${ps.map(p => `<label class="row" style="gap:10px;padding:6px 10px;border:1px solid var(--line);border-radius:var(--r);flex-wrap:nowrap"><span style="flex:1;min-width:0">${esc(p.name)}</span>
-            <input data-pc="${p.id}" value="${esc(E.parts[p.id] ?? '')}" inputmode="numeric" placeholder="#" aria-label="How many ${esc(p.name)}" style="width:70px;min-height:38px;text-align:center"></label>`).join('')}</div></div>`).join('')}
+            <input data-pc="${p.id}" value="${esc(E.parts[p.id] ?? '')}" inputmode="numeric" placeholder="#" aria-label="How many ${esc(p.name)}" style="width:70px;min-height:38px;text-align:center"></label><div id="pf-${p.id}">${eodFlagHTML(E, p)}</div>`).join('')}</div></div>`).join('')}
         <div class="row" style="justify-content:space-between"><button data-eo="phones">← Phones</button><button class="primary" data-eo="bins">Next: bins →</button></div>`
-    : `<div class="grid g2"><div class="field"><label class="label" for="eo-rma">Screens in the RMA bin (defective, going back to Sentrix)</label><input id="eo-rma" inputmode="numeric" value="${esc(E.rma)}" placeholder="#"></div>
-        <div class="field"><label class="label" for="eo-ref">Screens in the refurb bin</label><input id="eo-ref" inputmode="numeric" value="${esc(E.refurb)}" placeholder="#"></div></div>
+    : `<div class="grid g2"><div class="field"><label class="label" for="eo-rma">Screens in the RMA bin (defective, going back to Sentrix)</label><input id="eo-rma" inputmode="numeric" value="${esc(E.rma)}" placeholder="#"><div id="bf-rma"></div></div>
+        <div class="field"><label class="label" for="eo-ref">Screens in the refurb bin</label><input id="eo-ref" inputmode="numeric" value="${esc(E.refurb)}" placeholder="#"><div id="bf-refurb"></div></div></div>
         <div class="field"><label class="label" for="eo-note">Note (optional)</label><textarea id="eo-note" rows="2" placeholder="Anything the manager should know">${esc(E.note)}</textarea></div>
         <div class="err" id="eo-err" role="alert"></div>
         <div class="row" style="justify-content:space-between"><button data-eo="parts">← Screens</button><button class="primary" id="eo-go" style="min-height:52px">Submit tonight's count</button></div>`}
     </div>
-    ${hist.length ? `<div class="panel stack"><h3>Past counts</h3><div class="tbl"><table><tbody>${hist.slice(0, 14).map(h => `<tr data-eh="${h.id}" style="cursor:pointer"><td>${esc(h.day)}</td><td>${esc(staffName(h.by))}</td><td>${h.off ? `<span class="pill bad">${h.off} off</span>` : '<span class="pill ok">All matched</span>'}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
+    ${hist.length ? `<div class="panel stack" id="eo-hist"><h3>Past counts</h3><div class="tbl"><table><tbody>${hist.slice(0, 14).map(h => `<tr data-eh="${h.id}" style="cursor:pointer"><td>${esc(h.day)}</td><td>${esc(staffName(h.by))}</td><td>${h.off ? `<span class="pill bad">${h.off} off</span>` : '<span class="pill ok">All matched</span>'}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
   </div>`;
   el.querySelectorAll('[data-eo]').forEach(b => b.onclick = () => { E.open = b.dataset.eo; viewEod(el); window.scrollTo(0, 0); });
   el.querySelectorAll('[data-eh]').forEach(tr => tr.onclick = () => { S.eodShow = tr.dataset.eh; viewEod(el); });
@@ -3057,10 +3105,22 @@ async function viewEod(el){
   $('#eo-all') && ($('#eo-all').onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Check all ${nP} phones?</h3><button data-close>No</button></div><p style="margin:0">Only if you physically saw every one. Missing phones are how theft gets caught.</p><button class="primary" id="ea-go">Yes, I saw all ${nP}</button>`,
     (S2, close) => S2.querySelector('#ea-go').onclick = () => { L.phones.forEach(d => E.checked.add(d.id)); close(); viewEod(el); }));
   el.querySelectorAll('[data-pc]').forEach(i => i.oninput = () => { E.parts[i.dataset.pc] = i.value.replace(/\D/g, ''); });
-  el.querySelectorAll('[data-pc]').forEach(i => i.onkeydown = e => { if (e.key === 'Enter') { const all = [...el.querySelectorAll('[data-pc]')]; const n = all[all.indexOf(i) + 1]; if (n) n.focus(); } });
+  /* check each screen as soon as it's entered: off → "count it again" (and which ticket might explain it); same number twice → kept */
+  const checkPart = i => { const p = L.parts.find(x => x.id === i.dataset.pc); const v = E.parts[p.id]; if (!p || v === undefined || v === '' || p.qty === undefined) return;
+    const n = +v, f = E.flag[p.id];
+    if (n === p.qty) delete E.flag[p.id];
+    else if (f && f.first === n) f.kept = true;
+    else E.flag[p.id] = {first: n, kept: false};
+    $('#pf-' + p.id).innerHTML = eodFlagHTML(E, p); if (E.flag[p.id] && !E.flag[p.id].kept) { i.select(); return true; } };
+  el.querySelectorAll('[data-pc]').forEach(i => { i.onchange = () => checkPart(i);
+    i.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); if (checkPart(i)) return; const all = [...el.querySelectorAll('[data-pc]')]; const n = all[all.indexOf(i) + 1]; if (n) n.focus(); } }; });
+  $('#eo-past') && ($('#eo-past').onclick = () => $('#eo-hist')?.scrollIntoView({behavior: 'smooth'}));
   $('#eo-rma') && ($('#eo-rma').oninput = e => { E.rma = e.target.value.replace(/\D/g, ''); });
   $('#eo-ref') && ($('#eo-ref').oninput = e => { E.refurb = e.target.value.replace(/\D/g, ''); });
   $('#eo-note') && ($('#eo-note').oninput = e => { E.note = e.target.value; });
+  [['rma', '#eo-rma'], ['refurb', '#eo-ref']].forEach(([k, sel]) => { const i = $(sel); if (!i) return; i.onchange = () => { const v = E[k]; if (v === '' || L[k] === undefined) return;
+    const f = E.flag['bin-' + k]; if (+v === +L[k]) delete E.flag['bin-' + k]; else if (f && f.first === +v) f.kept = true; else E.flag['bin-' + k] = {first: +v, kept: false};
+    const g = E.flag['bin-' + k]; $('#bf-' + k).innerHTML = !g ? '' : g.kept ? `<div class="small" style="color:var(--warn)">Recounted and kept at ${g.first}.</div>` : '<div class="small" style="color:var(--bad)"><b>Doesn\'t match the POS. Count the bin again</b> (same number twice keeps it).</div>'; if (g && !g.kept) i.select(); }; });
   $('#eo-go') && ($('#eo-go').onclick = () => {
     const missingParts = L.parts.filter(p => E.parts[p.id] === undefined || E.parts[p.id] === '');
     if (missingParts.length) { $('#eo-err').textContent = `${missingParts.length} screen${missingParts.length === 1 ? '' : 's'} still need a number (type 0 if there are none). First one: ${missingParts[0].name}`; return; }
@@ -4144,7 +4204,7 @@ async function viewSwappa(el){
   const sw = d => d.swappa || {price: d.listPrice, listedAt: d.updatedAt, drops: [], url: ''};
   const info = d => { const x = sw(d); const days = daysOld(x.listedAt); const last = x.drops?.[0]; const since = last ? daysOld(last.at) : days; const cost = (+d.cost || 0) + (+d.partsCost || 0);
     return {x, days, last, since, due: since >= 7, cost, margin: (x.price || 0) * 0.87 - cost}; };
-  const listedAll = all.filter(d => d.status === 'swappa'), readyAll = all.filter(d => d.status === 'tolist' && !d.transferId);
+  const listedAll = all.filter(d => d.status === 'swappa'), readyAll = all.filter(d => d.status === 'tolist' && !d.transferId && !d.swappa?.skip), skipAll = all.filter(d => d.status === 'tolist' && d.swappa?.skip);
   const shipsAll = ships.filter(x => x.status !== 'shipped');
   const listed = listedAll.filter(d => inS(d.store)).map(d => ({d, ...info(d)})).sort((a, b) => b.since - a.since);
   const ready = readyAll.filter(d => inS(d.store)).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
@@ -4171,12 +4231,19 @@ async function viewSwappa(el){
       <td class="r" style="white-space:nowrap"><button data-drop="${d.id}" ${btn}>Lower price</button> <button class="primary" data-sold="${d.id}" ${btn}>Sold</button></td></tr>`).join('') || `<tr><td colspan="9" class="muted">${listed.length ? 'Nothing in this filter.' : 'Nothing listed.'}</td></tr>`}
     </tbody></table></div>
     <p class="small muted" style="margin:0">Sorted by longest without a price drop. "Due" = 7 days with no drop. Margin in red is under $65. Margin is an estimate after about 13% Swappa and PayPal fees, before shipping.</p>`;
+  const skipped = skipAll.filter(d => inS(d.store));
+  if (W.tab === 'skip') body = `
+    <p class="muted small" style="margin:0">Devices marked as not going on Swappa (store-only, not worth listing, going to wholesale). Undo puts it back on Ready to list.</p>
+    <div class="tbl"><table><thead><tr><th>Stock #</th><th>Device</th>${W.store === 'all' ? '<th>Store</th>' : ''}<th>Why</th><th></th></tr></thead><tbody>
+    ${skipped.map(d => `<tr><td class="num">${d.stockNo}</td><td><b>${esc(d.model)}</b> <span class="muted">${esc(d.storage || '')} · ${esc(d.carrier || '')}</span></td>${W.store === 'all' ? `<td>${d.store}</td>` : ''}<td class="small">${esc(d.swappa.skipReason || '')}${d.swappa.skipBy ? ' · ' + esc(staffName(d.swappa.skipBy)) : ''}</td>
+      <td class="r"><button data-unskip="${d.id}" ${btn}>Undo</button></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Nothing marked.</td></tr>'}
+    </tbody></table></div>`;
   if (W.tab === 'ready') body = `
-    <p class="muted small" style="margin:0">Devices marked Ready to list that aren't on Swappa yet, oldest first. List it on Swappa, then enter the price here so it's tracked.</p>
+    <p class="muted small" style="margin:0">Devices marked Ready to list that aren't on Swappa yet, oldest first. List it on Swappa, then enter the price here so it's tracked. If it shouldn't go on Swappa, tap <b>Not listing</b>.</p>
     <div class="tbl"><table><thead><tr><th>Stock #</th><th>Device</th>${W.store === 'all' ? '<th>Store</th>' : ''}<th class="r">Cost</th><th>Waiting</th><th></th></tr></thead><tbody>
     ${ready.map(d => `<tr><td class="num">${d.stockNo}</td><td><b>${esc(d.model)}</b> <span class="muted">${esc(d.storage)} · ${esc(d.carrier)}</span>${d.example ? ' <span class="pill">example</span>' : ''}</td>${W.store === 'all' ? `<td>${d.store}</td>` : ''}
       <td class="r num">${money((+d.cost || 0) + (+d.partsCost || 0))}</td><td class="small"><span class="${daysOld(d.createdAt) >= 3 ? 'pill warn' : ''}">${daysOld(d.createdAt)}d</span></td>
-      <td class="r"><button class="primary" data-list="${d.id}" ${btn}>Listed it · enter price</button></td></tr>`).join('') || '<tr><td colspan="6" class="muted">Everything ready is listed.</td></tr>'}
+      <td class="r" style="white-space:nowrap"><button data-skip="${d.id}" ${btn}>Not listing</button> <button class="primary" data-list="${d.id}" ${btn}>Listed it · enter price</button></td></tr>`).join('') || '<tr><td colspan="6" class="muted">Everything ready is listed.</td></tr>'}
     </tbody></table></div>`;
   const SHIP = {pull: 'Pull and pack', label: 'Label printed', shipped: 'Shipped'};
   if (W.tab === 'ship') body = `
@@ -4188,7 +4255,7 @@ async function viewSwappa(el){
   el.innerHTML = `<div class="stack">
     <div class="row" style="justify-content:space-between"><h2>Swappa listings</h2>${storeSel}</div>
     <div class="grid ${cardStores.length > 1 ? 'g3' : ''}">${cardStores.map(card).join('')}</div>
-    <div class="statusbar" role="group" aria-label="Swappa section"><button data-swt="listed" aria-pressed="${W.tab === 'listed'}">On Swappa (${listed.length})</button><button data-swt="ready" aria-pressed="${W.tab === 'ready'}">Ready to list (${ready.length})</button><button data-swt="ship" aria-pressed="${W.tab === 'ship'}">Sold · to ship${myShips.length ? ` (${myShips.length})` : ''}</button></div>
+    <div class="statusbar" role="group" aria-label="Swappa section"><button data-swt="listed" aria-pressed="${W.tab === 'listed'}">On Swappa (${listed.length})</button><button data-swt="ready" aria-pressed="${W.tab === 'ready'}">Ready to list (${ready.length})</button><button data-swt="skip" aria-pressed="${W.tab === 'skip'}">Not listing (${skipped.length})</button><button data-swt="ship" aria-pressed="${W.tab === 'ship'}">Sold · to ship${myShips.length ? ` (${myShips.length})` : ''}</button></div>
     ${body}</div>`;
   const again = () => viewSwappa(el);
   $('#sw-store') && ($('#sw-store').value = W.store, $('#sw-store').onchange = e => { W.store = e.target.value; again(); });
@@ -4198,6 +4265,14 @@ async function viewSwappa(el){
     sheet(`<div class="row" style="justify-content:space-between"><h3>Listed on Swappa · #${d.stockNo}</h3><button data-close>Close</button></div><p class="muted small" style="margin:0">${esc(d.model)} ${esc(d.storage)} · ${esc(d.carrier)} · cost ${money((+d.cost || 0) + (+d.partsCost || 0))}</p>
       <div class="field"><label class="label" for="ls-p">Swappa price</label><input id="ls-p" inputmode="decimal"></div><div class="grid g2"><div class="field"><label class="label" for="ls-c">Swappa listing code</label><input id="ls-c" placeholder="LALV21983" autocapitalize="characters"></div><div class="field"><label class="label" for="ls-u">Listing link (optional)</label><input id="ls-u" placeholder="https://swappa.com/listing/…"></div></div><div class="err" id="ls-e" role="alert"></div><button class="primary" id="ls-go">Save listing</button>`,
       (L, close) => L.querySelector('#ls-go').onclick = async () => { try { await Store.swappaList(S.user, S.store, d.id, parseFloat(L.querySelector('#ls-p').value), L.querySelector('#ls-u').value.trim(), L.querySelector('#ls-c').value.trim().toUpperCase()); close(); toast('Listing saved'); W.tab = 'listed'; again(); } catch (e) { L.querySelector('#ls-e').textContent = e.message; } }); });
+  const SKIP_WHY = ['Store-only (sell in store)', 'Not worth listing (under $65 profit)', 'Going to wholesale / Atlas', 'Carrier locked (AT&T)', 'Other'];
+  el.querySelectorAll('[data-skip]').forEach(b => b.onclick = () => { const d = ready.find(x => x.id === b.dataset.skip);
+    sheet(`<div class="row" style="justify-content:space-between"><h3>Not listing #${d.stockNo} on Swappa</h3><button data-close>Close</button></div><p class="muted small" style="margin:0">${esc(d.model)} ${esc(d.storage || '')} · ${esc(d.carrier || '')}</p>
+      <div class="field"><label class="label" for="sk-w">Why</label><select id="sk-w">${SKIP_WHY.map(w => `<option>${w}</option>`).join('')}</select></div><div class="field"><label class="label" for="sk-n">Note (optional)</label><input id="sk-n" placeholder="Sells for about $40 on Swappa"></div>
+      <div class="err" id="sk-e" role="alert"></div><button class="primary" id="sk-go">Take it off Ready to list</button>`,
+      (L, close) => L.querySelector('#sk-go').onclick = async () => { const w = L.querySelector('#sk-w').value, n = L.querySelector('#sk-n').value.trim();
+        try { await Store.swappaSkip(S.user, S.store, d.id, n ? `${w}: ${n}` : w); close(); toast(`#${d.stockNo} moved to Not listing`); again(); } catch (e) { L.querySelector('#sk-e').textContent = e.message; } }); });
+  el.querySelectorAll('[data-unskip]').forEach(b => b.onclick = async () => { try { await Store.swappaSkip(S.user, S.store, b.dataset.unskip, null); toast('Back on Ready to list'); again(); } catch (e) { toast(e.message); } });
   el.querySelectorAll('[data-drop]').forEach(b => b.onclick = () => { const d = listedAll.find(x => x.id === b.dataset.drop);
     sheet(`<div class="row" style="justify-content:space-between"><h3>Lower price · #${d.stockNo}</h3><button data-close>Close</button></div><div class="field"><label class="label" for="dp-p">New Swappa price (now ${cents(sw(d).price)})</label><input id="dp-p" inputmode="decimal"></div><div class="err" id="dp-e" role="alert"></div><button class="primary" id="dp-go">Save new price</button>`,
       (L, close) => L.querySelector('#dp-go').onclick = async () => { try { await Store.swappaDrop(S.user, S.store, d.id, parseFloat(L.querySelector('#dp-p').value)); close(); toast('Price drop logged. Change it on Swappa too.'); again(); } catch (e) { L.querySelector('#dp-e').textContent = e.message; } }); });
@@ -5022,13 +5097,13 @@ boot();
   let ready = false;
   const safe = () => (!S.user || S.tab === 'clock' || document.hidden) && !document.querySelector('#layer .sheet');   /* on the PIN screen or in the background */
   const bar = () => { if (document.getElementById('cz-upd')) return; const b = document.createElement('div'); b.id = 'cz-upd';
-    b.style.cssText = 'position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:9999;background:#1d4ed8;color:#fff;border-radius:12px;padding:10px 14px;display:flex;gap:12px;align-items:center;box-shadow:0 6px 24px rgba(0,0,0,.25);font:600 14px system-ui,sans-serif;max-width:calc(100vw - 32px)';
-    b.innerHTML = '<span>A new version of the POS is ready.</span><button style="background:#fff;color:#1d4ed8;border:0;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer">Update now</button>';
+    b.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:9999;background:#1d4ed8;color:#fff;padding:12px 16px;display:flex;gap:14px;align-items:center;justify-content:center;box-shadow:0 6px 24px rgba(0,0,0,.25);font:700 16px system-ui,sans-serif;flex-wrap:wrap';
+    b.innerHTML = '<span>🔄 The POS was updated. Finish what you\'re doing, then tap Update.</span><button style="background:#fff;color:#1d4ed8;border:0;border-radius:8px;padding:10px 18px;font:800 16px system-ui,sans-serif;cursor:pointer">Update now</button>';
     b.querySelector('button').onclick = () => location.reload(); document.body.appendChild(b); };
   const check = async () => {
     try { if (!ready) { const t = await fetch(location.pathname + '?u=' + Date.now(), {cache: 'no-store'}).then(r => r.ok ? r.text() : ''); const m = t.match(/CZ_BUILD="(\d+)"/); if (m && m[1] !== window.CZ_BUILD) ready = true; } } catch {}
     if (ready) { if (safe()) location.reload(); else bar(); } };
-  setInterval(check, 5 * 60000); document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+  setInterval(check, 60000); document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
   setTimeout(check, 20000);
 })();
 </script>
