@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794440116";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794443930";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -1023,7 +1023,7 @@ const LiveStore = {
   async rsSyncNow(){ const {data, error} = await this.sb.functions.invoke('rs-sync', {body: {}}); if (error) throw new Error((data && data.error) || error.message); return data; },
   async saveCallSource(emp, cs){ return this.rpc('pos_save_call_source', {p_pin: this.pinFor(emp), p_number: cs.number, p_label: cs.label || '', p_paid: !!cs.paid, p_store: cs.store || '', p_delete: !!cs.delete}); },
   async ghlCall(body){ const {data, error} = await this.sb.functions.invoke('ghl', {body}); if (error) { let m = error.message; try { m = (await error.context.json()).error || m; } catch {} throw new Error(m); } if (data?.error) throw new Error(data.error); return data; },
-  async ghlThread(store, c){ if (!c?.phone) return []; const r = await this.ghlCall({action: 'thread', store, phone: c.phone, name: c.name}); return r.messages || []; },
+  async ghlThread(store, c){ if (!c?.phone) return []; const r = await this.ghlCall({action: 'thread', store, phone: c.phone, name: c.name}); if (r.notConnected) throw Object.assign(new Error(r.notConnected), {soft: true}); return r.messages || []; },
   async ghlSend(emp, store, {customer, ticketId, message}){ return this.ghlCall({action: 'send', pin: this.pinFor(emp), store, phone: customer?.phone, name: customer?.name, message, ticketId}); },
   async emailReceipt(emp, store, {email, customer, subject, html}){ return this.ghlCall({action: 'email', pin: this.pinFor(emp), store, email, phone: customer?.phone, name: customer?.name, subject, html}); },
   receiptLink(id){ return location.origin + location.pathname.replace(/[^/]*$/, '') + 'r.html#' + id; },
@@ -2330,7 +2330,7 @@ async function renderThread(box, store, c){
       const label = call ? (m.status === 'voicemail' ? 'Voicemail' : m.status === 'missed' || m.status === 'no-answer' ? 'Missed call' : `Call${m.duration ? ' · ' + Math.round(m.duration / 60) + ' min' : ''}`) : (out ? 'Text sent' : 'Text received');
       return `<div class="c ${out ? 'pub' : ''}"><div class="small muted">${label} · ${new Date(m.at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</div>${m.body ? `<div>${esc(m.body)}</div>` : ''}</div>`;
     }).join('') : '<span class="small muted">No calls or texts with this number yet.</span>';
-  } catch (e) { box.className = 'small'; box.innerHTML = `<span style="color:var(--warn)">Couldn't load GoHighLevel: ${esc(e.message)}</span>`; }
+  } catch (e) { box.className = 'small'; box.innerHTML = e.soft || /isn't connected/i.test(e.message) ? `<span class="muted">${esc(e.message)} Call and text history shows here once it is.</span>` : `<span style="color:var(--warn)">Couldn't load GoHighLevel: ${esc(e.message)}</span>`; }
 }
 S.cf = {store: 'mine'};
 async function viewCalls(el){
