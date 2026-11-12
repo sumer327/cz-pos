@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794445849";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794446094";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -3021,8 +3021,11 @@ async function viewEod(el){
   </div>`;
   el.querySelectorAll('[data-eo]').forEach(b => b.onclick = () => { E.open = b.dataset.eo; viewEod(el); window.scrollTo(0, 0); });
   el.querySelectorAll('[data-eh]').forEach(tr => tr.onclick = () => { S.eodShow = tr.dataset.eh; viewEod(el); });
-  el.querySelectorAll('[data-ph]').forEach(c => c.onchange = () => { c.checked ? E.checked.add(c.dataset.ph) : E.checked.delete(c.dataset.ph); viewEod(el); });
-  const scan = $('#eo-scan'); if (scan) { scan.focus(); scan.onkeydown = e => { if (e.key !== 'Enter') return; const v = scan.value.trim().replace(/^#/, ''); if (!v) return;
+  /* tapping a phone keeps the screen where it is (no jump back to the top) */
+  el.querySelectorAll('[data-ph]').forEach(c => c.onchange = async () => { c.checked ? E.checked.add(c.dataset.ph) : E.checked.delete(c.dataset.ph);
+    const sc = [document.scrollingElement, el, $('#main')].filter(Boolean).map(x => [x, x.scrollTop]); S.eodKeep = true;
+    await viewEod(el); sc.forEach(([x, y]) => { x.scrollTop = y; }); });
+  const scan = $('#eo-scan'); if (scan) { if (!S.eodKeep) scan.focus({preventScroll: true}); S.eodKeep = false; scan.onkeydown = e => { if (e.key !== 'Enter') return; const v = scan.value.trim().replace(/^#/, ''); if (!v) return;
     const hit = L.phones.find(d => String(d.stockNo) === v) || L.phones.find(d => d.imei && (d.imei === v || (v.length >= 4 && String(d.imei).endsWith(v))));
     if (!hit) { toast(`${v} isn't on this store's list. Is it from another store or already sold? Tell a manager.`); scan.select(); return; }
     if (E.checked.has(hit.id)) toast(`#${hit.stockNo} was already checked`); else { E.checked.add(hit.id); toast(`✓ #${hit.stockNo} ${hit.model}`); }
