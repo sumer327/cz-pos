@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794445429";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794445849";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -3111,7 +3111,7 @@ async function viewTechboard(el){
       <div class="stack" style="gap:6px;flex:1;min-width:0">
         <div class="row" style="justify-content:space-between;gap:8px"><span><a data-tk="${t.id}" style="color:var(--accent);cursor:pointer;font-weight:700">#${t.number}</a> <b>${esc(t.device || '')}</b></span>${due(t)}</div>
         <div>${esc(t.subject || '')}</div>
-        <div class="small muted">${esc((c.name || 'Walk-in').split(' ')[0])} · in ${fmtDate(t.createdAt)} ${fmtTime(t.createdAt)}${S.tbTech === 'all' ? ' · ' + esc(t.techId ? staffName(t.techId) : 'unassigned') : ''}</div>
+        <div class="small muted">${esc((c.name || 'Walk-in').split(' ')[0])}${c.phone ? ` · <a href="tel:${esc(String(c.phone).replace(/\D/g, ''))}" class="num" style="color:inherit;font-weight:600">${fmtPhone(c.phone)}</a>` : ''} · in ${fmtDate(t.createdAt)} ${fmtTime(t.createdAt)}${S.tbTech === 'all' ? ' · ' + esc(t.techId ? staffName(t.techId) : 'unassigned') : ''}</div>
         ${rf ? '<div class="banner warn small" style="padding:6px 10px">Original screen goes in the <b>refurb bin</b></div>' : ''}
         <div class="row" style="gap:6px">
           <select data-st="${t.id}" aria-label="Status" style="width:auto;min-height:36px">${TSTATUS.filter(([k]) => ['new', 'progress', 'board', 'parts', 'customer'].includes(k)).map(([k, l]) => `<option value="${k}" ${t.status === k ? 'selected' : ''}>${k === 'customer' ? 'Done · ready for pickup' : l}</option>`).join('')}</select>
