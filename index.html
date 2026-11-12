@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794446094";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794446123";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -2862,7 +2862,8 @@ const repairName = desc => String(desc || '').replace(/^.*?(Glass Repair|LCD Rep
 const phGroup = d => { const m = String(d.model || ''), c = String(d.carrier || '');
   if (!/iphone|galaxy|samsung|pixel|note|^s\d|moto|revvl/i.test(m)) return [4, 'iPads, watches & other'];
   const unl = /unlock/i.test(c) || !c;
-  if (!unl) return [3, 'Carrier phones (AT&T, T-Mobile, Verizon…)'];
+  if (!unl) { const k = /at&t|\batt\b/i.test(c) ? [3.1, 'AT&T'] : /t-?mobile/i.test(c) ? [3.2, 'T-Mobile'] : /verizon/i.test(c) ? [3.3, 'Verizon'] : /cricket/i.test(c) ? [3.4, 'Cricket'] : /metro/i.test(c) ? [3.5, 'Metro'] : /boost/i.test(c) ? [3.6, 'Boost'] : /financ|locked/i.test(c) ? [3.8, 'Carrier locked / financed'] : [3.7, c];
+    return k; }
   return /iphone/i.test(m) ? [0, 'Unlocked iPhones'] : /galaxy|samsung|note|^s\d/i.test(m) ? [1, 'Unlocked Samsung'] : [2, 'Unlocked Pixel & other']; };
 const phKey = d => { const m = String(d.model || '').toLowerCase(), g = phGroup(d)[0];
   const gb = (x => x ? (+x[1]) * (/tb/i.test(x[2]) ? 1024 : 1) : 0)(String(d.storage || m).match(/(\d+)\s*(gb|tb)/i));
