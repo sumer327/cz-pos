@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794444587";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794445282";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -2880,6 +2880,99 @@ const phKey = d => { const m = String(d.model || '').toLowerCase(), g = phGroup(
   }
   return [g, /at&t|att/i.test(d.carrier || '') ? 0 : 1, gen, sub, gb, m]; };
 const phCmp = (a, b) => { const x = phKey(a), y = phKey(b); for (let i = 0; i < x.length; i++) { if (x[i] < y[i]) return -1; if (x[i] > y[i]) return 1; } return 0; };
+/* ---------------- VOICE COUNT: read the safe / the shelf out loud, the POS matches it to the list ----------------
+   Chrome turns speech into text (webkitSpeechRecognition). We split what was heard into one item per phone / screen,
+   match each one to the list, and show the rep what matched before anything is checked. */
+const NUMW = {zero:0, one:1, won:1, two:2, too:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10, eleven:11, twelve:12, thirteen:13, fourteen:14,
+  fifteen:15, sixteen:16, seventeen:17, eighteen:18, nineteen:19, twenty:20};
+const vNorm = t => ' ' + String(t || '').toLowerCase()
+  .replace(/[()\/,.;:+&-]/g, m => m === '+' ? ' plus ' : m === '&' ? ' and ' : ' ')
+  .replace(/\b(a t and t|at and t|a t t|at t|att)\b/g, ' att ').replace(/\bt mobile\b/g, ' tmobile ')
+  .replace(/\b(\d+)\s*(?:gigs?|gigabytes?|gb)\b/g, ' $1 ').replace(/\b(?:1|one)\s*(?:tb|terabytes?|tera)\b/g, ' 1024 ')
+  .replace(/\b([a-z]+)\b/g, w => NUMW[w] !== undefined ? ' ' + NUMW[w] + ' ' : w)
+  .replace(/\bx\s*s\s*max\b/g, ' xs max ').replace(/\bx\s*s\b/g, ' xs ').replace(/\bx\s*r\b/g, ' xr ').replace(/\bs\s*e\b/g, ' se ')
+  .replace(/\bpro\s*max\b/g, ' promax ').replace(/\bx\s*o\s*7\b|\bx\s*0\s*7\b|\bxo7\b|\bx07\b|\bsoft oled\b|\bsoft\b/g, ' oled ')
+  .replace(/\ba\s*q\s*7\b|\baq7\b|\bhard oled\b|\bhard\b/g, ' aq7 ').replace(/\bin\s*cell\b/g, ' incell ')
+  .replace(/\b(s|a|note|fold|flip)\s+(\d{1,2})\b/g, '$1$2').replace(/\b(\d{1,2})\s+e\b/g, '$1e').replace(/\bgrey\b/g, 'gray')
+  .replace(/\s+/g, ' ') + ' ';
+const V_VAR = ['promax', 'mini', 'ultra', 'plus', 'pro', 'fe', 'max', 'air'], V_TYPE = ['oled', 'aq7', 'lcd', 'incell', 'digitizer'], V_GB = [16, 32, 64, 128, 256, 512, 1024];
+const V_COL = ['black', 'white', 'silver', 'gray', 'blue', 'cream', 'burgundy', 'bronze', 'gold', 'green', 'purple', 'red', 'pink'];
+/* fields of one spoken item or one list item */
+function vParse(text, item){
+  const n = vNorm(text), toks = n.trim().split(' ');
+  const gens = [], nums = []; let gb = null;
+  toks.forEach((w, i) => {
+    if (/^(s|a|note|fold|flip)\d{1,2}$/.test(w) || /^(xs|xr|x|se|\d{1,2}e)$/.test(w)) return gens.push(w);
+    if (/^\d+$/.test(w)) { const v = +w; if (V_GB.includes(v) && v >= 64) { gb = v; return; } nums.push([v, i]); }
+  });
+  if (!gens.length && nums.length) gens.push(String(nums.shift()[0]));       // first bare number = model (iPhone 13, iPad 7…)
+  else if (item && nums.length && /\b\d{1,2}\b/.test(n)) nums.forEach(([v]) => gens.push(String(v)));   // list items: every number is a model (12/12 Pro)
+  const has = w => toks.includes(w);
+  const vars = V_VAR.filter(has), variant = vars.includes('promax') ? 'promax' : vars.find(v => v !== 'max') || (vars.includes('max') ? 'max' : '');
+  const alts = item && /\//.test(text) ? [...new Set(['', ...vars])] : [variant];
+  return {gens, variant, alts, types: V_TYPE.filter(has), colors: V_COL.filter(has), gb,
+    carrier: has('unlocked') ? 'unlocked' : has('att') ? 'att' : has('tmobile') ? 'tmobile' : has('verizon') ? 'verizon' : has('cricket') ? 'cricket' : has('locked') ? 'locked' : null,
+    brand: /iphone/.test(n) ? 'iphone' : /ipad/.test(n) ? 'ipad' : /galaxy|samsung|\bs\d|note\d|\ba\d|fold|flip|xcover/.test(n) ? 'galaxy' : /pixel/.test(n) ? 'pixel' : /watch/.test(n) ? 'watch' : null,
+    count: nums.length ? nums[nums.length - 1][0] : null, stock: (n.match(/\b(5\d{4})\b/) || [])[1] || null};
+}
+/* split what was heard into one chunk per item: a new chunk starts at a brand word, "next", or a stock number */
+const vChunks = text => vNorm(text).replace(/\b(next|then)\b/g, ' | ').replace(/(?=\b(iphone|ipad|galaxy|samsung|pixel|watch|stock|number)\b)/g, ' | ').replace(/(?<!galaxy |samsung )(?=\b(?:s\d{1,2}|note\d{1,2}|a\d{1,2})\b)/g, ' | ')
+  .split('|').map(x => x.trim()).filter(x => /\d|xr|xs|se/.test(x));
+function vMatch(c, it, kind){
+  if (c.brand && it.brand && c.brand !== it.brand) return -1;
+  if (!c.gens.length || !c.gens.some(g => it.gens.includes(g))) return -1;
+  if (!it.alts.includes(c.variant)) return -1;
+  if (c.gb && it.gb && c.gb !== it.gb) return -1;
+  if (kind === 'part') { if (c.types.length && !c.types.some(t => it.types.includes(t) || (t === 'lcd' && it.types.includes('incell')))) return -1; }
+  if (c.colors.length && it.colors.length && !c.colors.some(x => it.colors.includes(x))) return -1;
+  if (c.carrier && kind === 'phone') { const ic = it.carrier || 'unlocked'; if (c.carrier === 'locked' ? ic === 'unlocked' : c.carrier !== ic) return -1; }
+  return 10 + (c.types.length ? 3 : 0) + (c.colors.length ? 2 : 0) + (c.gb ? 2 : 0) - (it.types.length && !c.types.length ? 1 : 0);
+}
+/* phones: every chunk checks one phone (unchecked ones first) */
+function vPhones(text, phones, checked){
+  const items = phones.map(d => ({d, f: Object.assign(vParse(`${d.model} ${d.storage || ''} ${d.color || ''}`, true), {carrier: /unlock/i.test(d.carrier || '') || !d.carrier ? 'unlocked' : /at&t|att/i.test(d.carrier) ? 'att' : /t-?mobile/i.test(d.carrier) ? 'tmobile' : /verizon/i.test(d.carrier) ? 'verizon' : 'locked'})}));
+  const used = new Set([...checked]), hits = [], miss = [];
+  vChunks(text).forEach(ch => { const c = vParse(ch);
+    if (c.stock) { const d = phones.find(x => String(x.stockNo) === c.stock); if (d) { hits.push({ch, d, again: used.has(d.id)}); used.add(d.id); return; } }
+    const cands = items.map(x => [x, vMatch(c, x.f, 'phone')]).filter(([, sc]) => sc >= 0).sort((a, b) => b[1] - a[1]);
+    const pick = cands.find(([x]) => !used.has(x.d.id));
+    if (pick) { used.add(pick[0].d.id); hits.push({ch, d: pick[0].d, many: cands.length > 1}); }
+    else miss.push({ch, why: cands.length ? 'already checked all of those' : 'no phone like that on the list'}); });
+  return {hits, miss};
+}
+/* screens: "iPhone 13 AQ7 three" → count 3 for that screen */
+function vParts(text, parts){
+  const items = parts.map(p => ({p, f: vParse(p.name, true)})), hits = new Map(), miss = [];
+  vChunks(text).forEach(ch => { const c = vParse(ch);
+    if (c.count === null) { if (c.gens.length > 1) c.count = +c.gens.pop(); }
+    const cands = items.map(x => [x, vMatch(c, x.f, 'part')]).filter(([, sc]) => sc >= 0).sort((a, b) => b[1] - a[1]);
+    if (!cands.length) return miss.push({ch, why: 'no screen like that on the list'});
+    if (cands.length > 1 && cands[0][1] === cands[1][1]) return miss.push({ch, why: 'could be ' + cands.slice(0, 3).map(([x]) => x.p.name).join(' or ') + ' (say the type: LCD, AQ7, OLED or incell)'});
+    const p = cands[0][0].p, n = c.count ?? 1; hits.set(p.id, {p, n: (hits.get(p.id)?.n || 0) + n, ch}); });
+  return {hits: [...hits.values()], miss};
+}
+function voiceSheet({title, tips, onText}){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  sheet(`<div class="row" style="justify-content:space-between"><h3>🎤 ${title}</h3><button data-close>Close</button></div>
+    <p class="small" style="margin:0">${tips}</p>
+    ${SR ? '' : '<div class="banner warn small">This browser can\'t listen. Use Chrome, or type / paste the list below.</div>'}
+    <div class="row" style="gap:8px">${SR ? '<button class="primary" id="vc-mic" style="min-height:52px;flex:1">🎤 Start listening</button>' : ''}</div>
+    <div class="field"><label class="label" for="vc-txt">What it heard (fix anything it got wrong)</label><textarea id="vc-txt" rows="7" placeholder="iPhone 13 128 unlocked, iPhone 12 Pro Max 256, Galaxy S23 Ultra 512…"></textarea></div>
+    <div class="small muted" id="vc-live" aria-live="polite"></div>
+    <button id="vc-go" style="min-height:48px">Match it to the list →</button>`,
+  (L, close) => {
+    const ta = L.querySelector('#vc-txt'), live = L.querySelector('#vc-live'), mic = L.querySelector('#vc-mic'); let rec = null, on = false;
+    const stop = () => { on = false; try { rec && rec.stop(); } catch {} if (mic) mic.textContent = '🎤 Start listening'; live.textContent = ''; };
+    if (mic) mic.onclick = () => { if (on) return stop();
+      rec = new SR(); rec.lang = 'en-US'; rec.continuous = true; rec.interimResults = true; on = true; mic.textContent = '⏹ Stop listening';
+      rec.onresult = e => { let fin = '', tmp = ''; for (let i = e.resultIndex; i < e.results.length; i++) (e.results[i].isFinal ? (fin += e.results[i][0].transcript + ', ') : (tmp += e.results[i][0].transcript));
+        if (fin) ta.value = (ta.value ? ta.value.replace(/\s*$/, ' ') : '') + fin.trim(); live.textContent = tmp ? 'Hearing: ' + tmp : 'Listening…'; };
+      rec.onerror = e => { live.textContent = e.error === 'not-allowed' ? 'Allow the microphone (click the 🎤 in the address bar), then try again.' : 'Mic: ' + e.error; };
+      rec.onend = () => { if (on) { try { rec.start(); } catch { stop(); } } };
+      try { rec.start(); live.textContent = 'Listening… read them out one at a time.'; } catch (e) { live.textContent = e.message; stop(); } };
+    L.querySelector('#vc-go').onclick = () => { stop(); const t = ta.value.trim(); if (!t) { live.textContent = 'Nothing heard yet.'; return; } close(); onText(t); };
+  });
+}
 async function viewEod(el){
   const today = new Date().toLocaleDateString('en-CA', {timeZone: 'America/Chicago'});
   const hist = await Store.eodCounts(S.store).catch(() => []);
@@ -2907,12 +3000,12 @@ async function viewEod(el){
         .map(([k, t, s, ok]) => `<button data-eo="${k}" style="flex-direction:column;align-items:flex-start;min-height:64px;${E.open === k ? 'border:2px solid var(--accent)' : ''}"><b>${t}</b><span class="small ${ok ? '' : 'muted'}" style="${ok ? 'color:var(--ok)' : ''}">${ok ? '✓ ' : ''}${s}</span></button>`).join('')}
     </div>
     <div class="panel stack" id="eo-body">
-    ${E.open === 'phones' ? `<div class="row" style="gap:8px"><input id="eo-scan" placeholder="Scan the phone's label, or type the stock # or last 4 of the IMEI, then Enter" style="flex:1;min-width:240px" autocomplete="off"><button id="eo-all" class="small">Check all</button></div>
+    ${E.open === 'phones' ? `<div class="row" style="gap:8px"><input id="eo-scan" placeholder="Scan the phone's label, or type the stock # or last 4 of the IMEI, then Enter" style="flex:1;min-width:240px" autocomplete="off"><button id="eo-voice" class="small">🎤 Read it out</button><button id="eo-all" class="small">Check all</button></div>
         ${SECT.map(([t, f]) => { const ds = L.phones.filter(f).sort(phCmp); let lastG = null; return ds.length ? `<div class="stack" style="gap:4px"><span class="label">${t} · ${ds.filter(d => E.checked.has(d.id)).length} of ${ds.length}</span>
           ${ds.map(d => { const g = phGroup(d)[1], head = g !== lastG ? `<div class="small muted" style="margin:6px 0 0;font-weight:700">${g}</div>` : ''; lastG = g; return head + `<label class="row" style="gap:12px;cursor:pointer;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r);flex-wrap:nowrap;${E.checked.has(d.id) ? 'background:var(--ok-soft)' : ''}"><input type="checkbox" data-ph="${d.id}" ${E.checked.has(d.id) ? 'checked' : ''} style="width:24px;height:24px;flex:none"><span style="flex:1;min-width:0">${lbl(d)}</span></label>`; }).join('')}</div>` : ''; }).join('')}
         ${nP ? '' : '<p class="muted">No phones on file for this store.</p>'}
         <button class="primary" data-eo="parts" style="align-self:flex-end">Next: screens →</button>`
-    : E.open === 'parts' ? `<div class="banner small">Same order as the shelf: go top to bottom. Type 0 when there are none. Enter jumps to the next one.</div>${pg.map(([b, ps]) => `<div class="stack" style="gap:4px"><span class="label">${b} (${ps.length})</span>
+    : E.open === 'parts' ? `<div class="row" style="gap:8px;align-items:center"><div class="banner small" style="flex:1">Same order as the shelf: go top to bottom. Type 0 when there are none. Enter jumps to the next one.</div><button id="eo-pvoice" class="small">🎤 Read it out</button></div>${pg.map(([b, ps]) => `<div class="stack" style="gap:4px"><span class="label">${b} (${ps.length})</span>
           <div class="stack" style="gap:4px;max-width:560px">${ps.map(p => `<label class="row" style="gap:10px;padding:6px 10px;border:1px solid var(--line);border-radius:var(--r);flex-wrap:nowrap"><span style="flex:1;min-width:0">${esc(p.name)}</span>
             <input data-pc="${p.id}" value="${esc(E.parts[p.id] ?? '')}" inputmode="numeric" placeholder="#" aria-label="How many ${esc(p.name)}" style="width:70px;min-height:38px;text-align:center"></label>`).join('')}</div></div>`).join('')}
         <div class="row" style="justify-content:space-between"><button data-eo="phones">← Phones</button><button class="primary" data-eo="bins">Next: bins →</button></div>`
@@ -2932,6 +3025,23 @@ async function viewEod(el){
     if (!hit) { toast(`${v} isn't on this store's list. Is it from another store or already sold? Tell a manager.`); scan.select(); return; }
     if (E.checked.has(hit.id)) toast(`#${hit.stockNo} was already checked`); else { E.checked.add(hit.id); toast(`✓ #${hit.stockNo} ${hit.model}`); }
     viewEod(el); }; }
+  const vRow = (ok, a, b) => `<div class="row" style="gap:8px;flex-wrap:nowrap;padding:6px 8px;border:1px solid var(--line);border-radius:var(--r);${ok ? 'background:var(--ok-soft)' : ''}"><span style="flex:none">${ok ? '✓' : '✗'}</span><span style="flex:1;min-width:0">${a}<div class="small muted">heard “${esc(b)}”</div></span></div>`;
+  $('#eo-voice') && ($('#eo-voice').onclick = () => voiceSheet({title: 'Read the safe out loud', tips: 'Stand at the safe and read each phone: <b>model, storage, carrier</b> (for example “iPhone 13 Pro Max 256 unlocked”, “Galaxy S23 Ultra 512”). Same phone twice? Say it twice. Or read the stock # off the label.',
+    onText: t => { const r = vPhones(t, L.phones, E.checked);
+      sheet(`<div class="row" style="justify-content:space-between"><h3>Matched ${r.hits.length} phone${r.hits.length === 1 ? '' : 's'}</h3><button data-close>Cancel</button></div>
+        <div class="stack" style="gap:4px;max-height:55vh;overflow:auto">${r.hits.map(h => vRow(true, lbl(h.d) + (h.again ? ' <span class="pill">already checked</span>' : ''), h.ch)).join('')}${r.miss.map(m => vRow(false, `<b>Didn't match</b> · ${esc(m.why)}`, m.ch)).join('')}</div>
+        ${r.miss.length ? '<p class="small muted" style="margin:0">Scan or tap the ones it didn\'t match.</p>' : ''}
+        <button class="primary" id="vm-go" ${r.hits.length ? '' : 'disabled'}>Check these ${r.hits.length}</button>`,
+        (S2, close) => S2.querySelector('#vm-go').onclick = () => { r.hits.forEach(h => E.checked.add(h.d.id)); close(); toast(`✓ ${r.hits.length} checked`); viewEod(el); }); } }));
+  $('#eo-pvoice') && ($('#eo-pvoice').onclick = () => voiceSheet({title: 'Read the screens out loud', tips: 'Go down the shelf and say each screen and how many: <b>model, type, count</b> (for example “iPhone 13 AQ7 three”, “iPhone 14 Pro OLED two”, “S22 Ultra black one”). Skip the empty ones and type 0 after.',
+    onText: t => { const r = vParts(t, L.parts);
+      sheet(`<div class="row" style="justify-content:space-between"><h3>Matched ${r.hits.length} screen${r.hits.length === 1 ? '' : 's'}</h3><button data-close>Cancel</button></div>
+        <div class="stack" style="gap:4px;max-height:55vh;overflow:auto">${r.hits.map(h => vRow(true, `${esc(h.p.name)} → <b class="num">${h.n}</b>`, h.ch)).join('')}${r.miss.map(m => vRow(false, `<b>Didn't match</b> · ${esc(m.why)}`, m.ch)).join('')}</div>
+        <label class="row small" style="gap:8px"><input type="checkbox" id="vm-zero" checked style="width:20px;height:20px"> Put 0 in every screen I didn't say</label>
+        <button class="primary" id="vm-go" ${r.hits.length ? '' : 'disabled'}>Fill in these ${r.hits.length}</button>`,
+        (S2, close) => S2.querySelector('#vm-go').onclick = () => { r.hits.forEach(h => { E.parts[h.p.id] = String(h.n); });
+          if (S2.querySelector('#vm-zero').checked) L.parts.forEach(p => { if (E.parts[p.id] === undefined || E.parts[p.id] === '') E.parts[p.id] = '0'; });
+          close(); toast(`Filled in ${r.hits.length} screens`); viewEod(el); }); } }));
   $('#eo-all') && ($('#eo-all').onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Check all ${nP} phones?</h3><button data-close>No</button></div><p style="margin:0">Only if you physically saw every one. Missing phones are how theft gets caught.</p><button class="primary" id="ea-go">Yes, I saw all ${nP}</button>`,
     (S2, close) => S2.querySelector('#ea-go').onclick = () => { L.phones.forEach(d => E.checked.add(d.id)); close(); viewEod(el); }));
   el.querySelectorAll('[data-pc]').forEach(i => i.oninput = () => { E.parts[i.dataset.pc] = i.value.replace(/\D/g, ''); });
