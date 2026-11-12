@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794509700";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794509984";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -195,6 +195,16 @@ const LINE_CATS = ['Repair','Board-level repair','Diagnostic','Water damage trea
 const TAX_RATE = 0.0825;
 /* how an invoice was paid: split payments (trade-in credit + card) or the single method */
 const payParts = i => i.payments?.length ? i.payments : [{method: i.payment, amount: i.total}];
+/* line discount (like RepairShopr's ▾ on a line): price is what they pay, orig is the regular price, discPct when it was a % */
+const discNote = l => +l.orig > +l.price ? `Originally ${cents(l.orig)}, less discount of ${cents(+l.orig - +l.price)}${l.discPct ? ` (${l.discPct}%)` : ''}` : '';
+function setLineDisc(l, amt, pct){
+  const base = +l.orig || +l.price; pct = +pct || 0; amt = +amt || 0;
+  const d = Math.round((pct > 0 ? base * pct / 100 : amt) * 100) / 100;
+  if (!(d > 0)) { l.price = base; delete l.orig; delete l.discPct; return; }
+  if (d >= base) throw new Error(`The discount can't be the whole price of "${l.desc}". Remove the line instead.`);
+  l.orig = base; l.price = Math.round((base - d) * 100) / 100; if (pct > 0) l.discPct = pct; else delete l.discPct;
+}
+const IV_OPEN = new Set();
 const isTaxable = l => typeof l.taxable === 'boolean' ? l.taxable : !['Diagnostic', 'Diagnostic credit', 'Water damage treatment'].includes(l.cat) && !/water damage/i.test(l.desc || '');
 const invTotals = inv => { const sub = Math.round(inv.lines.reduce((a, l) => a + (+l.price || 0) * (+l.qty || 1), 0) * 100) / 100; const tax = taxOf(inv.lines);
   return Object.assign(inv, {subtotal: sub, tax, total: Math.round((sub + tax) * 100) / 100}); };
@@ -1893,7 +1903,7 @@ function receiptHTML(r){
     <div>Receipt #${esc(r.number)}<span style="float:right">${new Date(r.at).toLocaleString('en-US', {month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'})}</span></div>
     ${r.customer ? `<div>Customer: ${esc(r.customer)}</div>` : ''}${r.ticket ? `<div>Ticket #${esc(r.ticket)}${r.device ? ' · ' + esc(r.device) : ''}</div>` : ''}
     <hr style="border:0;border-top:1px dashed #999;margin:10px 0">
-    ${(r.lines || []).map(l => `<div style="display:flex;justify-content:space-between;gap:10px"><span>${esc(l.desc)}</span><span style="white-space:nowrap">${cents(l.price)}</span></div>`).join('')}
+    ${(r.lines || []).map(l => `<div style="display:flex;justify-content:space-between;gap:10px"><span>${esc(l.desc)}${+l.qty > 1 ? ' × ' + l.qty : ''}</span><span style="white-space:nowrap">${+l.orig > +l.price ? `<s style="color:#777">${cents(+l.orig * (+l.qty || 1))}</s> ` : ''}${cents(+l.price * (+l.qty || 1))}</span></div>${discNote(l) ? `<div style="font-size:11px;color:#555;margin:-2px 0 2px">${esc(discNote(l))}</div>` : ''}`).join('')}
     <hr style="border:0;border-top:1px dashed #999;margin:10px 0">
     <div style="display:flex;justify-content:space-between"><span>Subtotal</span><span>${cents(sub)}</span></div>
     <div style="display:flex;justify-content:space-between"><span>Sales tax (8.25%)</span><span>${cents(tax)}</span></div>
@@ -3322,18 +3332,24 @@ async function viewInvoice(el){
         <dl class="kv"><dt>Customer</dt><dd>${c ? `<a id="iv-c" style="color:var(--accent);cursor:pointer">${esc(c.name)}</a> · <span class="num">${fmtPhone(c.phone)}</span>` : '<span class="muted">Walk-in</span>'}${open && !t ? ` <button id="iv-setc" style="min-height:30px;padding:2px 10px;margin-left:6px">${c ? 'Change' : 'Add customer'}</button>` : ''}</dd>
           ${t ? `<dt>Ticket</dt><dd><a id="iv-t" style="color:var(--accent);cursor:pointer">#${t.number}</a> · ${esc(t.device || '')} · ${esc(t.subject || '')}</dd>` : ''}</dl>
         <div class="tbl"><table><thead><tr><th>Item</th><th class="r" style="width:70px">Qty</th><th class="r" style="width:110px">Price</th><th style="width:80px;text-align:center">Taxable</th><th class="r" style="width:100px">Total</th>${open ? '<th style="width:44px"></th>' : ''}</tr></thead><tbody>
-        ${L.map((l, i) => open ? `<tr><td><input data-ld="${i}" value="${esc(l.desc)}" aria-label="Item" style="min-height:36px"><div class="small muted">${esc(l.cat || '')}${l.chargeId ? ' · from the ticket' : ''}${l.glass ? ' · lifetime warranty' : ''}</div></td>
-            <td class="r"><input data-lq="${i}" value="${l.qty}" inputmode="numeric" aria-label="Qty" style="width:60px;min-height:36px;text-align:right" ${l.cat === 'Diagnostic credit' || l.cat === 'Discount' ? 'disabled' : ''}></td>
-            <td class="r"><input data-lp="${i}" value="${(+l.price).toFixed(2)}" inputmode="decimal" aria-label="Price" style="width:100px;min-height:36px;text-align:right" ${l.cat === 'Diagnostic credit' ? 'disabled' : ''}></td>
+        ${L.map((l, i) => { const neg = l.price < 0 || ['Discount', 'Diagnostic credit'].includes(l.cat); const dOpen = IV_OPEN.has(inv.id + ':' + i); const dn = discNote(l);
+          return open ? `<tr><td><input data-ld="${i}" value="${esc(l.desc)}" aria-label="Item" style="min-height:36px"><div class="small muted">${esc(l.cat || '')}${l.chargeId ? ' · from the ticket' : ''}${l.glass ? ' · lifetime warranty' : ''}</div>${dn ? `<div class="small" style="color:var(--ok)">${esc(dn)}</div>` : ''}</td>
+            <td class="r"><input data-lq="${i}" value="${l.qty}" inputmode="numeric" aria-label="Qty" style="width:60px;min-height:36px;text-align:right" ${neg ? 'disabled' : ''}></td>
+            <td class="r">${dn ? `<div class="small muted" style="white-space:nowrap">Regular</div>` : ''}<input data-lp="${i}" value="${(+(l.orig || l.price)).toFixed(2)}" inputmode="decimal" aria-label="${dn ? 'Regular price' : 'Price'}" style="width:100px;min-height:36px;text-align:right" ${l.cat === 'Diagnostic credit' ? 'disabled' : ''}>${dn ? `<div class="small num" style="white-space:nowrap">now <b>${cents(l.price)}</b></div>` : ''}</td>
             <td style="text-align:center"><input type="checkbox" data-lt="${i}" ${isTaxable(l) ? 'checked' : ''} aria-label="Taxable" style="width:22px;height:22px"></td>
-            <td class="r num">${cents(lt(l))}</td><td class="r"><button data-lx="${i}" aria-label="Remove ${esc(l.desc)}" style="min-height:32px;padding:2px 8px">✕</button></td></tr>`
-          : `<tr><td>${esc(l.desc)}<div class="small muted">${esc(l.cat || '')}</div></td><td class="r num">${l.qty}</td><td class="r num">${cents(l.price)}</td><td style="text-align:center">${isTaxable(l) ? '✓' : '<span class="muted">no</span>'}</td><td class="r num">${cents(lt(l))}</td></tr>`).join('')
+            <td class="r num">${dn ? `<s class="muted small">${cents(+l.orig * l.qty)}</s><br>` : ''}${cents(lt(l))}</td><td class="r" style="white-space:nowrap">${neg ? '' : `<button data-dd="${i}" aria-label="Discount on ${esc(l.desc)}" aria-expanded="${dOpen}" title="Discount this item" style="min-height:32px;padding:2px 8px">${dOpen ? '▴' : '▾'}</button> `}<button data-lx="${i}" aria-label="Remove ${esc(l.desc)}" style="min-height:32px;padding:2px 8px">✕</button></td></tr>
+            ${dOpen && !neg ? `<tr><td colspan="6" style="background:var(--soft,rgba(0,0,0,.03))"><div class="row" style="gap:10px;align-items:flex-end;flex-wrap:wrap">
+              <div class="field" style="margin:0"><label class="label" for="dd-a${i}">Discount $</label><input id="dd-a${i}" data-dda="${i}" inputmode="decimal" value="${dn && !l.discPct ? (+l.orig - +l.price).toFixed(2) : ''}" placeholder="0.00" style="width:110px;min-height:36px"></div>
+              <div class="field" style="margin:0"><label class="label" for="dd-p${i}">Discount %</label><input id="dd-p${i}" data-ddp="${i}" inputmode="decimal" value="${l.discPct || ''}" placeholder="0" style="width:90px;min-height:36px"></div>
+              ${dn ? `<button data-ddx="${i}" style="min-height:36px">Remove discount</button>` : ''}
+              <span class="small muted" style="flex:1;min-width:180px">Regular price ${cents(+(l.orig || l.price))}. The receipt shows the regular price and the discount.</span></div></td></tr>` : ''}` 
+          : `<tr><td>${esc(l.desc)}<div class="small muted">${esc(l.cat || '')}</div>${dn ? `<div class="small" style="color:var(--ok)">${esc(dn)}</div>` : ''}</td><td class="r num">${l.qty}</td><td class="r num">${dn ? `<s class="muted small">${cents(l.orig)}</s><br>` : ''}${cents(l.price)}</td><td style="text-align:center">${isTaxable(l) ? '✓' : '<span class="muted">no</span>'}</td><td class="r num">${cents(lt(l))}</td></tr>`; }).join('')
           || `<tr><td colspan="6" class="muted">${inv.rsId ? 'RepairShopr didn\'t send the line items for this invoice.' : 'No items yet. Scan or search below (type "UAG", "charger", "15 pro case"…).'}</td></tr>`}
         </tbody></table></div>
         ${open ? `<div class="stack" style="gap:8px;border-top:1px solid var(--line);padding-top:10px">
           <div class="row" style="gap:6px"><input id="iv-add" placeholder="Add an item: scan or search inventory (case, charger, cable…)" style="flex:1;min-width:220px" autocomplete="off"></div>
           <div id="iv-hits"></div>
-          <div class="row" style="gap:6px"><button data-ia="regular">+ Tempered glass…</button><button data-ia="privacy">+ Privacy glass…</button><button data-ia="custom">+ Custom item</button><button data-ia="discount">+ Discount</button></div>
+          <div class="row" style="gap:6px"><button data-ia="regular">+ Tempered glass…</button><button data-ia="privacy">+ Privacy glass…</button><button data-ia="custom">+ Custom item</button><button data-ia="discount">+ Discount</button><button data-ia="diag">+ Diagnostic credit</button><button data-ia="thanks">+ $10 Customer appreciation</button></div>
         </div>` : ''}
       </div>
     </div>
@@ -3374,9 +3390,18 @@ async function viewInvoice(el){
   const save = async lines => { try { await Store.saveInvoice(S.user, S.store, inv.id, lines); await viewInvoice(el); } catch (e) { err(e.message); toast(e.message); } };
   el.querySelectorAll('[data-ld]').forEach(x => x.onchange = () => { L[+x.dataset.ld].desc = x.value; save(L); });
   el.querySelectorAll('[data-lq]').forEach(x => x.onchange = () => { L[+x.dataset.lq].qty = Math.max(1, parseInt(x.value, 10) || 1); save(L); });
-  el.querySelectorAll('[data-lp]').forEach(x => x.onchange = () => { const v = parseFloat(String(x.value).replace(/[$,]/g, '')); const l = L[+x.dataset.lp]; l.price = l.cat === 'Discount' ? -Math.abs(v || 0) : (v || 0); save(L); });
+  el.querySelectorAll('[data-lp]').forEach(x => x.onchange = () => { const v = parseFloat(String(x.value).replace(/[$,]/g, '')); const l = L[+x.dataset.lp];
+    if (l.cat === 'Discount') l.price = -Math.abs(v || 0);
+    else if (+l.orig) { const off = +l.orig - +l.price; l.orig = v || 0; l.price = v || 0; try { setLineDisc(l, off, l.discPct); } catch (e) { err(e.message); toast(e.message); return; } }
+    else l.price = v || 0; save(L); });
+  // ▾ on a line: discount just that item ($ or %), like RepairShopr
+  el.querySelectorAll('[data-dd]').forEach(b => b.onclick = () => { const k = inv.id + ':' + b.dataset.dd; IV_OPEN.has(k) ? IV_OPEN.delete(k) : IV_OPEN.add(k); viewInvoice(el); });
+  const lineDisc = (i, amt, pct) => { try { setLineDisc(L[i], amt, pct); } catch (e) { err(e.message); toast(e.message); return; } save(L); };
+  el.querySelectorAll('[data-dda]').forEach(x => x.onchange = () => lineDisc(+x.dataset.dda, parseFloat(String(x.value).replace(/[$,]/g, '')) || 0, 0));
+  el.querySelectorAll('[data-ddp]').forEach(x => x.onchange = () => lineDisc(+x.dataset.ddp, 0, parseFloat(String(x.value).replace(/[%\s]/g, '')) || 0));
+  el.querySelectorAll('[data-ddx]').forEach(b => b.onclick = () => { IV_OPEN.delete(inv.id + ':' + b.dataset.ddx); lineDisc(+b.dataset.ddx, 0, 0); });
   el.querySelectorAll('[data-lt]').forEach(x => x.onchange = () => { L[+x.dataset.lt].taxable = x.checked; save(L); });
-  el.querySelectorAll('[data-lx]').forEach(b => b.onclick = () => { const l = L[+b.dataset.lx]; L.splice(+b.dataset.lx, 1); save(L); if (l.chargeId) toast('Removed from the invoice. The charge is back on the ticket as due.'); });
+  el.querySelectorAll('[data-lx]').forEach(b => b.onclick = () => { [...IV_OPEN].filter(k => k.startsWith(inv.id + ':')).forEach(k => IV_OPEN.delete(k)); const l = L[+b.dataset.lx]; L.splice(+b.dataset.lx, 1); save(L); if (l.chargeId) toast('Removed from the invoice. The charge is back on the ticket as due.'); });
   // add from inventory
   const hits = $('#iv-hits'); let tm;
   const drawHits = async q => { if (!q.trim()) { hits.innerHTML = ''; return; }
@@ -3392,6 +3417,19 @@ async function viewInvoice(el){
   $('#iv-add').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); clearTimeout(tm); drawHits(e.target.value).then(() => { const one = hits.querySelectorAll('[data-ip]'); if (one.length === 1) one[0].click(); }); } };
   el.querySelectorAll('[data-ia]').forEach(b => b.onclick = () => { const k = b.dataset.ia;
     if (k === 'regular' || k === 'privacy') return glassPicker(k, t?.device || '', line => { L.push(line); save(L); });
+    if (k === 'thanks') { if (L.some(l => l.cat === 'Discount' && /customer appreciation/i.test(l.desc))) return toast('Customer appreciation is already on this invoice.');
+      L.push({desc: 'Customer appreciation', cat: 'Discount', price: -10, qty: 1, taxable: true}); return save(L); }
+    if (k === 'diag') { const auto = L.find(l => l.cat === 'Diagnostic credit' && l.creditId);
+      return sheet(`<div class="row" style="justify-content:space-between"><h3>Diagnostic credit</h3><button data-close>Close</button></div>
+        ${auto ? `<div class="banner warn small">This invoice already credits the diagnostic paid on the ticket (${cents(-auto.price)}). Only add another if they paid a different one.</div>` : ''}
+        <p class="small muted" style="margin:0">Takes back what they paid for the diagnostic, when they go ahead with the repair. Use this when the diagnostic was paid in RepairShopr or on another ticket.</p>
+        <div class="row" style="gap:6px">${[29, 39, 49].map(v => `<button data-dg="${v}" style="min-width:80px">$${v}</button>`).join('')}</div>
+        <div class="field"><label class="label" for="dg-o">Other amount</label><input id="dg-o" inputmode="decimal" placeholder="0.00"></div>
+        <div class="err" id="dg-e" role="alert"></div><button class="primary" id="dg-go">Add credit</button>`,
+      (S2, close) => { const add = v => { if (!(v > 0)) { S2.querySelector('#dg-e').textContent = 'Pick or enter the amount they paid.'; return; } close();
+          L.push({desc: 'Diagnostic fee credit', cat: 'Diagnostic credit', price: -Math.round(v * 100) / 100, qty: 1, taxable: false}); save(L); };
+        S2.querySelectorAll('[data-dg]').forEach(b => b.onclick = () => add(+b.dataset.dg));
+        S2.querySelector('#dg-go').onclick = () => add(parseFloat(S2.querySelector('#dg-o').value)); }); }
     if (k === 'custom') return sheet(`<div class="row" style="justify-content:space-between"><h3>Custom item</h3><button data-close>Close</button></div>
         <div class="field"><label class="label" for="ci-d">Item</label><input id="ci-d" placeholder="Water damage cleaning"></div>
         <div class="grid g2"><div class="field"><label class="label" for="ci-p">Price</label><input id="ci-p" inputmode="decimal" placeholder="0.00"></div><div class="field"><label class="label" for="ci-q">Qty</label><input id="ci-q" inputmode="numeric" value="1"></div></div>
