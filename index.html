@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794506234";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794509700";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -3521,14 +3521,14 @@ function labelHTML(dv){
   const l1 = [dv.model, dv.storage, dv.carrier].filter(Boolean).join(' - ');
   const l2 = [GRADE_LETTER[dv.cond] || '', dv.imei || ''].filter(Boolean).join(' ');
   const who = dv.by ? initials(staffName(dv.by)) : '';
-  const l3 = [md, dv.color, costCode(dv.cost), dv.battery ? 'BH ' + dv.battery + '%' : '', who, dv.bbId || ''].filter(Boolean).join(' - ');
+  const l3 = [md, dv.color, costCode((+dv.cost || 0) + (+dv.partsCost || 0)), dv.battery ? 'BH ' + dv.battery + '%' : '', who, dv.bbId || ''].filter(Boolean).join(' - ');   /* cost on the label = buy + repair parts, written backwards */
   const price = dv.listPrice || dv.swappa?.price || null;
   return {css: `@page{size:${L.w} ${L.h};margin:0}*{box-sizing:border-box}html,body{margin:0}body{width:${L.w};height:${L.h};padding:${L.pad};font:400 ${small ? 7 : 8.5}px/1.2 Arial,Helvetica,sans-serif;color:#000;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden}
     .t{display:flex;justify-content:space-between;align-items:baseline;gap:6px}.m{font-size:${small ? 8.5 : 10.5}px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.p{font-weight:800;font-size:${small ? 8.5 : 10.5}px;white-space:nowrap}
     .l{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rule{border-top:1.2px solid #000;margin:1px 0 2px}.bc{display:flex;align-items:flex-end;gap:6px}.bc svg{flex:1;height:${small ? 14 : 22}px;display:block}.sn{font-size:${small ? 7 : 8}px;font-weight:700;white-space:nowrap}`,
     body: `<div><div class="t"><span class="m">${esc(l1)}</span>${price ? `<span class="p">${cents(price)}</span>` : ''}</div>
       <div class="l">${esc(l2)}</div><div class="l">${esc(l3)}</div></div>
-      <div class="rule"></div><div class="bc">${barcodeSVG(dv.stockNo, small ? 14 : 22)}<span class="sn">#${dv.stockNo}</span></div>`};
+      <div class="rule"></div><div class="bc">${barcodeSVG(dv.stockNo, small ? 14 : 22)}<span class="sn">#${dv.stockNo}${dv.swappa?.code ? `<br><span style="font-weight:600">${esc(dv.swappa.code)}</span>` : ''}</span></div>`};
 }
 function labelSheet(dv){
   const render = L => { const h = labelHTML(dv); const sz = LABELS[labelSize()];
