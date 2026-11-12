@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794443930";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794444587";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -2857,6 +2857,29 @@ const repairName = desc => String(desc || '').replace(/^.*?(Glass Repair|LCD Rep
 /* ---------------- END-OF-DAY COUNT ----------------
    1 Phones: check off every phone that should be in the store (scan the label or tap). 2 Screens: type how many of each (blind: the
    expected number is hidden). 3 Bins: how many screens in the RMA bin and in the refurb bin. Submit → the POS shows what's off. */
+/* phone order = the (BV) Inventory Sheet → Phone Inventory: Unlocked iPhones (oldest → newest, Mini/base/Plus/Pro/Pro Max, storage),
+   Unlocked Samsung (S → Z → Note → XCover → A), Pixel/other, then carrier phones, then iPads/watches/Macs */
+const phGroup = d => { const m = String(d.model || ''), c = String(d.carrier || '');
+  if (!/iphone|galaxy|samsung|pixel|note|^s\d|moto|revvl/i.test(m)) return [4, 'iPads, watches & other'];
+  const unl = /unlock/i.test(c) || !c;
+  if (!unl) return [3, 'Carrier phones (AT&T, T-Mobile, Verizon…)'];
+  return /iphone/i.test(m) ? [0, 'Unlocked iPhones'] : /galaxy|samsung|note|^s\d/i.test(m) ? [1, 'Unlocked Samsung'] : [2, 'Unlocked Pixel & other']; };
+const phKey = d => { const m = String(d.model || '').toLowerCase(), g = phGroup(d)[0];
+  const gb = (x => x ? (+x[1]) * (/tb/i.test(x[2]) ? 1024 : 1) : 0)(String(d.storage || m).match(/(\d+)\s*(gb|tb)/i));
+  let gen = 99, sub = 2;
+  if (/iphone/.test(m)) {
+    if (/\bse\b/.test(m)) gen = /2022|3rd/.test(m) ? 13.5 : 11.5;
+    else if (/\bair\b/.test(m)) gen = 16.5;
+    else if (/\bxs\b|\bxs max\b/.test(m)) gen = 10.1; else if (/\bxr\b/.test(m)) gen = 10.2; else if (/\bx\b/.test(m)) gen = 10;
+    else { const n = m.match(/iphone\s*(\d{1,2})(e)?/); if (n) gen = +n[1] - (n[2] ? 0.1 : 0); }
+    sub = /mini/.test(m) ? 0 : /pro max|max/.test(m) ? 4 : /pro/.test(m) ? 3 : /plus/.test(m) ? 2 : 1;
+  } else if (g === 1) {
+    const fam = /\bs\d|galaxy s/.test(m) ? 0 : /\bz\b|fold|flip/.test(m) ? 1 : /note/.test(m) ? 2 : /xcover/.test(m) ? 3 : /\ba\d/.test(m) ? 4 : 5;
+    const n = +(m.match(/(?:\bs|note\s*|fold\s*|flip\s*|xcover\s*|\ba)(\d{1,3})/) || [0, 0])[1];
+    gen = fam * 1000 + n; sub = /\bfe\b/.test(m) ? 0 : /ultra/.test(m) ? 3 : /plus|\+/.test(m) ? 2 : 1;
+  }
+  return [g, /at&t|att/i.test(d.carrier || '') ? 0 : 1, gen, sub, gb, m]; };
+const phCmp = (a, b) => { const x = phKey(a), y = phKey(b); for (let i = 0; i < x.length; i++) { if (x[i] < y[i]) return -1; if (x[i] > y[i]) return 1; } return 0; };
 async function viewEod(el){
   const today = new Date().toLocaleDateString('en-CA', {timeZone: 'America/Chicago'});
   const hist = await Store.eodCounts(S.store).catch(() => []);
@@ -2869,7 +2892,7 @@ async function viewEod(el){
     S.eod = {store: S.store, day: today, list, checked: new Set(), parts: {}, rma: '', refurb: '', notes: {}, note: '', open: 'phones'};
   }
   const E = S.eod, L = E.list;
-  const SECT = [['In the store (for sale / testing)', d => ['hot', 'tolist', 'testing'].includes(d.status)], ['Listed on Swappa (still here)', d => d.status === 'swappa'], ['Repair stock', d => d.status === 'repair'], ['Wholesale (waiting to ship)', d => d.status === 'wholesale']];
+  const SECT = [['In the safe (for sale, to list, on Swappa, testing)', d => ['hot', 'tolist', 'testing', 'swappa'].includes(d.status)], ['Repair stock', d => d.status === 'repair'], ['Wholesale (waiting to ship)', d => d.status === 'wholesale']];
   /* same order as the shelf / the Parts Inventory sheet */
   const shelf = n => /ipad/i.test(n) ? 'iPad' : /iphone/i.test(n) ? (/aq7/i.test(n) ? 'iPhone AQ7' : /incell/i.test(n) ? 'iPhone Incell' : /oled|xo7|x07/i.test(n) ? 'iPhone OLED (XO7)' : 'iPhone older + LCD') : /galaxy|^s\d|note|^a\d|samsung|^z /i.test(n) ? 'Samsung' : 'Other';
   const pg = []; L.parts.slice().sort((a, b) => (a.sort ?? 9999) - (b.sort ?? 9999) || a.name.localeCompare(b.name)).forEach(p => { const k = shelf(p.name); if (!pg.length || pg[pg.length - 1][0] !== k) pg.push([k, []]); pg[pg.length - 1][1].push(p); });
@@ -2885,8 +2908,8 @@ async function viewEod(el){
     </div>
     <div class="panel stack" id="eo-body">
     ${E.open === 'phones' ? `<div class="row" style="gap:8px"><input id="eo-scan" placeholder="Scan the phone's label, or type the stock # or last 4 of the IMEI, then Enter" style="flex:1;min-width:240px" autocomplete="off"><button id="eo-all" class="small">Check all</button></div>
-        ${SECT.map(([t, f]) => { const ds = L.phones.filter(f); return ds.length ? `<div class="stack" style="gap:4px"><span class="label">${t} · ${ds.filter(d => E.checked.has(d.id)).length} of ${ds.length}</span>
-          ${ds.map(d => `<label class="row" style="gap:12px;cursor:pointer;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r);flex-wrap:nowrap;${E.checked.has(d.id) ? 'background:var(--ok-soft)' : ''}"><input type="checkbox" data-ph="${d.id}" ${E.checked.has(d.id) ? 'checked' : ''} style="width:24px;height:24px;flex:none"><span style="flex:1;min-width:0">${lbl(d)}</span></label>`).join('')}</div>` : ''; }).join('')}
+        ${SECT.map(([t, f]) => { const ds = L.phones.filter(f).sort(phCmp); let lastG = null; return ds.length ? `<div class="stack" style="gap:4px"><span class="label">${t} · ${ds.filter(d => E.checked.has(d.id)).length} of ${ds.length}</span>
+          ${ds.map(d => { const g = phGroup(d)[1], head = g !== lastG ? `<div class="small muted" style="margin:6px 0 0;font-weight:700">${g}</div>` : ''; lastG = g; return head + `<label class="row" style="gap:12px;cursor:pointer;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r);flex-wrap:nowrap;${E.checked.has(d.id) ? 'background:var(--ok-soft)' : ''}"><input type="checkbox" data-ph="${d.id}" ${E.checked.has(d.id) ? 'checked' : ''} style="width:24px;height:24px;flex:none"><span style="flex:1;min-width:0">${lbl(d)}</span></label>`; }).join('')}</div>` : ''; }).join('')}
         ${nP ? '' : '<p class="muted">No phones on file for this store.</p>'}
         <button class="primary" data-eo="parts" style="align-self:flex-end">Next: screens →</button>`
     : E.open === 'parts' ? `<div class="banner small">Same order as the shelf: go top to bottom. Type 0 when there are none. Enter jumps to the next one.</div>${pg.map(([b, ps]) => `<div class="stack" style="gap:4px"><span class="label">${b} (${ps.length})</span>
