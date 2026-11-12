@@ -159,7 +159,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794459731";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794467087";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -794,6 +794,7 @@ const DemoStore = {
   },
   /* ---------- payouts ---------- */
   async buybacksAll(){ return this.db().buybacks; },
+  async reportTickets(from, to){ return this.db().tickets.filter(t => t.status !== 'resolved' || (new Date(t.createdAt) >= from && new Date(t.createdAt) < to) || (t.resolvedAt && new Date(t.resolvedAt) >= from && new Date(t.resolvedAt) < to)); },
   async buybackLog(store){ return this.db().buybacks.filter(b => !store || b.store === store).sort((a, b) => new Date(b.at) - new Date(a.at)); },
   async markPayout(actor, id, ref){
     if (RANK[actor.role] < 3) throw new Error('Only the owner marks payouts sent.');
@@ -1054,6 +1055,9 @@ const LiveStore = {
   async newInvoice(emp, store, customerId){ const r = await this.rpc('pos_new_invoice', {p_pin: this.pinFor(emp), p_store: store, p_customer: customerId || null}); this.keep(this.cI, [r]); return r; },
   async invoiceCustomer(emp, store, id, cid){ const r = await this.rpc('pos_invoice_customer', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_customer: cid}); this.keep(this.cI, [r]); return r; },
   async buybacksAll(){ return []; },
+  async reportTickets(from, to){ const f = from.toISOString(), t = to.toISOString(), cols = 'id,number,store,device,subject,status,techId,rsTech,createdAt,resolvedAt,customerId,charges,type';
+    const [a, b, c] = await Promise.all([this.all(() => this.sb.from('tickets_v').select(cols).gte('createdAt', f).lt('createdAt', t), 20000), this.all(() => this.sb.from('tickets_v').select(cols).gte('resolvedAt', f).lt('resolvedAt', t), 20000), this.all(() => this.sb.from('tickets_v').select(cols).neq('status', 'resolved'), 20000)]);
+    const m = new Map(); [...a, ...b, ...c].forEach(x => m.set(x.id, x)); return [...m.values()]; },
   async buybackLog(store){ let q = this.sb.from('buybacks_v').select('*').order('at', {ascending: false}).limit(2000); if (store) q = q.eq('store', store); const {data, error} = await q; if (error) throw error; return data; },
   async markPayout(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
   async closeouts(){ return []; },
@@ -1435,7 +1439,7 @@ const NAV = [
   ['dashboard','Dashboard',0],['customers','Customers',0],['tickets','Tickets',0],['techboard','Tech board',0],['invoices','Invoices',0],['register','Register',0],['inbox','Inbox',0],['buyback','Buyback',0],
   ['inventory','Devices',0],['swappa','Swappa',0],['wholesale','Wholesale',0],['repairs','Repair stock',0],['parts','Parts',0],['quote','Quote',0]
 ];
-const MORE = [['eod','End-of-day count',0],['counts','Old counts',2],['transfers','Transfers',0],['closeout','Close out',0],['hours','Timesheets',2],['staff','Admin',3]];
+const MORE = [['reports','Reports',2],['eod','End-of-day count',0],['counts','Old counts',2],['transfers','Transfers',0],['closeout','Close out',0],['hours','Timesheets',2],['staff','Admin',3]];
 const ALIAS = {bblog: 'buyback', invoice: 'invoices', ticket: 'tickets', newticket: 'tickets', customer: 'customers', repair: 'repairs', calls: 'inbox'};
 /* browser Back / Forward: every screen change is a history entry; Back closes an open popup first, and never leaves the POS */
 const NAV_KEYS = ['customerId', 'ticketId', 'deviceId', 'invoiceId', 'q'];
@@ -1498,7 +1502,7 @@ async function renderShell(){
   const views = {clock: viewClock, buyback: viewBuyback, inventory: viewInventory, parts: viewParts, quote: viewQuote, swappa: viewSwappa, wholesale: viewWholesale, dashboard: viewDashboard,
     hours: viewHours, staff: viewStaff, tickets: viewTickets, ticket: viewTicket, newticket: viewNewTicket, customers: viewCustomers,
     customer: viewCustomer, search: viewSearch, invoices: viewInvoices, invoice: viewInvoice, eod: viewEod, techboard: viewTechboard, calls: viewInbox, inbox: viewInbox, repairs: viewRepairs, repair: viewRepair,
-    register: viewRegister, closeout: viewCloseout, bblog: viewBbLog, counts: viewCounts, transfers: viewTransfers};
+    register: viewRegister, closeout: viewCloseout, bblog: viewBbLog, reports: viewReports, counts: viewCounts, transfers: viewTransfers};
   try { await (views[S.tab] || viewTickets)($('#main')); } catch (e) { console.error(e); $('#main').innerHTML = `<div class="banner bad">${esc(e.message)}</div>`; }
 }
 
@@ -3542,6 +3546,202 @@ window.addEventListener('message', e => {
     Object.assign(S.bb, {appraisal: a, model: niceModel(a.model), storage: String(a.storage || '').toUpperCase().replace(/\s+/g, ''), carrier: CARRIER_NAME[a.carrierRaw] || a.carrier || '', cond: a.cond || 'used', ...(a.paid > 0 ? {paid: String(a.paid)} : {})});
     window.scrollTo(0, 0); viewBuyback($('#main')); }
 });
+/* ---------------- REPORTS (managers): how the stores did, sales detail, profit, accessories, tickets, techs, reps, buybacks, inventory ----------------
+   RepairShopr invoices arrive as totals only (no line items / costs), so item detail and profit cover sales rung up in this POS. */
+const tstLbl = k => (TSTATUS.find(x => x[0] === k) || [0, k])[1];
+const RP_TABS = [['overview', 'Store overview'], ['sales', 'Sales detail'], ['profit', 'Profit'], ['acc', 'Accessories & glass'], ['tickets', 'Tickets'], ['techs', 'Techs'], ['reps', 'Sales reps'], ['buybacks', 'Buybacks'], ['stock', 'Inventory value']];
+const RP_PER = [['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'This week'], ['7d', 'Last 7 days'], ['month', 'This month'], ['lastmonth', 'Last month'], ['custom', 'Pick dates']];
+function rpRange(per, a, b){
+  const d0 = new Date(new Date().toDateString()), add = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+  if (per === 'today') return [d0, add(d0, 1)];
+  if (per === 'yesterday') return [add(d0, -1), d0];
+  if (per === 'week') { const m = add(d0, -((d0.getDay() + 6) % 7)); return [m, add(d0, 1)]; }
+  if (per === '7d') return [add(d0, -6), add(d0, 1)];
+  if (per === 'month') return [new Date(d0.getFullYear(), d0.getMonth(), 1), add(d0, 1)];
+  if (per === 'lastmonth') return [new Date(d0.getFullYear(), d0.getMonth() - 1, 1), new Date(d0.getFullYear(), d0.getMonth(), 1)];
+  const f = a ? new Date(a + 'T00:00') : d0, t = b ? add(new Date(b + 'T00:00'), 1) : add(d0, 1); return [f, t];
+}
+const rpPct = (a, b) => b ? Math.round(a / b * 100) + '%' : '—';
+const rpCsv = (name, rows) => { const s = rows.map(r => r.map(v => { const x = String(v ?? ''); return /[",\n]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; }).join(',')).join('\n');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([s], {type: 'text/csv'})); a.download = name + '.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); };
+/* one line per sold item with its cost, so every report adds up the same way */
+function rpLines(invs, dv, pr, tk){
+  const out = [];
+  invs.forEach(i => {
+    const sub = i.subtotal ?? i.total - (i.tax || 0), ls = i.lines || [];
+    if (!ls.length) { out.push({i, cat: i.rsId ? 'RepairShopr (no detail)' : 'Other', desc: i.rsId ? 'RepairShopr invoice' : 'Sale', qty: 1, rev: +sub || 0, cost: null}); return; }
+    const t = i.ticketId ? tk[i.ticketId] : null;
+    const repairRev = ls.filter(l => !l.productId && !l.deviceId && !/accessory|glass|phone sale|discount|refund/i.test(l.cat || '')).reduce((a, l) => a + (+l.price || 0) * (+l.qty || 1), 0);
+    ls.forEach(l => {
+      const q = +l.qty || 1, rev = (+l.price || 0) * q; let cost = 0;
+      if (l.deviceId) { const d = dv[l.deviceId]; cost = d ? (+d.cost || 0) + (+d.partsCost || 0) : null; }
+      else if (/phone sale/i.test(l.cat || '')) cost = null;
+      else if (l.productId) { const p = pr[l.productId]; cost = p ? (+p.cost || 0) * q : null; }
+      else if (l.chargeId && t) { const c = (t.charges || []).find(x => x.id === l.chargeId); cost = c ? +c.partCost || 0 : 0; }
+      else if (+i.partsCost && repairRev > 0 && !/accessory|glass|phone sale|discount|refund/i.test(l.cat || '')) cost = (+i.partsCost) * rev / repairRev;
+      if (/refund/i.test(l.cat || '') && cost) cost = -Math.abs(cost);
+      out.push({i, cat: l.deviceId ? 'Phone sale' : (l.cat || 'Other'), desc: l.desc || '', qty: q, rev, cost, productId: l.productId, deviceId: l.deviceId, glass: !!l.glass || /glass/i.test(l.cat || '')});
+    });
+  });
+  return out;
+}
+async function viewReports(el){
+  if (!can(2)) { el.innerHTML = '<div class="banner bad">Reports are for managers.</div>'; return; }
+  const R = S.rp = S.rp || {tab: 'overview', per: 'today', store: S.store, a: '', b: ''};
+  const [t0, t1] = rpRange(R.per, R.a, R.b);
+  const label = R.per === 'custom' ? `${fmtDate(t0)} – ${fmtDate(new Date(t1 - 1))}` : RP_PER.find(x => x[0] === R.per)[1];
+  el.innerHTML = '<p class="muted">Building the report…</p>';
+  const [invAll, bbAll, devs, prods, tixAll, punches, parts] = await Promise.all([Store.invoices(t0, t1), Store.buybacks(t0, t1).catch(() => []), Store.devices(), Store.products().catch(() => []),
+    Store.reportTickets(t0, t1).catch(() => []), Store.punches(t0, t1).catch(() => []), Store.parts().catch(() => [])]);
+  const inStore = x => R.store === 'all' || x.store === R.store;
+  const invs = invAll.filter(i => inStore(i) && i.paid !== false), bbs = bbAll.filter(inStore);
+  const dv = Object.fromEntries(devs.map(d => [d.id, d])), pr = Object.fromEntries(prods.map(p => [p.id, p])), tk = Object.fromEntries(tixAll.map(t => [t.id, t]));
+  const lines = rpLines(invs, dv, pr, tk);
+  const stores = R.store === 'all' ? Object.keys(STORES) : [R.store];
+  const sum = (a, f) => a.reduce((s, x) => s + (+f(x) || 0), 0);
+  const head = `<div class="row" style="justify-content:space-between;gap:10px"><h2 style="margin:0">Reports</h2><div class="row" style="gap:8px">
+      <select id="rp-store" aria-label="Store" style="width:auto">${Object.entries(STORES).map(([k, v]) => `<option value="${k}" ${R.store === k ? 'selected' : ''}>${v}</option>`).join('')}<option value="all" ${R.store === 'all' ? 'selected' : ''}>All stores</option></select>
+      <button id="rp-csv" class="small">⬇ Download CSV</button></div></div>
+    <div class="statusbar" role="group" aria-label="Dates">${RP_PER.map(([k, l]) => `<button data-rper="${k}" aria-pressed="${R.per === k}">${l}</button>`).join('')}</div>
+    ${R.per === 'custom' ? `<div class="row" style="gap:8px"><input type="date" id="rp-a" value="${R.a}" style="width:auto"> to <input type="date" id="rp-b" value="${R.b}" style="width:auto"><button id="rp-go" class="small">Show</button></div>` : ''}
+    <div class="statusbar" role="group" aria-label="Report" style="flex-wrap:wrap">${RP_TABS.map(([k, l]) => `<button data-rtab="${k}" aria-pressed="${R.tab === k}">${l}</button>`).join('')}</div>
+    <div class="small muted">${label} · ${R.store === 'all' ? 'All stores' : STORES[R.store]}</div>`;
+  const kpi = (l, v, sub) => `<div class="panel" style="padding:12px"><div class="small muted">${l}</div><div style="font-size:22px;font-weight:800" class="num">${v}</div>${sub ? `<div class="small muted">${sub}</div>` : ''}</div>`;
+  const tbl = (cols, rows, foot) => `<div class="tbl"><table><thead><tr>${cols.map(c => `<th${/^\$|#|%|Qty|Hours|Count/.test(c) ? ' class="r"' : ''}>${c.replace(/^\$/, '')}</th>`).join('')}</tr></thead><tbody>${rows.join('') || `<tr><td colspan="${cols.length}" class="muted">Nothing in this range.</td></tr>`}</tbody>${foot ? `<tfoot>${foot}</tfoot>` : ''}</table></div>`;
+  const td = (v, num) => `<td${num ? ' class="r num"' : ''}>${v}</td>`;
+  let body = '', csv = [];
+  const sold = devs.filter(d => d.status === 'sold' && d.soldAt && new Date(d.soldAt) >= t0 && new Date(d.soldAt) < t1 && inStore(d));
+  const hrs = p => ((p.t_out ? new Date(p.t_out) : new Date()) - new Date(p.t_in)) / 3600000;
+
+  if (R.tab === 'overview') {
+    const per = st => { const iv = invs.filter(i => i.store === st), ln = lines.filter(l => l.i.store === st), bb = bbs.filter(b => b.store === st), pu = punches.filter(p => p.store === st);
+      const sales = sum(iv, i => i.subtotal ?? i.total - (i.tax || 0)), known = ln.filter(l => l.cost !== null && !l.i.rsId), refunds = sum(iv.filter(i => i.total < 0), i => -i.total);
+      const pays = {}; iv.forEach(i => payParts(i).forEach(p => { pays[p.method] = (pays[p.method] || 0) + (+p.amount || 0); }));
+      const tIn = tixAll.filter(t => t.store === st && new Date(t.createdAt) >= t0 && new Date(t.createdAt) < t1), tOut = tixAll.filter(t => t.store === st && t.resolvedAt && new Date(t.resolvedAt) >= t0 && new Date(t.resolvedAt) < t1);
+      const h = sum(pu, hrs);
+      return {st, iv, sales, tax: sum(iv, i => i.tax || 0), n: iv.filter(i => i.total > 0).length, refunds, posRev: sum(known, l => l.rev), posProfit: sum(known, l => l.rev - l.cost),
+        rsSales: sum(iv.filter(i => i.rsId), i => i.subtotal ?? i.total), bbN: bb.length, bbPaid: sum(bb, b => b.paid), soldN: sold.filter(d => d.store === st).length,
+        soldRev: sum(sold.filter(d => d.store === st), d => d.soldPrice), soldProfit: sum(sold.filter(d => d.store === st), d => (+d.soldPrice || 0) - (+d.cost || 0) - (+d.partsCost || 0)),
+        tIn: tIn.length, tOut: tOut.length, hours: h, pays,
+        acc: sum(ln.filter(l => /accessory|glass/i.test(l.cat)), l => l.rev)}; };
+    const P = stores.map(per), T = P.reduce((a, p) => { Object.keys(p).forEach(k => { if (typeof p[k] === 'number') a[k] = (a[k] || 0) + p[k]; }); return a; }, {});
+    body = `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px">
+        ${kpi('Sales (before tax)', cents(T.sales), `${T.n} sale${T.n === 1 ? '' : 's'} · avg ${T.n ? cents(T.sales / T.n) : '—'}`)}
+        ${kpi('Profit on POS sales', cents(T.posProfit), T.posRev ? `${rpPct(T.posProfit, T.posRev)} margin on ${cents(T.posRev)}` : 'no POS sales yet')}
+        ${kpi('Phones sold', `${T.soldN} · ${cents(T.soldRev)}`, `profit ${cents(T.soldProfit)}`)}
+        ${kpi('Buybacks', `${T.bbN} · ${cents(T.bbPaid)}`, T.bbN ? `avg ${cents(T.bbPaid / T.bbN)}` : '')}
+        ${kpi('Tickets', `${T.tIn} in · ${T.tOut} done`, '')}
+        ${kpi('Sales per labor hour', T.hours ? cents(T.sales / T.hours) : '—', `${(T.hours || 0).toFixed(1)} hrs clocked`)}
+      </div>
+      ${tbl(['Store', '$Sales', '#Sales', '$Avg sale', '$Accessories & glass', '$Refunds', '$Tax', '$POS profit', '#Phones sold', '$Phone profit', '#Buybacks', '$Paid out', '#Tickets in', '#Tickets done', 'Hours', '$Sales / hr'],
+        P.map(p => `<tr>${td('<b>' + STORES[p.st] + '</b>')}${td(cents(p.sales), 1)}${td(p.n, 1)}${td(p.n ? cents(p.sales / p.n) : '—', 1)}${td(cents(p.acc), 1)}${td(p.refunds ? cents(p.refunds) : '—', 1)}${td(cents(p.tax), 1)}${td(p.posRev ? cents(p.posProfit) : '—', 1)}${td(p.soldN, 1)}${td(cents(p.soldProfit), 1)}${td(p.bbN, 1)}${td(cents(p.bbPaid), 1)}${td(p.tIn, 1)}${td(p.tOut, 1)}${td(p.hours.toFixed(1), 1)}${td(p.hours ? cents(p.sales / p.hours) : '—', 1)}</tr>`),
+        stores.length > 1 ? `<tr>${td('<b>Total</b>')}${td('<b>' + cents(T.sales) + '</b>', 1)}${td(T.n, 1)}${td(T.n ? cents(T.sales / T.n) : '—', 1)}${td(cents(T.acc), 1)}${td(T.refunds ? cents(T.refunds) : '—', 1)}${td(cents(T.tax), 1)}${td(cents(T.posProfit), 1)}${td(T.soldN, 1)}${td(cents(T.soldProfit), 1)}${td(T.bbN, 1)}${td(cents(T.bbPaid), 1)}${td(T.tIn, 1)}${td(T.tOut, 1)}${td(T.hours.toFixed(1), 1)}${td(T.hours ? cents(T.sales / T.hours) : '—', 1)}</tr>` : '')}
+      <h3 style="margin:8px 0 0">How they paid</h3>
+      ${tbl(['Store', ...[...new Set(P.flatMap(p => Object.keys(p.pays)))].map(m => '$' + m)], P.map(p => `<tr>${td(STORES[p.st])}${[...new Set(P.flatMap(q => Object.keys(q.pays)))].map(m => td(p.pays[m] ? cents(p.pays[m]) : '—', 1)).join('')}</tr>`))}
+      ${T.rsSales ? `<div class="banner small">${cents(T.rsSales)} of these sales were rung up in RepairShopr, which only sends totals. Item detail and profit cover sales rung up in this POS.</div>` : ''}`;
+    csv = [['Store', 'Sales', 'Sales count', 'Accessories & glass', 'Refunds', 'Tax', 'POS profit', 'Phones sold', 'Phone profit', 'Buybacks', 'Paid out', 'Tickets in', 'Tickets done', 'Hours'],
+      ...P.map(p => [STORES[p.st], p.sales.toFixed(2), p.n, p.acc.toFixed(2), p.refunds.toFixed(2), p.tax.toFixed(2), p.posProfit.toFixed(2), p.soldN, p.soldProfit.toFixed(2), p.bbN, p.bbPaid.toFixed(2), p.tIn, p.tOut, p.hours.toFixed(1)])];
+  }
+
+  if (R.tab === 'sales') {
+    const rows = lines.slice().sort((a, b) => new Date(b.i.at) - new Date(a.i.at));
+    body = tbl(['Date', 'Store', 'Invoice', 'Category', 'Item', '#Qty', '$Price', '$Cost', '$Profit', 'Rep', 'Paid with'], rows.slice(0, 1500).map(l => `<tr data-rinv="${l.i.id}" style="cursor:pointer">${td(`${fmtDate(l.i.at)}${l.i.rsId ? '' : ' ' + fmtTime(l.i.at)}`)}${td(l.i.store)}${td('#' + l.i.number, 0)}${td(esc(l.cat))}${td(esc(l.desc).slice(0, 80))}${td(l.qty, 1)}${td(cents(l.rev), 1)}${td(l.cost === null ? '—' : cents(l.cost), 1)}${td(l.cost === null ? '—' : cents(l.rev - l.cost), 1)}${td(esc(l.i.by ? staffName(l.i.by) : 'RepairShopr'))}${td(esc(l.i.payment || ''))}</tr>`),
+      `<tr>${td('<b>Total</b>')}${td('')}${td('')}${td('')}${td('')}${td(sum(rows, l => l.qty), 1)}${td('<b>' + cents(sum(rows, l => l.rev)) + '</b>', 1)}${td(cents(sum(rows.filter(l => l.cost !== null), l => l.cost)), 1)}${td(cents(sum(rows.filter(l => l.cost !== null), l => l.rev - l.cost)), 1)}${td('')}${td('')}</tr>`)
+      + (rows.length > 1500 ? '<p class="small muted">Showing the newest 1,500 lines. The CSV has all of them.</p>' : '');
+    csv = [['Date', 'Store', 'Invoice', 'Category', 'Item', 'Qty', 'Price', 'Cost', 'Profit', 'Rep', 'Paid with'], ...rows.map(l => [new Date(l.i.at).toLocaleString('en-US'), l.i.store, l.i.number, l.cat, l.desc, l.qty, l.rev.toFixed(2), l.cost === null ? '' : l.cost.toFixed(2), l.cost === null ? '' : (l.rev - l.cost).toFixed(2), l.i.by ? staffName(l.i.by) : 'RepairShopr', l.i.payment || ''])];
+  }
+
+  if (R.tab === 'profit') {
+    const g = {}; lines.forEach(l => { const k = l.cat; g[k] = g[k] || {k, n: 0, rev: 0, cost: 0, unk: 0}; g[k].n += l.qty; g[k].rev += l.rev; if (l.cost === null) g[k].unk += l.rev; else g[k].cost += l.cost; });
+    const rows = Object.values(g).sort((a, b) => b.rev - a.rev), known = rows.filter(r => !/no detail/.test(r.k));
+    const tr = sum(known, r => r.rev - r.unk), tc = sum(known, r => r.cost);
+    body = `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px">${kpi('Revenue with known cost', cents(tr))}${kpi('Cost', cents(tc))}${kpi('Gross profit', cents(tr - tc), rpPct(tr - tc, tr) + ' margin')}${kpi('Phones sold (by sold date)', cents(sum(sold, d => (+d.soldPrice || 0) - (+d.cost || 0) - (+d.partsCost || 0))), `${sold.length} phone${sold.length === 1 ? '' : 's'} · ${cents(sum(sold, d => d.soldPrice))} revenue`)}</div>
+      ${tbl(['Category', '#Qty', '$Revenue', '$Cost', '$Profit', '%Margin'], rows.map(r => `<tr>${td('<b>' + esc(r.k) + '</b>')}${td(r.n, 1)}${td(cents(r.rev), 1)}${td(r.unk === r.rev ? '—' : cents(r.cost), 1)}${td(r.unk === r.rev ? '—' : cents(r.rev - r.unk - r.cost), 1)}${td(r.unk === r.rev ? '—' : rpPct(r.rev - r.unk - r.cost, r.rev - r.unk), 1)}</tr>`))}
+      <p class="small muted" style="margin:0">Repair cost = the parts pulled on the charge. Accessory cost = the product's cost in Products. Phone cost = buy price + repair parts. Phones sold on Swappa show under "Phones sold" by the date they sold.</p>`;
+    csv = [['Category', 'Qty', 'Revenue', 'Cost', 'Profit'], ...rows.map(r => [r.k, r.n, r.rev.toFixed(2), r.unk === r.rev ? '' : r.cost.toFixed(2), r.unk === r.rev ? '' : (r.rev - r.unk - r.cost).toFixed(2)])];
+  }
+
+  if (R.tab === 'acc') {
+    const al = lines.filter(l => /accessory|glass/i.test(l.cat) || l.productId);
+    const g = {}; al.forEach(l => { const k = l.productId && pr[l.productId] ? pr[l.productId].name : l.desc; g[k] = g[k] || {k, cat: l.cat, n: 0, rev: 0, cost: 0}; g[k].n += l.qty; g[k].rev += l.rev; g[k].cost += l.cost || 0; });
+    const byRep = {}; al.forEach(l => { const k = l.i.by ? staffName(l.i.by) : 'RepairShopr'; byRep[k] = byRep[k] || {n: 0, rev: 0}; byRep[k].n += l.qty; byRep[k].rev += l.rev; });
+    const repInv = invs.filter(i => !i.rsId && (i.lines || []).some(l => !/accessory|glass|phone sale|discount|refund/i.test(l.cat || '') && !l.productId && !l.deviceId));
+    const withGlass = repInv.filter(i => (i.lines || []).some(l => l.glass || /glass/i.test(l.cat || ''))).length;
+    body = `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px">${kpi('Accessories & glass sold', `${sum(al, l => l.qty)} · ${cents(sum(al, l => l.rev))}`, `profit ${cents(sum(al, l => l.rev - (l.cost || 0)))}`)}${kpi('Glass add-on rate', rpPct(withGlass, repInv.length), `${withGlass} of ${repInv.length} repair sales had glass`)}</div>
+      <h3 style="margin:8px 0 0">By item</h3>${tbl(['Item', 'Category', '#Qty', '$Revenue', '$Cost', '$Profit'], Object.values(g).sort((a, b) => b.rev - a.rev).map(r => `<tr>${td(esc(r.k))}${td(esc(r.cat))}${td(r.n, 1)}${td(cents(r.rev), 1)}${td(cents(r.cost), 1)}${td(cents(r.rev - r.cost), 1)}</tr>`))}
+      <h3 style="margin:8px 0 0">By sales rep</h3>${tbl(['Rep', '#Qty', '$Revenue'], Object.entries(byRep).sort((a, b) => b[1].rev - a[1].rev).map(([k, r]) => `<tr>${td(esc(k))}${td(r.n, 1)}${td(cents(r.rev), 1)}</tr>`))}`;
+    csv = [['Item', 'Category', 'Qty', 'Revenue', 'Cost', 'Profit'], ...Object.values(g).map(r => [r.k, r.cat, r.n, r.rev.toFixed(2), r.cost.toFixed(2), (r.rev - r.cost).toFixed(2)])];
+  }
+
+  if (R.tab === 'tickets') {
+    const ts = tixAll.filter(inStore);
+    const tin = ts.filter(t => new Date(t.createdAt) >= t0 && new Date(t.createdAt) < t1), tout = ts.filter(t => t.resolvedAt && new Date(t.resolvedAt) >= t0 && new Date(t.resolvedAt) < t1);
+    const open = ts.filter(t => t.status !== 'resolved'), age = t => (Date.now() - new Date(t.createdAt)) / 86400000;
+    const turn = tout.filter(t => t.createdAt).map(t => (new Date(t.resolvedAt) - new Date(t.createdAt)) / 86400000);
+    const bucket = [['0–2 days', 0, 2], ['3–7 days', 2, 7], ['8–14 days', 7, 14], ['15–30 days', 14, 30], ['30+ days', 30, 1e9]];
+    const byStatus = {}; open.forEach(t => { byStatus[t.status] = (byStatus[t.status] || 0) + 1; });
+    body = `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px">${kpi('Checked in', tin.length)}${kpi('Finished', tout.length)}${kpi('Avg time to finish', turn.length ? (turn.reduce((a, b) => a + b, 0) / turn.length).toFixed(1) + ' days' : '—', turn.length ? 'median ' + turn.sort((a, b) => a - b)[Math.floor(turn.length / 2)].toFixed(1) + ' days' : '')}${kpi('Open right now', open.length, `${open.filter(t => t.status === 'parts').length} waiting on parts`)}</div>
+      <h3 style="margin:8px 0 0">Open tickets by age</h3>${tbl(['Age', '#Count'], bucket.map(([l, a, b]) => `<tr>${td(l)}${td(open.filter(t => age(t) >= a && age(t) < b).length, 1)}</tr>`))}
+      <h3 style="margin:8px 0 0">Open tickets by status</h3>${tbl(['Status', '#Count'], Object.entries(byStatus).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<tr>${td(tstLbl(k))}${td(n, 1)}</tr>`))}
+      <h3 style="margin:8px 0 0">Oldest open tickets</h3>${tbl(['Ticket', 'Store', 'Device / issue', 'Status', 'Tech', '#Days open'], open.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)).slice(0, 25).map(t => `<tr data-rtk="${t.id}" style="cursor:pointer">${td('#' + t.number)}${td(t.store)}${td(esc([t.device, t.subject].filter(Boolean).join(' · ')).slice(0, 70))}${td(tstLbl(t.status))}${td(esc(t.techId ? staffName(t.techId) : t.rsTech || '—'))}${td(Math.floor(age(t)), 1)}</tr>`))}`;
+    csv = [['Ticket', 'Store', 'Device', 'Issue', 'Status', 'Tech', 'Created', 'Finished'], ...ts.map(t => [t.number, t.store, t.device || '', t.subject || '', t.status, t.techId ? staffName(t.techId) : t.rsTech || '', t.createdAt || '', t.resolvedAt || ''])];
+  }
+
+  if (R.tab === 'techs') {
+    const done = tixAll.filter(t => inStore(t) && t.resolvedAt && new Date(t.resolvedAt) >= t0 && new Date(t.resolvedAt) < t1);
+    const who = t => t.techId ? staffName(t.techId) : (t.rsTech || 'Unassigned');
+    const revOf = t => sum(invs.filter(i => i.ticketId === t.id && i.total > 0), i => i.subtotal ?? i.total);
+    const by = {}; done.forEach(t => { const k = who(t); (by[k] = by[k] || []).push(t); });
+    const days = [...new Set(done.map(t => new Date(t.resolvedAt).toDateString()))].sort((a, b) => new Date(b) - new Date(a));
+    body = tbl(['Tech', '#Finished', '$Billed on those tickets', '#Per day'], Object.entries(by).sort((a, b) => b[1].length - a[1].length).map(([k, ts]) => `<tr>${td('<b>' + esc(k) + '</b>')}${td(ts.length, 1)}${td(cents(sum(ts, revOf)), 1)}${td((ts.length / Math.max(1, days.length)).toFixed(1), 1)}</tr>`))
+      + days.map(dy => { const dt = done.filter(t => new Date(t.resolvedAt).toDateString() === dy); const g = {}; dt.forEach(t => { (g[who(t)] = g[who(t)] || []).push(t); });
+        return `<h3 style="margin:10px 0 0">${new Date(dy).toLocaleDateString('en-US', {weekday: 'long', month: 'short', day: 'numeric'})} · ${dt.length} finished</h3>` + Object.entries(g).map(([k, ts]) => `<div class="panel" style="padding:10px"><b>${esc(k)}</b> · ${ts.length}<div class="small" style="margin-top:4px">${ts.map(t => `<a data-rtk="${t.id}" style="cursor:pointer;color:var(--accent)">#${t.number}</a> ${esc([t.device, t.subject].filter(Boolean).join(' · ')).slice(0, 80)} <span class="muted">(${t.store})</span>`).join('<br>')}</div></div>`).join(''); }).join('');
+    csv = [['Finished', 'Tech', 'Ticket', 'Store', 'Device', 'Issue', 'Billed'], ...done.map(t => [new Date(t.resolvedAt).toLocaleString('en-US'), who(t), t.number, t.store, t.device || '', t.subject || '', revOf(t).toFixed(2)])];
+  }
+
+  if (R.tab === 'reps') {
+    const pos = invs.filter(i => !i.rsId && i.by); const g = {};
+    pos.forEach(i => { const k = staffName(i.by); const r = g[k] = g[k] || {n: 0, sales: 0, acc: 0, glass: 0, rep: 0, bb: 0, bbPaid: 0, over: 0};
+      if (i.total > 0) r.n++; r.sales += i.subtotal ?? i.total; const ls = i.lines || [];
+      r.acc += ls.filter(l => /accessory|glass/i.test(l.cat || '') || l.productId).reduce((a, l) => a + (+l.price || 0) * (+l.qty || 1), 0);
+      const isRep = ls.some(l => !/accessory|glass|phone sale|discount|refund/i.test(l.cat || '') && !l.productId && !l.deviceId); if (isRep) { r.rep++; if (ls.some(l => l.glass || /glass/i.test(l.cat || ''))) r.glass++; } });
+    bbs.forEach(b => { const k = staffName(b.by); const r = g[k] = g[k] || {n: 0, sales: 0, acc: 0, glass: 0, rep: 0, bb: 0, bbPaid: 0, over: 0}; r.bb++; r.bbPaid += +b.paid || 0; if (b.max && b.paid > b.max) r.over++; });
+    body = tbl(['Rep', '#Sales', '$Sales', '$Avg sale', '$Accessories & glass', '%Glass add-on', '#Buybacks', '$Paid out', '#Over max'], Object.entries(g).sort((a, b) => b[1].sales - a[1].sales).map(([k, r]) => `<tr>${td('<b>' + esc(k) + '</b>')}${td(r.n, 1)}${td(cents(r.sales), 1)}${td(r.n ? cents(r.sales / r.n) : '—', 1)}${td(cents(r.acc), 1)}${td(rpPct(r.glass, r.rep), 1)}${td(r.bb, 1)}${td(cents(r.bbPaid), 1)}${td(r.over || '—', 1)}</tr>`))
+      + '<p class="small muted" style="margin:0">Counts sales rung up in this POS (RepairShopr doesn\'t send who rang it up). Glass add-on = repair sales that also had tempered glass.</p>';
+    csv = [['Rep', 'Sales', 'Sales $', 'Accessories $', 'Glass add-on %', 'Buybacks', 'Paid out', 'Over max'], ...Object.entries(g).map(([k, r]) => [k, r.n, r.sales.toFixed(2), r.acc.toFixed(2), r.rep ? Math.round(r.glass / r.rep * 100) : '', r.bb, r.bbPaid.toFixed(2), r.over])];
+  }
+
+  if (R.tab === 'buybacks') {
+    const grp = f => { const g = {}; bbs.forEach(b => { const k = f(b) || '—'; g[k] = g[k] || {n: 0, paid: 0, max: 0}; g[k].n++; g[k].paid += +b.paid || 0; g[k].max += +b.max || 0; }); return Object.entries(g).sort((a, b) => b[1].n - a[1].n); };
+    const t3 = (title, f) => `<h3 style="margin:8px 0 0">${title}</h3>` + tbl([title.replace(/^By /, ''), '#Count', '$Paid', '$Avg', '%Of max'], grp(f).map(([k, r]) => `<tr>${td(esc(k))}${td(r.n, 1)}${td(cents(r.paid), 1)}${td(cents(r.paid / r.n), 1)}${td(rpPct(r.paid, r.max), 1)}</tr>`));
+    const model = b => { const d = dv[b.deviceId]; return d ? [d.model, d.storage].filter(Boolean).join(' ') : ''; };
+    body = `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px">${kpi('Buybacks', bbs.length)}${kpi('Paid out', cents(sum(bbs, b => b.paid)))}${kpi('Avg paid vs max', rpPct(sum(bbs, b => b.paid), sum(bbs, b => b.max)), 'lower = better deals')}</div>
+      ${t3('By how they heard about us', b => b.seller?.heardFrom)}${t3('By rep', b => staffName(b.by))}${t3('By payout', b => b.payout)}${t3('By model', model)}`;
+    csv = [['Date', 'Store', 'Receipt', 'Device', 'Paid', 'Max', 'Payout', 'Heard from', 'Rep'], ...bbs.map(b => [new Date(b.at).toLocaleString('en-US'), b.store, b.store + b.receiptNo, model(b), b.paid, b.max || '', b.payout, b.seller?.heardFrom || '', staffName(b.by)])];
+  }
+
+  if (R.tab === 'stock') {
+    const live = devs.filter(d => !['sold', 'atlas'].includes(d.status) && (R.store === 'all' || d.store === R.store));
+    const g = {}; live.forEach(d => { const k = d.status; g[k] = g[k] || {n: 0, cost: 0, list: 0, noPrice: 0}; g[k].n++; g[k].cost += (+d.cost || 0) + (+d.partsCost || 0); const lp = +d.listPrice || +d.swappa?.price || 0; g[k].list += lp; if (!lp) g[k].noPrice++; });
+    const pv = stores.map(st => [st, sum(parts, p => (+p.qty?.[st] || 0) * (+p.cost || 0)), sum(parts, p => +p.qty?.[st] || 0)]);
+    const oldest = live.slice().sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)).slice(0, 15);
+    body = `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px">${kpi('Phones & devices on hand', live.length, `cost ${cents(sum(Object.values(g), r => r.cost))}`)}${kpi('Screens & parts on hand', sum(pv, x => x[2]), `cost ${cents(sum(pv, x => x[1]))}`)}</div>
+      ${tbl(['Status', '#Count', '$Cost (buy + parts)', '$At list price', '#No price yet'], Object.entries(g).map(([k, r]) => `<tr>${td(STATUS_LABEL[k] || k)}${td(r.n, 1)}${td(cents(r.cost), 1)}${td(cents(r.list), 1)}${td(r.noPrice || '—', 1)}</tr>`))}
+      <h3 style="margin:8px 0 0">Sitting the longest</h3>${tbl(['Stock #', 'Device', 'Status', 'Store', '#Days', '$Cost'], oldest.map(d => `<tr data-rdv="${d.id}" style="cursor:pointer">${td('#' + d.stockNo)}${td(esc([d.model, d.storage, d.carrier].filter(Boolean).join(' ')))}${td(STATUS_LABEL[d.status] || d.status)}${td(d.store)}${td(Math.floor((Date.now() - new Date(d.createdAt)) / 86400000), 1)}${td(cents((+d.cost || 0) + (+d.partsCost || 0)), 1)}</tr>`))}`;
+    csv = [['Stock #', 'Device', 'Storage', 'Carrier', 'Status', 'Store', 'Cost', 'Parts', 'List price', 'Added'], ...live.map(d => [d.stockNo, d.model, d.storage || '', d.carrier || '', d.status, d.store, d.cost || 0, d.partsCost || 0, d.listPrice || '', d.createdAt])];
+  }
+
+  el.innerHTML = `<div class="stack">${head}${body}</div>`;
+  el.querySelectorAll('[data-rper]').forEach(b => b.onclick = () => { R.per = b.dataset.rper; viewReports(el); });
+  el.querySelectorAll('[data-rtab]').forEach(b => b.onclick = () => { R.tab = b.dataset.rtab; viewReports(el); });
+  $('#rp-store').onchange = e => { R.store = e.target.value; viewReports(el); };
+  $('#rp-go') && ($('#rp-go').onclick = () => { R.a = $('#rp-a').value; R.b = $('#rp-b').value; viewReports(el); });
+  $('#rp-csv').onclick = () => rpCsv(`cz-${R.tab}-${R.store}-${dayKey(t0)}`, csv);
+  el.querySelectorAll('[data-rinv]').forEach(tr => tr.onclick = () => go('invoice', {invoiceId: tr.dataset.rinv}));
+  el.querySelectorAll('[data-rtk]').forEach(a => a.onclick = () => go('ticket', {ticketId: a.dataset.rtk}));
+  el.querySelectorAll('[data-rdv]').forEach(tr => tr.onclick = () => { const d = dv[tr.dataset.rdv]; if (d) deviceSheet(d, () => viewReports(el)); });
+}
+
 /* ---------------- BUYBACK LOG: every buy at this store and where the device is now ---------------- */
 const lockOf = c => { const t = String(c || ''); return /lock.*financ/i.test(t) ? 'Locked / financed' : /financ/i.test(t) ? 'Financed' : /unlock/i.test(t) ? 'Unlocked' : /wi-?fi|gps|cellular/i.test(t) || !t ? '—' : 'Locked'; };
 const BBL_STATUS = [['all', 'All'], ['here', 'Still here'], ['repair', 'Repair stock'], ['swappa', 'On Swappa'], ['atlas', 'Atlas / wholesale'], ['sold', 'Sold']];
@@ -4761,7 +4961,7 @@ async function callSourcesPanel(box){
 async function viewStaff(el){
   S.staff = await Store.employees();
   const set = await Store.settings();
-  el.innerHTML = `<div class="stack">${Store.mode !== 'demo' && can(3) ? '<div id="rsi-box"></div>' : ''}${can(3) ? '<div id="cs-box"></div>' : ''}
+  el.innerHTML = `<div class="stack"><div class="panel row" style="justify-content:space-between;gap:10px"><div><h2 style="margin:0">Reports</h2><div class="small muted">How each store did today, sales detail, profit, accessories, tickets, techs, reps, buybacks, inventory value.</div></div><button class="primary" onclick="go('reports')">Open reports →</button></div>${Store.mode !== 'demo' && can(3) ? '<div id="rsi-box"></div>' : ''}${can(3) ? '<div id="cs-box"></div>' : ''}
     <div class="panel stack"><h2>Settings</h2>
       <div class="grid g2">
         <div class="field"><label class="label" for="st-link">Google review link</label><input id="st-link" value="${esc(set.reviewLink)}"></div>
