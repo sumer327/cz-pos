@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794592714";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794593718";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -448,6 +448,9 @@ const DemoStore = {
     if (patch.status && patch.status !== 'repair') { row.repairStatus = null; this.log(d, emp.id, store, 'Repair done', `#${row.stockNo} ${row.model} → ${STATUS_LABEL[patch.status]} · parts ${money(row.partsCost)}`); }
     this.save(d); return row;
   },
+  async deviceEdit(emp, store, id, patch){ const d = this.db(); const row = d.devices.find(v => v.id === id); if ('model' in patch && !String(patch.model).trim()) throw new Error('The device needs a model name.');
+    const m = {...patch}; if ('bbRef' in m) { row.bbId = m.bbRef ? String(m.bbRef).toUpperCase() : (row.buybackId ? row.bbId : null); delete m.bbRef; } if ('battery' in m) m.battery = m.battery === '' ? null : +m.battery; if ('cost' in m) m.cost = +m.cost;
+    Object.assign(row, m); (row.log = row.log || []).unshift({at: now(), who: emp.id, text: 'Details edited'}); row.updatedAt = now(); this.save(d); return row; },
   async deviceExtra(emp, store, id, x){ const d = this.db(); const row = d.devices.find(v => v.id === id); row.partsUsed = row.partsUsed || []; row.log = row.log || [];
     if (['sold', 'atlas'].includes(row.status)) throw new Error('That device is already sold.');
     if (x.part) { const nm = String(x.part.name || '').trim(), c = Math.round((+x.part.cost || 0) * 100) / 100; if (!nm) throw new Error('Name the part.'); if (!(c > 0)) throw new Error('Enter what the part cost us.');
@@ -1012,6 +1015,7 @@ const LiveStore = {
   async announcements(){ const {data, error} = await this.sb.from('announcements_v').select('*').order('pinned', {ascending: false}).order('at', {ascending: false}).limit(50); if (error) return []; return data; },
   async announce(emp, a){ return this.rpc('pos_announce', {p_pin: this.pinFor(emp), p_text: a.text, p_stores: a.stores?.length ? a.stores : null, p_pinned: !!a.pinned, p_days: a.days || 0}); },
   async removeAnnouncement(emp, id){ return this.rpc('pos_announce_remove', {p_pin: this.pinFor(emp), p_id: id}); },
+  async deviceEdit(emp, store, id, patch){ return this.rpc('pos_device_edit', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_patch: patch}); },
   async deviceExtra(emp, store, id, x){ return this.rpc('pos_device_extra', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_x: x}); },
   async deviceUsePart(emp, store, id, partId){ return this.rpc('pos_device_part', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_part: partId}); },
   async partOrders(){ const {data, error} = await this.sb.from('part_orders_v').select('*').order('createdAt', {ascending: false}).limit(500); if (error) throw error; return data; },
@@ -4361,12 +4365,12 @@ async function viewRepair(el){
         <h2>${esc(d.model)} ${esc(d.storage)}</h2>
         <dl class="kv"><dt>Carrier</dt><dd>${esc(d.carrier)}${d.color ? ' · ' + esc(d.color) : ''}</dd><dt>IMEI</dt><dd class="mono">${esc(d.imei || '—')}</dd>
           <dt>Grade</dt><dd>${esc((CONDS.find(c => c[0] === d.cond) || [,''])[1])}${d.battery ? ' · battery ' + d.battery + '%' : ''}</dd>
-          <dt>Bought</dt><dd>${fmtDate(d.createdAt)} · ${STORES[d.store]} · ${esc(staffName(d.by))}</dd>
+          <dt>Bought</dt><dd>${fmtDate(d.createdAt)} · ${STORES[d.store]} · ${d.by ? esc(staffName(d.by)) : '<span class="muted">who bought it not set</span>'}${d.bbId ? ' · ' + esc(d.bbId) : ''}</dd>
           <dt>Cost</dt><dd class="num">${cents(d.cost)} buy + ${cents(d.partsCost || 0)} parts = <b>${cents((+d.cost || 0) + (+d.partsCost || 0))}</b></dd>
           ${fails.length ? `<dt>Failed tests</dt><dd>${fails.map(f => esc(f[1])).join('; ')}</dd>` : ''}</dl>
         ${d.status === 'repair' ? `<div class="grid g2"><div class="field"><label class="label" for="r-st">Repair status</label><select id="r-st">${REPAIR_ST.map(([k, l]) => `<option value="${k}" ${(d.repairStatus || 'diag') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
           <div class="field"><label class="label" for="r-tech">Tech</label><select id="r-tech"><option value="">Unassigned</option>${S.staff.filter(e => e.active || e.id === d.techId).map(e => `<option value="${e.id}" ${d.techId === e.id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select></div></div>` : ''}
-        <div class="row"><button id="r-label">Print label</button>${d.buybackId ? '<button id="r-bos">Bill of sale</button>' : ''}</div>
+        <div class="row"><button id="r-label">Print label</button><button id="r-edit">Edit details</button>${d.buybackId ? '<button id="r-bos">Bill of sale</button>' : ''}</div>
       </div>
       <div class="panel stack">
         <h3>What it needs</h3>
@@ -4396,6 +4400,7 @@ async function viewRepair(el){
   $('#r-st') && ($('#r-st').onchange = e => up({repairStatus: e.target.value}, null, 'Repair status: ' + REPAIR_LABEL[e.target.value]));
   $('#r-tech') && ($('#r-tech').onchange = async e => { try { await Store.deviceTech(S.user, S.store, d.id, e.target.value || null); toast(e.target.value ? 'Assigned to ' + staffName(e.target.value) : 'Unassigned'); viewRepair(el); } catch (x) { toast(x.message); } });
   $('#r-label').onclick = () => labelSheet(d);
+  $('#r-edit').onclick = () => deviceEditSheet(d, () => viewRepair(el));
   $('#r-bos') && ($('#r-bos').onclick = () => bosSheet(d.buybackId, d.id));
   el.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => up({needs: d.needs.filter((_, i) => i !== +b.dataset.rm)}));
   $('#r-addneed').onclick = () => { const v = $('#r-need').value.trim(); if (!v) return; up({needs: [...(d.needs || []), v]}); };
@@ -4646,6 +4651,33 @@ async function viewInventory(el){
   $('#iv-st') && ($('#iv-st').onchange = e => { F.store = e.target.value; viewInventory(el); });
   el.querySelectorAll('tr[data-id]').forEach(tr => { const go = () => deviceSheet(all.find(d => d.id === tr.dataset.id), () => viewInventory(el)); tr.onclick = go; tr.onkeydown = e => { if (e.key === 'Enter') go(); }; });
 }
+/* fix a device's details so the label prints right: model, storage, carrier, color, grade, battery, IMEI, buyback ID, who bought it, cost */
+function deviceEditSheet(d, after){
+  const carriers = ['Unlocked', 'AT&T', 'T-Mobile', 'Verizon', 'Cricket', 'Metro', 'Boost', 'Carrier locked / financed', 'WiFi', 'GPS'];
+  const staff = S.staff.filter(e => e.active || e.id === d.by);
+  sheet(`<div class="row" style="justify-content:space-between"><h3>Edit #${d.stockNo}</h3><button data-close>Close</button></div>
+    <div class="grid g2">
+      <div class="field" style="grid-column:1/-1"><label class="label" for="de-m">Model</label><input id="de-m" value="${esc(d.model || '')}"></div>
+      <div class="field"><label class="label" for="de-s">Storage</label><input id="de-s" value="${esc(d.storage || '')}" placeholder="128GB"></div>
+      <div class="field"><label class="label" for="de-c">Carrier</label><input id="de-c" list="de-cl" value="${esc(d.carrier || '')}"><datalist id="de-cl">${carriers.map(c => `<option value="${esc(c)}">`).join('')}</datalist></div>
+      <div class="field"><label class="label" for="de-col">Color</label><input id="de-col" value="${esc(d.color || '')}" placeholder="Black"></div>
+      <div class="field"><label class="label" for="de-g">Grade</label><select id="de-g">${CONDS.map(([k, l]) => `<option value="${k}" ${d.cond === k ? 'selected' : ''}>${GRADE_LETTER[k]} · ${l}</option>`).join('')}</select></div>
+      <div class="field"><label class="label" for="de-b">Battery health %</label><input id="de-b" inputmode="numeric" value="${d.battery ?? ''}" placeholder="100"></div>
+      <div class="field"><label class="label" for="de-i">IMEI / serial</label><input id="de-i" value="${esc(d.imei || '')}" autocomplete="off"></div>
+      <div class="field"><label class="label" for="de-bb">Buyback ID</label><input id="de-bb" value="${esc(d.bbId || '')}" placeholder="BV2221" ${d.buybackId ? 'disabled title="Set by the buyback in the POS"' : ''}></div>
+      <div class="field"><label class="label" for="de-by">Bought by (initials on the label)</label><select id="de-by"><option value="">—</option>${staff.map(e => `<option value="${e.id}" ${d.by === e.id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select></div>
+      ${can(2) || COST_OPEN ? `<div class="field"><label class="label" for="de-cost">Our cost (buy price)</label><input id="de-cost" inputmode="decimal" value="${+d.cost ? d.cost : ''}" placeholder="0.00"></div>` : ''}
+    </div>
+    <div class="err" id="de-e" role="alert"></div>
+    <div class="row"><button class="primary" id="de-go">Save</button><button id="de-gol">Save and print label</button></div>`,
+  (L, close) => { const v = id => L.querySelector(id)?.value.trim() ?? null;
+    const save = async print => { const b = v('#de-b'); if (b && !(+b >= 1 && +b <= 100)) { L.querySelector('#de-e').textContent = 'Battery health is a number from 1 to 100.'; return; }
+      const patch = {model: v('#de-m'), storage: v('#de-s'), carrier: v('#de-c'), color: v('#de-col'), cond: v('#de-g'), battery: b || '', imei: v('#de-i'), by: v('#de-by') || ''};
+      if (!d.buybackId) patch.bbRef = v('#de-bb');
+      const c = L.querySelector('#de-cost'); if (c && c.value.trim() !== '') { const n = parseFloat(c.value.replace(/[$,]/g, '')); if (!(n >= 0)) { L.querySelector('#de-e').textContent = 'Cost should be a number.'; return; } patch.cost = n; }
+      try { const r = await Store.deviceEdit(S.user, S.store, d.id, patch); close(); toast('Saved'); after && after(); if (print) labelSheet({...d, ...(r || {})}); } catch (e) { L.querySelector('#de-e').textContent = e.message; } };
+    L.querySelector('#de-go').onclick = () => save(false); L.querySelector('#de-gol').onclick = () => save(true); });
+}
 /* after a repair: add parts we paid for (all-in cost on the label) and update battery health; works on any device not sold yet */
 async function partsBatterySheet(d, after){
   const parts = await Store.parts().catch(() => []);
@@ -4671,7 +4703,7 @@ async function partsBatterySheet(d, after){
 function deviceSheet(d, after){
   sheet(`
     <div class="row" style="justify-content:space-between"><h3>#${d.stockNo ?? ''} ${esc(d.model)} ${esc([d.storage, d.carrier].filter(Boolean).join(' · '))}</h3><button data-close>Close</button></div>
-    <div class="row"><button type="button" id="d-lbl">Print label</button>${d.buybackId ? '<button type="button" id="d-bos2">Bill of sale</button>' : ''}${d.status === 'repair' ? '<button type="button" id="d-rep2">Open in repair stock</button>' : ''}${!['sold', 'atlas'].includes(d.status) ? '<button type="button" id="d-pb">Parts & battery</button>' : ''}</div>
+    <div class="row"><button type="button" id="d-lbl">Print label</button>${d.buybackId ? '<button type="button" id="d-bos2">Bill of sale</button>' : ''}${d.status === 'repair' ? '<button type="button" id="d-rep2">Open in repair stock</button>' : ''}${!['sold', 'atlas'].includes(d.status) ? '<button type="button" id="d-pb">Parts & battery</button>' : ''}<button type="button" id="d-edit">Edit details</button></div>
     <div class="grid g3 small">
       <div class="stat"><span class="label">Cost</span><span class="num">${money(d.cost)}</span></div>
       <div class="stat"><span class="label">Bought</span><span>${fmtDate(d.createdAt)} · ${d.store}</span></div>
@@ -4696,6 +4728,7 @@ function deviceSheet(d, after){
       L.querySelector('#d-bos2') && (L.querySelector('#d-bos2').onclick = () => bosSheet(d.buybackId, d.id));
       L.querySelector('#d-rep2') && (L.querySelector('#d-rep2').onclick = () => { close(); go('repair', {deviceId: d.id}); });
       L.querySelector('#d-pb') && (L.querySelector('#d-pb').onclick = () => { close(); partsBatterySheet(d, after); });
+      L.querySelector('#d-edit').onclick = () => { close(); deviceEditSheet(d, after); };
       const sync = () => { const s = L.querySelector('#d-s').value; L.querySelector('#d-list-f').hidden = s !== 'swappa'; L.querySelector('#d-ret-f').hidden = ['sold', 'atlas'].includes(s); L.querySelector('#d-sold-f').hidden = !['sold','atlas'].includes(s); };
       L.querySelector('#d-s').onchange = sync; sync();
       L.querySelector('#d-save').onclick = async () => {
