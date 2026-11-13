@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794596526";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794598354";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -217,7 +217,7 @@ const invTotals = inv => { const sub = Math.round(inv.lines.reduce((a, l) => a +
 const taxOf = lines => Math.max(0, Math.round(lines.filter(isTaxable).reduce((a, l) => a + (+l.price || 0) * (l.qty || 1), 0) * TAX_RATE * 100) / 100);
 const taxRow = (sub, tax) => `<div class="row small" style="justify-content:space-between"><span class="muted">Subtotal ${cents(sub)} · Sales tax 8.25% ${cents(tax)}</span>${tax === 0 && sub > 0 ? '<span class="muted">labor only, no tax</span>' : ''}</div>`;
 const PAYMENTS = ['Cash','Square (card)'];   // we only take cash or card (card runs on the Square iPad)
-const DRAWER_KEEP = 100;   /* the drawer keeps $100; everything above it goes into the buyback fund at close */
+const DRAWER_KEEP = 100;   /* at close, the cash taken in that day goes into the buyback fund, but the drawer never drops under $100 */
 const DENOMS = [['b100', 100, '$100 bills'], ['b50', 50, '$50 bills'], ['b20', 20, '$20 bills'], ['b10', 10, '$10 bills'], ['b5', 5, '$5 bills'], ['b1', 1, '$1 bills'],
   ['c25', 0.25, 'Quarters'], ['c10', 0.10, 'Dimes'], ['c5', 0.05, 'Nickels'], ['c1', 0.01, 'Pennies']];
 /* "Reffered By" options from the Buyback Log (2026) sheet */
@@ -883,7 +883,7 @@ const DemoStore = {
     this.log(d, emp.id, store, 'Register opened', `Drawer ${cents(drawer)} · buyback fund ${cents(fund)}`); this.save(d); return r; },
   async closeRegister(emp, store, c){ const d = this.db(); const r = (d.registers || []).find(x => x.store === store && !x.closedAt); if (!r) throw new Error('Open the register first.');
     if (!(c.drawer >= 0) || !(c.fund >= 0)) throw new Error('Count the drawer and the buyback fund.');
-    const t = this.regTotals(d, store, r.day); const dexp = r.openDrawer + t.cashSales, dep = Math.max(0, Math.round((c.drawer - DRAWER_KEEP) * 100) / 100), fexp = r.openFund - t.cashBuys + dep;
+    const t = this.regTotals(d, store, r.day); const dexp = r.openDrawer + t.cashSales, dep = regDeposit(c.drawer, t.cashSales), fexp = r.openFund - t.cashBuys + dep;
     if ((Math.abs(c.drawer - dexp) >= 5 || Math.abs(c.fund - fexp) >= 5) && !(c.notes || '').trim()) throw new Error('Something is over or short by $5 or more. Add a note explaining it.');
     Object.assign(r, t, {closedBy: emp.id, closedAt: now(), drawerExpected: dexp, drawerCounted: c.drawer, deposit: dep, fundExpected: fexp, fundCounted: c.fund, squareApp: c.square, notes: c.notes || ''});
     if (Math.abs(c.drawer - dexp) >= 5 || Math.abs(c.fund - fexp) >= 5) this.notify(d, null, `${STORES[store]} register ${r.day}: drawer ${cents(c.drawer - dexp)} · buyback fund ${cents(c.fund - fexp)} off`, {tab: 'closeout'}, 'manager');
@@ -2625,20 +2625,93 @@ async function glassReplaceSheet(phone0, add){
   });
 }
 
-/* every sale, card payment and buyback that makes up today's register numbers */
-async function regActivity(day){
+/* every sale, card payment and buyback that makes up a register day's numbers */
+async function regActivity(day, store = S.store){
   const t0 = new Date(day + 'T00:00'), t1 = new Date(t0); t1.setDate(t1.getDate() + 1);
   const [invs, bbs] = await Promise.all([Store.invoices(t0, t1).catch(() => []), Store.buybacks(t0, t1).catch(() => [])]);
-  const iv = invs.filter(i => i.store === S.store && i.paid !== false && (!i.rsId || i.by)).sort((a, b) => new Date(a.at) - new Date(b.at));
-  const bb = bbs.filter(b => b.store === S.store).sort((a, b) => new Date(a.at) - new Date(b.at));
-  const rows = [...iv.flatMap(i => payParts(i).map(p => ({at: i.at, what: `Sale #${i.number}${i.ticketId ? '' : ''}`, who: i.by ? staffName(i.by) : '', method: p.method, amt: +p.amount || 0}))),
-    ...bb.map(b => ({at: b.at, what: `Buyback ${b.store}${b.receiptNo}`, who: staffName(b.by), method: b.payout, amt: -(+b.paid || 0)}))].sort((a, b) => new Date(a.at) - new Date(b.at));
+  const iv = invs.filter(i => i.store === store && i.paid !== false && (!i.rsId || i.by)).sort((a, b) => new Date(a.at) - new Date(b.at));
+  const bb = bbs.filter(b => b.store === store).sort((a, b) => new Date(a.at) - new Date(b.at));
+  const rows = [...iv.flatMap(i => payParts(i).map(p => ({at: i.at, what: `${i.refundOf ? 'Refund' : 'Sale'} #${i.number}`, who: i.by ? staffName(i.by) : '', method: p.method, amt: +p.amount || 0, kind: i.refundOf ? 'refund' : 'sale'}))),
+    ...bb.map(b => ({at: b.at, what: `Buyback ${b.store}${b.receiptNo}`, who: staffName(b.by), method: b.payout, amt: -(+b.paid || 0), kind: 'buyback', bb: b}))].sort((a, b) => new Date(a.at) - new Date(b.at));
   const by = {}; rows.forEach(r => { const k = /^square/i.test(r.method) ? 'Square (card)' : r.method || 'Other'; by[k] = (by[k] || 0) + r.amt; });
-  const html = `<details class="panel" style="padding:10px"><summary style="cursor:pointer"><b>Today's transactions (${rows.length})</b> · ${Object.entries(by).map(([k, v]) => `${esc(k)} ${cents(v)}`).join(' · ') || 'none yet'}</summary>
-    <div class="tbl" style="margin-top:8px"><table><thead><tr><th>Time</th><th>What</th><th>By</th><th>How</th><th class="r">Amount</th></tr></thead><tbody>
+  const table = `<div class="tbl"><table><thead><tr><th>Time</th><th>What</th><th>By</th><th>How</th><th class="r">Amount</th></tr></thead><tbody>
     ${rows.map(r => `<tr><td class="small num">${fmtTime(r.at)}</td><td>${esc(r.what)}</td><td class="small">${esc(r.who)}</td><td class="small">${esc(r.method || '')}</td><td class="r num" style="${r.amt < 0 ? 'color:var(--bad)' : ''}">${cents(r.amt)}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">Nothing yet.</td></tr>'}
-    </tbody></table></div><p class="small muted" style="margin:6px 0 0">Buybacks are negative. Cash buybacks come out of the buyback fund; Zelle / Cash App / Apple Pay / PayPal are sent by Sam.</p></details>`;
-  return {html, rows, by};
+    </tbody></table></div>`;
+  const html = `<details class="panel" style="padding:10px"><summary style="cursor:pointer"><b>Today's transactions (${rows.length})</b> · ${Object.entries(by).map(([k, v]) => `${esc(k)} ${cents(v)}`).join(' · ') || 'none yet'}</summary>
+    <div style="margin-top:8px">${table}</div><p class="small muted" style="margin:6px 0 0">Buybacks are negative. Cash buybacks come out of the buyback fund; Zelle / Cash App / Apple Pay / PayPal are sent by Sam.</p></details>`;
+  return {html, table, rows, by};
+}
+/* how much of tonight's drawer goes into the buyback fund: only cash taken in today, and the drawer never drops under $100.
+   (A drawer that opened over $100 keeps the extra: that money was already counted, it isn't new cash.) */
+const regDeposit = (counted, cashSales) => Math.max(0, Math.round(Math.min(counted - DRAWER_KEEP, cashSales) * 100) / 100);
+
+/* Register day report: why the drawer and the buyback fund are where they are. Works for an open day (so far) or a closed one. */
+async function regReport(day, store = S.store){
+  const [days, act] = await Promise.all([Store.registerDays(), regActivity(day, store)]);
+  const mine = days.filter(r => r.store === store);
+  let R = mine.find(r => r.day === day);
+  if (R && !R.closedAt) { const t = await Store.registerToday(store).catch(() => null); if (t && t.day === day) R = {...R, ...t}; }
+  const prev = mine.filter(r => r.closedAt && r.day < day).sort((a, b) => a.day < b.day ? 1 : -1)[0];
+  const r2 = v => Math.round((+v || 0) * 100) / 100;
+  const off = (a, b) => { const v = r2(a - b); return v === 0 ? '<span class="pill ok">exact</span>' : `<span class="pill ${Math.abs(v) >= 5 ? 'bad' : 'warn'}">${v > 0 ? 'over' : 'short'} ${cents(Math.abs(v))}</span>`; };
+  const line = (label, amt, opt = {}) => `<tr${opt.bold ? ' style="font-weight:700"' : ''}><td>${label}${opt.sub ? `<div class="small muted">${opt.sub}</div>` : ''}</td><td class="r num" style="${amt < 0 ? 'color:var(--bad)' : ''}">${amt == null ? '' : cents(amt)}</td><td class="r small">${opt.tag || ''}</td></tr>`;
+  const sales = act.rows.filter(x => x.kind !== 'buyback'), buys = act.rows.filter(x => x.kind === 'buyback');
+  const cashIn = r2(sales.filter(x => x.method === 'Cash' && x.amt > 0).reduce((a, x) => a + x.amt, 0)), cashRef = r2(sales.filter(x => x.method === 'Cash' && x.amt < 0).reduce((a, x) => a + x.amt, 0));
+  const cashBuyRows = buys.filter(x => /^cash/i.test(x.method || ''));
+  const title = `${STORES[store]} register · ${fmtDate(day + 'T12:00')}`;
+  if (!R) return {title, html: `<p class="muted">The register wasn't opened at ${STORES[store]} on ${fmtDate(day + 'T12:00')}.</p>${act.rows.length ? `<h4>Transactions</h4>${act.table}` : ''}`};
+  const closed = !!R.closedAt;
+  const cashSales = r2(R.cashSales), cashBuys = r2(R.cashBuys), card = r2(R.cardSales), other = r2(R.otherSales);
+  const dexp = closed ? r2(R.drawerExpected) : r2(R.openDrawer + cashSales);
+  const dep = closed ? r2(R.deposit) : null, left = closed ? r2(R.drawerCounted - R.deposit) : null;
+  const fexp = closed ? r2(R.fundExpected) : r2(R.openFund - cashBuys);
+  const prevLeft = prev ? r2(prev.drawerCounted - prev.deposit) : null;
+  const otherCashOut = r2(cashBuys + cashBuyRows.reduce((a, x) => a + x.amt, 0));   /* e.g. trade-in credit handed back in cash */
+  const flags = [];
+  if (prev && Math.abs(prevLeft - R.openDrawer) >= 0.01) flags.push(`The drawer opened with ${cents(R.openDrawer)}, but ${cents(prevLeft)} was left in it at the ${fmtDate(prev.day + 'T12:00')} close (${R.openDrawer > prevLeft ? 'over' : 'short'} ${cents(Math.abs(R.openDrawer - prevLeft))} overnight).`);
+  if (prev && Math.abs(prev.fundCounted - R.openFund) >= 0.01) flags.push(`The buyback fund opened with ${cents(R.openFund)}, but it was counted at ${cents(prev.fundCounted)} at the ${fmtDate(prev.day + 'T12:00')} close (${R.openFund > prev.fundCounted ? 'over' : 'short'} ${cents(Math.abs(R.openFund - prev.fundCounted))} overnight).`);
+  if (closed && dep > Math.max(0, cashSales) + 0.005) flags.push(`<b>${cents(dep)} went into the buyback fund, but only ${cents(Math.max(0, cashSales))} cash came in today.</b> ${cents(dep - Math.max(0, cashSales))} of it was money already in the drawer when it opened, so the drawer and fund moved without any sales behind it.`);
+  if (closed && Math.abs(R.drawerCounted - dexp) >= 0.01) flags.push(`Drawer counted ${cents(R.drawerCounted)} vs ${cents(dexp)} expected.`);
+  if (closed && Math.abs(R.fundCounted - fexp) >= 0.01) flags.push(`Buyback fund counted ${cents(R.fundCounted)} vs ${cents(fexp)} expected.`);
+  if (closed && R.squareApp != null && Math.abs(R.squareApp - card) >= 0.01) flags.push(`Square app said ${cents(R.squareApp)}; the POS recorded ${cents(card)} in card sales.`);
+  const html = `<div class="small muted">Opened ${fmtTime(R.openedAt)} by ${esc(staffName(R.openedBy))}${closed ? ` · closed ${fmtTime(R.closedAt)} by ${esc(staffName(R.closedBy))}` : ' · <b>still open: numbers so far</b>'}</div>
+    ${flags.length ? `<div class="banner warn small stack" style="gap:4px">${flags.map(f => `<div>⚠ ${f}</div>`).join('')}</div>` : closed ? '<div class="banner ok small">Drawer and buyback fund both matched.</div>' : ''}
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px">
+      <div class="stat"><span class="label">Cash taken in</span><span class="v num">${cents(cashSales)}</span>${cashRef ? `<span class="small muted">${cents(cashIn)} sales − ${cents(-cashRef)} refunds</span>` : ''}</div>
+      <div class="stat"><span class="label">Square (card)</span><span class="v num">${cents(card)}</span>${R.squareApp != null ? `<span class="small muted">Square app: ${cents(R.squareApp)}</span>` : ''}</div>
+      ${other ? `<div class="stat"><span class="label">Other payments</span><span class="v num">${cents(other)}</span></div>` : ''}
+      <div class="stat"><span class="label">Cash buybacks</span><span class="v num">${cents(cashBuys)}</span><span class="small muted">${cashBuyRows.length} from the fund</span></div>
+      ${closed ? `<div class="stat"><span class="label">Into buyback fund</span><span class="v num">${cents(dep)}</span></div>` : ''}
+    </div>
+    <h4 style="margin:8px 0 4px">Cash drawer</h4>
+    <div class="tbl"><table><tbody>
+      ${prev ? line(`Left in the drawer at the ${fmtDate(prev.day + 'T12:00')} close`, prevLeft, {sub: `counted ${cents(prev.drawerCounted)} − ${cents(prev.deposit)} moved to the fund`}) : ''}
+      ${line('Opened with', R.openDrawer, {sub: `counted by ${esc(staffName(R.openedBy))}`, tag: prev ? off(R.openDrawer, prevLeft) : ''})}
+      ${line('+ Cash sales', cashIn)}${cashRef ? line('− Cash refunds', cashRef) : ''}
+      ${line('= Should be in the drawer', dexp, {bold: true})}
+      ${closed ? line('Counted at close', R.drawerCounted, {sub: `by ${esc(staffName(R.closedBy))}`, tag: off(R.drawerCounted, dexp)}) + line('− Moved into the buyback fund', -dep) + line('= Left in the drawer for tomorrow', left, {bold: true}) : ''}
+    </tbody></table></div>
+    <h4 style="margin:8px 0 4px">Buyback fund</h4>
+    <div class="tbl"><table><tbody>
+      ${prev ? line(`Counted at the ${fmtDate(prev.day + 'T12:00')} close`, prev.fundCounted) : ''}
+      ${line('Opened with', R.openFund, {tag: prev ? off(R.openFund, prev.fundCounted) : ''})}
+      ${cashBuyRows.map(x => line(`− ${esc(x.what)} · ${fmtTime(x.at)}`, x.amt, {sub: `${esc(x.who)}${x.bb?.seller ? ' · ' + esc(((x.bb.seller.firstName || '') + ' ' + (x.bb.seller.lastName || '')).trim()) : ''}`})).join('')}
+      ${Math.abs(otherCashOut) >= 0.01 ? line('− Trade-in credit paid back in cash', -otherCashOut) : ''}
+      ${closed ? line(`+ Deposit from the drawer · ${fmtTime(R.closedAt)}`, dep, {sub: `by ${esc(staffName(R.closedBy))}${dep > Math.max(0, cashSales) + 0.005 ? ' · <b style="color:var(--bad)">more than the cash taken in</b>' : ''}`}) : ''}
+      ${line(closed ? '= Should be in the fund' : '= Should be in the fund now (before tonight\'s deposit)', fexp, {bold: true})}
+      ${closed ? line('Counted at close', R.fundCounted, {tag: off(R.fundCounted, fexp)}) : ''}
+    </tbody></table></div>
+    ${buys.some(x => !/^cash/i.test(x.method || '')) ? `<h4 style="margin:8px 0 4px">Buybacks paid another way (not from the fund)</h4><div class="tbl"><table><tbody>${buys.filter(x => !/^cash/i.test(x.method || '')).map(x => line(`${esc(x.what)} · ${esc(x.method || '')}`, -x.amt, {sub: `${fmtTime(x.at)} · ${esc(x.who)}${x.bb?.payoutStatus === 'requested' ? ' · waiting on Sam' : ''}`})).join('')}</tbody></table></div>` : ''}
+    ${R.notes ? `<div class="banner small"><b>Close notes:</b> ${esc(R.notes)}</div>` : ''}
+    <h4 style="margin:8px 0 4px">Every transaction (${act.rows.length})</h4>${act.table}
+    <p class="small muted" style="margin:0">Only cash taken in that day goes into the buyback fund, and the drawer never goes under ${cents(DRAWER_KEEP)}. Buybacks are negative.</p>`;
+  return {title, html};
+}
+function regReportSheet(day, store = S.store){
+  regReport(day, store).then(({title, html}) => sheet(`<div class="row" style="justify-content:space-between"><h3>${esc(title)}</h3><div class="row" style="gap:6px"><button id="rr-print">Print</button><button data-close>Close</button></div></div><div class="stack" id="rr-body" style="gap:8px">${html}</div>`, L => {
+    L.querySelector('#rr-print').onclick = () => printHTML(title, `<h2>${esc(title)}</h2>` + L.querySelector('#rr-body').innerHTML,
+      'body{font:12px system-ui,sans-serif;margin:18px;color:#000}table{width:100%;border-collapse:collapse;margin:2px 0 8px}td,th{border-bottom:1px solid #ddd;padding:3px 4px;text-align:left;vertical-align:top}.r{text-align:right}.small{font-size:11px}.muted{color:#555}.pill{border:1px solid #999;border-radius:8px;padding:0 5px;font-size:10px}.banner{border:1px solid #999;padding:6px;margin:6px 0}.grid{display:flex;gap:10px;flex-wrap:wrap}.stat{border:1px solid #ccc;padding:5px 8px;display:flex;flex-direction:column}.v{font-size:16px;font-weight:700}h4{margin:10px 0 2px}');
+  })).catch(e => toast(e.message));
 }
 /* Register open/close panel: drawer (float + cash sales → deposit) and buyback fund (start − cash buys + deposit). */
 async function registerPanel(box, again){
@@ -2649,16 +2722,16 @@ async function registerPanel(box, again){
   if (open && today) {
     const dexp = open.openDrawer + today.cashSales, fnow = open.openFund - today.cashBuys;
     box.innerHTML = `<div class="panel stack"><div class="row" style="justify-content:space-between"><h3>Register open · ${STORES[S.store]}</h3><span class="small muted">Opened ${fmtTime(open.openedAt)} by ${esc(staffName(open.openedBy))}${open.day !== tk ? ` · <b style="color:var(--bad)">still open from ${fmtDate(open.day + 'T12:00')}</b>` : ''}</span></div>
-      <div class="grid g2"><div class="stack" style="gap:4px"><span class="label">Cash drawer</span><div class="small">Started ${cents(open.openDrawer)} + cash sales ${cents(today.cashSales)}</div><div class="num" style="font-size:22px">${cents(dexp)} <span class="small muted">should be in the drawer</span></div><div class="small muted">At close, everything over ${cents(DRAWER_KEEP)} goes into the buyback fund.</div></div>
+      <div class="grid g2"><div class="stack" style="gap:4px"><span class="label">Cash drawer</span><div class="small">Started ${cents(open.openDrawer)} + cash sales ${cents(today.cashSales)}</div><div class="num" style="font-size:22px">${cents(dexp)} <span class="small muted">should be in the drawer</span></div><div class="small muted">At close, the cash taken in today goes into the buyback fund (the drawer keeps at least ${cents(DRAWER_KEEP)}).</div></div>
         <div class="stack" style="gap:4px"><span class="label">Buyback fund</span><div class="small">Started ${cents(open.openFund)} − cash buys ${cents(today.cashBuys)}</div><div class="num" style="font-size:22px">${cents(fnow)} <span class="small muted">should be in the fund (before tonight's deposit)</span></div></div></div>
       <div class="small muted">Today so far: Square ${cents(today.cardSales)} · cash ${cents(today.cashSales)} · other ${cents(today.otherSales)}</div>
-      <div class="row" style="gap:8px"><button class="primary" id="rg-close">Close register</button><button id="rg-act">Today's transactions</button></div></div>`;
+      <div class="row" style="gap:8px"><button class="primary" id="rg-close">Close register</button><button id="rg-act">Today's report</button></div></div>`;
     box.querySelector('#rg-close').onclick = async () => { const act = await regActivity(open.day);
       sheet(`<div class="row" style="justify-content:space-between"><h3>Close register · ${STORES[S.store]}</h3><button data-close>Close</button></div>
       <div class="stack" style="gap:6px"><span class="label">1 · Count the cash drawer · each bill and coin</span>
         <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px">${DENOMS.map(([k, v, l]) => `<div class="field" style="margin:0"><label class="label" for="cr-${k}" style="text-transform:none">${l}</label><input id="cr-${k}" data-den="${v}" inputmode="numeric" placeholder="0" autocomplete="off"></div>`).join('')}</div>
         <div class="row" style="justify-content:space-between;align-items:baseline"><span class="small muted">Should be ${cents(dexp)} (started ${cents(open.openDrawer)} + cash sales ${cents(today.cashSales)})</span><span>Drawer total <b class="num" id="cr-dt" style="font-size:22px">$0.00</b></span></div></div>
-      <div class="banner acc small" id="cr-dep">Count the drawer first. Everything over ${cents(DRAWER_KEEP)} goes into the buyback fund.</div>
+      <div class="banner acc small" id="cr-dep">Count the drawer first. Only the cash taken in today goes into the buyback fund (the drawer keeps at least ${cents(DRAWER_KEEP)}).</div>
       <div class="field"><label class="label" for="cr-f" id="cr-fl">2 · Put the deposit in the buyback fund, then count the fund</label><input id="cr-f" inputmode="decimal"></div>
       <div class="small muted" id="cr-fx">Buyback fund: started ${cents(open.openFund)} − cash buybacks ${cents(today.cashBuys)} + tonight's deposit</div>
       <div class="field"><label class="label" for="cr-s">3 · Square app total for today (POS has ${cents(today.cardSales)})</label><input id="cr-s" inputmode="decimal" placeholder="${today.cardSales.toFixed(2)}"><div class="small" id="cr-sx"></div></div>
@@ -2668,8 +2741,9 @@ async function registerPanel(box, again){
         const ins = [...L.querySelectorAll('[data-den]')];
         const total = () => Math.round(ins.reduce((a, i) => a + (parseInt(i.value, 10) || 0) * +i.dataset.den, 0) * 100) / 100;
         const upd = () => { const dc = total(); L.querySelector('#cr-dt').textContent = cents(dc); if (!ins.some(i => i.value !== '')) return;
-          const dep = Math.max(0, Math.round((dc - DRAWER_KEEP) * 100) / 100), fexp = fnow + dep;
-          L.querySelector('#cr-dep').innerHTML = `Drawer ${off(dc, dexp)} · <b>Take ${cents(dep)} out and put it in the buyback fund.</b> Leave ${cents(Math.min(dc, DRAWER_KEEP))} in the drawer.`;
+          const dep = regDeposit(dc, today.cashSales), fexp = fnow + dep, keep = Math.round((dc - dep) * 100) / 100;
+          L.querySelector('#cr-dep').innerHTML = dep > 0 ? `Drawer ${off(dc, dexp)} · <b>Take ${cents(dep)} out and put it in the buyback fund.</b> Leave ${cents(keep)} in the drawer.`
+            : `Drawer ${off(dc, dexp)} · <b>Nothing goes into the buyback fund tonight</b>${today.cashSales > 0 ? '' : ': no cash came in today'}. Leave all ${cents(dc)} in the drawer.${dc > DRAWER_KEEP + 0.005 ? ` <div class="small" style="margin-top:4px">The drawer is over ${cents(DRAWER_KEEP)} because it opened that way, not from today's sales. Don't move that extra into the fund; tell a manager if the float needs fixing.</div>` : ''}`;
           L.querySelector('#cr-fl').textContent = `2 · Put the ${cents(dep)} in the buyback fund, then count the fund (should be ${cents(fexp)})`; L.querySelector('#cr-f').placeholder = fexp.toFixed(2);
           L.querySelector('#cr-fx').textContent = `Buyback fund should be ${cents(fexp)}: started ${cents(open.openFund)} − cash buybacks ${cents(today.cashBuys)} + deposit ${cents(dep)}`; };
         ins.forEach(i => i.oninput = () => { i.value = i.value.replace(/\D/g, ''); upd(); });
@@ -2678,20 +2752,21 @@ async function registerPanel(box, again){
         L.querySelector('#cr-go').onclick = async () => { const drawer = total(), fund = parseFloat(L.querySelector('#cr-f').value), sq = L.querySelector('#cr-s').value === '' ? null : parseFloat(L.querySelector('#cr-s').value);
           if (!ins.some(i => i.value !== '')) { L.querySelector('#cr-e').textContent = 'Count the drawer: type how many of each bill and coin (0 if none).'; return; }
           if (isNaN(fund)) { L.querySelector('#cr-e').textContent = 'Count the buyback fund.'; return; }
-          try { await Store.closeRegister(S.user, S.store, {drawer, fund, square: sq, notes: L.querySelector('#cr-n').value.trim()}); close(); toast('Register closed'); again(); } catch (e) { L.querySelector('#cr-e').textContent = e.message; } }; }); };
-    const ab = box.querySelector('#rg-act'); ab && (ab.onclick = async () => { const act = await regActivity(open.day); sheet(`<div class="row" style="justify-content:space-between"><h3>Today's transactions · ${STORES[S.store]}</h3><button data-close>Close</button></div>${act.html.replace('<details', '<details open')}`); });
+          try { await Store.closeRegister(S.user, S.store, {drawer, fund, square: sq, notes: L.querySelector('#cr-n').value.trim()}); close(); toast('Register closed'); again(); regReportSheet(open.day); } catch (e) { L.querySelector('#cr-e').textContent = e.message; } }; }); };
+    const ab = box.querySelector('#rg-act'); ab && (ab.onclick = () => regReportSheet(open.day));
     return;
   }
-  const prevDrawer = last ? last.openDrawer : 100, prevFund = last ? last.fundCounted : 0;
-  box.innerHTML = `<div class="panel stack"><div class="row" style="justify-content:space-between"><h3>${closedToday ? 'Register closed for today' : 'Register not open yet'} · ${STORES[S.store]}</h3>${closedToday ? '' : '<button class="primary" id="rg-open">Open register</button>'}</div>
+  const prevDrawer = last ? Math.round((last.drawerCounted - last.deposit) * 100) / 100 : 100, prevFund = last ? last.fundCounted : 0;
+  box.innerHTML = `<div class="panel stack"><div class="row" style="justify-content:space-between"><h3>${closedToday ? 'Register closed for today' : 'Register not open yet'} · ${STORES[S.store]}</h3>${closedToday ? '<button id="rg-rep">Day report</button>' : `<span class="row" style="gap:6px">${last ? '<button id="rg-rep">Last day\'s report</button>' : ''}<button class="primary" id="rg-open">Open register</button></span>`}</div>
     ${closedToday ? `<div class="small">Closed ${fmtTime(closedToday.closedAt)} by ${esc(staffName(closedToday.closedBy))} · drawer ${cents(closedToday.drawerCounted)} ${off(closedToday.drawerCounted, closedToday.drawerExpected)} · deposit ${cents(closedToday.deposit)} into the fund · buyback fund ${cents(closedToday.fundCounted)} ${off(closedToday.fundCounted, closedToday.fundExpected)}</div>`
-      : `<div class="small muted">${last ? `Last close ${fmtDate(last.day + 'T12:00')}: drawer float ${cents(last.openDrawer)}, buyback fund ${cents(last.fundCounted)}.` : 'First day on the POS: count the drawer and the buyback fund.'} Count both before the first sale or buyback.</div>`}</div>`;
+      : `<div class="small muted">${last ? `Last close ${fmtDate(last.day + 'T12:00')}: ${cents(prevDrawer)} left in the drawer, buyback fund ${cents(last.fundCounted)}.` : 'First day on the POS: count the drawer and the buyback fund.'} Count both before the first sale or buyback.</div>`}</div>`;
+  box.querySelector('#rg-rep') && (box.querySelector('#rg-rep').onclick = () => regReportSheet((closedToday || last).day));
   box.querySelector('#rg-open') && (box.querySelector('#rg-open').onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Open register · ${STORES[S.store]}</h3><button data-close>Close</button></div>
     <div class="stack" style="gap:6px"><span class="label">Cash drawer · count each one</span>
       <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px">${DENOMS.map(([k, v, l]) => `<div class="field" style="margin:0"><label class="label" for="or-${k}" style="text-transform:none">${l}</label><input id="or-${k}" data-den="${v}" inputmode="numeric" placeholder="0" autocomplete="off"></div>`).join('')}</div>
       <div class="row" style="justify-content:space-between;align-items:baseline"><span class="small muted">Expected about ${cents(prevDrawer)}</span><span>Drawer total <b class="num" id="or-dt" style="font-size:22px">$0.00</b></span></div></div>
     <div class="field"><label class="label" for="or-f">Cash in the buyback fund (total)</label><input id="or-f" inputmode="decimal" placeholder="${prevFund.toFixed(2)}"></div>
-    ${last ? `<div class="small muted">Last night: drawer float ${cents(last.openDrawer)}, buyback fund ${cents(last.fundCounted)}. If your count is different, tell a manager.</div>` : ''}
+    ${last ? `<div class="small muted">Last close: ${cents(prevDrawer)} left in the drawer, buyback fund ${cents(last.fundCounted)}. If your count is different, tell a manager.</div>` : ''}
     <div class="err" id="or-e" role="alert"></div><button class="primary" id="or-go">Open register</button>`, (L, close) => {
       const ins = [...L.querySelectorAll('[data-den]')];
       const total = () => Math.round(ins.reduce((a, i) => a + (parseInt(i.value, 10) || 0) * +i.dataset.den, 0) * 100) / 100;
@@ -2834,13 +2909,14 @@ async function viewCloseout(el){
       ${pending.map(b => `<tr><td class="num"><b>${esc(b.bbId)}</b></td><td>${esc(b.seller.firstName)} ${esc(b.seller.lastName)}<div class="small muted num">${fmtPhone(b.seller.phone)}</div></td><td>${esc(b.payout)}: <b>${esc(b.payoutTo || '—')}</b></td><td class="r num">${cents(b.paid)}</td><td class="small">${ago(b.at)} · ${STORES[b.store]}</td>
         <td class="r">${can(3) ? `<button class="primary" data-paid="${b.id}" style="min-height:34px;padding:4px 10px">Mark sent</button>` : '<span class="pill warn">Waiting on Sam</span>'}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
     <div id="co-reg"></div>
-    <div class="panel stack"><h3>Register history · ${can(3) ? 'all stores' : STORES[S.store]}</h3><div class="tbl"><table><thead><tr><th>Day</th><th>Store</th><th class="r">Drawer start</th><th class="r">Cash sales</th><th class="r">Drawer count</th><th class="r">Deposit</th><th class="r">Fund start</th><th class="r">Cash buys</th><th class="r">Fund count</th><th>Over / short</th><th>Closed by</th></tr></thead><tbody>
+    <div class="panel stack"><h3>Register history · ${can(3) ? 'all stores' : STORES[S.store]}</h3><div class="tbl"><table><thead><tr><th>Day</th><th>Store</th><th class="r">Drawer start</th><th class="r">Cash sales</th><th class="r">Drawer count</th><th class="r">Deposit</th><th class="r">Fund start</th><th class="r">Cash buys</th><th class="r">Fund count</th><th>Over / short</th><th>Closed by</th><th></th></tr></thead><tbody>
       ${regs.filter(r => can(3) || r.store === S.store).map(r => { const o = (a, b) => a == null ? '' : Math.abs(a - b) < 0.005 ? 'exact' : (a > b ? '+' : '−') + cents(Math.abs(a - b)); const bad = r.closedAt && (Math.abs(r.drawerCounted - r.drawerExpected) >= 5 || Math.abs(r.fundCounted - r.fundExpected) >= 5);
         return `<tr><td>${r.day}</td><td>${r.store}</td><td class="r num">${cents(r.openDrawer)}</td><td class="r num">${r.closedAt ? cents(r.cashSales) : '—'}</td><td class="r num">${r.closedAt ? cents(r.drawerCounted) : '<span class="pill warn">open</span>'}</td><td class="r num">${r.closedAt ? cents(r.deposit) : ''}</td>
         <td class="r num">${cents(r.openFund)}</td><td class="r num">${r.closedAt ? cents(r.cashBuys) : ''}</td><td class="r num">${r.closedAt ? cents(r.fundCounted) : ''}</td>
-        <td class="small" style="color:${bad ? 'var(--bad)' : 'inherit'}">${r.closedAt ? `drawer ${o(r.drawerCounted, r.drawerExpected)} · fund ${o(r.fundCounted, r.fundExpected)}${r.notes ? `<div class="muted">${esc(r.notes)}</div>` : ''}` : ''}</td><td class="small">${r.closedBy ? esc(staffName(r.closedBy)) : ''}</td></tr>`; }).join('') || '<tr><td colspan="11" class="muted">No register days yet.</td></tr>'}
+        <td class="small" style="color:${bad ? 'var(--bad)' : 'inherit'}">${r.closedAt ? `drawer ${o(r.drawerCounted, r.drawerExpected)} · fund ${o(r.fundCounted, r.fundExpected)}${r.notes ? `<div class="muted">${esc(r.notes)}</div>` : ''}` : ''}</td><td class="small">${r.closedBy ? esc(staffName(r.closedBy)) : ''}</td><td><button data-rrep="${r.day}|${r.store}" style="min-height:32px;padding:2px 10px">Report</button></td></tr>`; }).join('') || '<tr><td colspan="12" class="muted">No register days yet.</td></tr>'}
     </tbody></table></div></div></div>`;
   registerPanel($('#co-reg'), () => viewCloseout(el));
+  el.querySelectorAll('[data-rrep]').forEach(b => b.onclick = () => { const [d, st] = b.dataset.rrep.split('|'); regReportSheet(d, st); });
   el.querySelectorAll('[data-paid]').forEach(b => b.onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Mark payout sent</h3><button data-close>Close</button></div>
     <div class="field"><label class="label" for="pd-ref">Confirmation (optional)</label><input id="pd-ref" placeholder="Apple Pay 11/10 2:14 PM"></div><button class="primary" id="pd-go">Mark sent</button>`,
     (L, close) => L.querySelector('#pd-go').onclick = async () => { try { await Store.markPayout(S.user, b.dataset.paid, L.querySelector('#pd-ref').value.trim()); close(); toast('Payout marked sent. The store sees it.'); viewCloseout(el); } catch (e) { toast(e.message); } }));
