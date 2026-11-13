@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794593718";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794594502";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -241,6 +241,8 @@ const DAILY_GOAL = 1000;
 try { const th = localStorage.getItem('czpos-theme'); if (th === 'dark' || th === 'light') document.documentElement.dataset.theme = th; } catch {}
 const isDark = () => document.documentElement.dataset.theme ? document.documentElement.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
 function toggleTheme(){ const nx = isDark() ? 'light' : 'dark'; document.documentElement.dataset.theme = nx; try { localStorage.setItem('czpos-theme', nx); } catch {} const b = $('#themebtn'); if (b) b.textContent = nx === 'dark' ? '☀ Light mode' : '☾ Dark mode'; }
+/* carrier-locked / financed phones never get listed on Swappa: they go to wholesale (Atlas) */
+const isLockedCarrier = c => /locked|financed|blacklist/i.test(c || '');
 const CHECKS = [
   ['power','Powers on and boots', {fix: 'Diagnose (no power)'}], ['lock','iCloud / Google account removed', {req: true}], ['imei','IMEI blacklist check clean', {req: true}],
   ['display','Display: no lines, spots or burn-in', {fix: 'Screen'}], ['touch','Touch works across the whole screen', {fix: 'Screen'}],
@@ -4274,6 +4276,7 @@ async function viewBuyback(el){
     const r = await Store.recordBuyback(S.user, S.store, {model: B.model, storage: B.storage, carrier: B.carrier, cond: B.cond, color: B.color.trim(), imei: B.imei.trim(),
       battery: B.battery === '' ? null : +B.battery, checklist: {...B.checks}, needs, paid, max, payout: B.payout, payoutTo: (B.payoutTo || '').trim(), notes: B.notes.trim(),
       seller: {...sl, phone: ph, email: (sl.email || '').trim().toLowerCase(), firstName: sl.firstName.trim(), lastName: sl.lastName.trim(), state: sl.state.toUpperCase()}}, override);
+    if (isLockedCarrier(B.carrier) && !['wholesale', 'repair'].includes(r.device.status)) { try { await Store.updateDevice(S.user, S.store, r.device.id, {status: 'wholesale'}); } catch {} }
     S.bbDone = {deviceId: r.device.id, buybackId: r.buyback.id};
     if (!S.visit || S.visit.phone !== ph) S.visit = {phone: ph, seller: {...sl, phone: ph}, payout: B.payout, payoutTo: B.payoutTo || '', items: []};
     S.visit.items.push({buybackId: r.buyback.id, deviceId: r.device.id}); S.sellers = null;
@@ -4518,7 +4521,7 @@ async function viewSwappa(el){
   const sw = d => d.swappa || {price: d.listPrice, listedAt: d.updatedAt, drops: [], url: ''};
   const info = d => { const x = sw(d); const days = daysOld(x.listedAt); const last = x.drops?.[0]; const since = last ? daysOld(last.at) : days; const cost = (+d.cost || 0) + (+d.partsCost || 0);
     return {x, days, last, since, due: since >= 7, cost, margin: (x.price || 0) * 0.87 - cost}; };
-  const listedAll = all.filter(d => d.status === 'swappa'), readyAll = all.filter(d => d.status === 'tolist' && !d.transferId && !d.swappa?.skip), skipAll = all.filter(d => d.status === 'tolist' && d.swappa?.skip);
+  const listedAll = all.filter(d => d.status === 'swappa'), readyAll = all.filter(d => d.status === 'tolist' && !d.transferId && !d.swappa?.skip && !isLockedCarrier(d.carrier)), skipAll = all.filter(d => d.status === 'tolist' && d.swappa?.skip);
   const shipsAll = ships.filter(x => x.status !== 'shipped');
   const listed = listedAll.filter(d => inS(d.store)).map(d => ({d, ...info(d)})).sort((a, b) => b.since - a.since);
   const ready = readyAll.filter(d => inS(d.store)).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
