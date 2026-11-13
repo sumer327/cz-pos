@@ -127,6 +127,12 @@ button.qa[data-qa=customer]{background:#2563eb}button.qa[data-qa=ticket]{backgro
 .statusbar button{min-height:36px;padding:6px 12px;border-radius:999px;font-size:13px}
 .statusbar button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .st{display:inline-block;font-size:12px;font-weight:600;padding:3px 9px;border-radius:4px;white-space:nowrap}
+.tg{display:flex;gap:4px}.tg button{min-height:34px;padding:2px 10px;font-size:13px}.tg button[aria-pressed="true"].p{background:var(--ok);color:#fff;border-color:var(--ok)}
+.tg button[aria-pressed="true"].f{background:var(--bad);color:#fff;border-color:var(--bad)}.tg button[aria-pressed="true"].n{background:var(--muted);color:var(--bg);border-color:var(--muted)}
+.ann{border-left:4px solid var(--accent);background:var(--soft);border-radius:10px;padding:10px 12px;white-space:pre-wrap;word-break:break-word}.ann.pin{border-left-color:var(--warn);background:var(--warn-soft)}
+:root[data-theme="dark"] .st-new{background:#1c2a4a;color:#9cc0ff}:root[data-theme="dark"] .st-prog{background:#3a2a10;color:#f6c27a}:root[data-theme="dark"] .st-parts{background:#3d1a18;color:#ff9d94}
+:root[data-theme="dark"] .st-cust{background:#2e1f42;color:#d0aaf5}:root[data-theme="dark"] .st-board{background:#123532;color:#7fe0d4}:root[data-theme="dark"] .st-res{background:#2a2d33;color:#b8bec8}
+:root[data-theme="dark"] .st-appr{background:#3a3210;color:#f2d66b}:root[data-theme="dark"] .st-dev{background:#262b34;color:#b6c0d0}:root[data-theme="dark"] .st-sched{background:#132c45;color:#8fc8ff}:root[data-theme="dark"] .st-reply{background:#3d1630;color:#ff9fd0}
 .st-new{background:#e0ecff;color:#1849a9}.st-prog{background:#fff0d6;color:#8a4b00}.st-parts{background:#fde2e1;color:#a4231b}
 .st-cust{background:#efe3fb;color:#6b2bb0}.st-board{background:#dff5f3;color:#0b6b62}.st-res{background:#ececec;color:#555}
 .st-appr{background:#fff4c2;color:#7a5a00}.st-dev{background:#e8eaef;color:#3d4757}.st-sched{background:#dcefff;color:#0d5c99}.st-reply{background:#ffe1f0;color:#a0195c}
@@ -159,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794509984";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794590685";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -231,6 +237,10 @@ const DEFAULT_SETTINGS = {
 };
 const DAILY_GOAL = 1000;
 /* Counter test for every buy. req = can't buy if it fails. fix = what goes on the repair-stock list when it fails. */
+/* dark mode: the button in the top bar sets it per computer (remembered on this browser) */
+try { const th = localStorage.getItem('czpos-theme'); if (th === 'dark' || th === 'light') document.documentElement.dataset.theme = th; } catch {}
+const isDark = () => document.documentElement.dataset.theme ? document.documentElement.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+function toggleTheme(){ const nx = isDark() ? 'light' : 'dark'; document.documentElement.dataset.theme = nx; try { localStorage.setItem('czpos-theme', nx); } catch {} const b = $('#themebtn'); if (b) b.textContent = nx === 'dark' ? '☀ Light mode' : '☾ Dark mode'; }
 const CHECKS = [
   ['power','Powers on and boots', {fix: 'Diagnose (no power)'}], ['lock','iCloud / Google account removed', {req: true}], ['imei','IMEI blacklist check clean', {req: true}],
   ['display','Display: no lines, spots or burn-in', {fix: 'Screen'}], ['touch','Touch works across the whole screen', {fix: 'Screen'}],
@@ -435,6 +445,16 @@ const DemoStore = {
     if (patch.status && patch.status !== 'repair') { row.repairStatus = null; this.log(d, emp.id, store, 'Repair done', `#${row.stockNo} ${row.model} → ${STATUS_LABEL[patch.status]} · parts ${money(row.partsCost)}`); }
     this.save(d); return row;
   },
+  async deviceExtra(emp, store, id, x){ const d = this.db(); const row = d.devices.find(v => v.id === id); row.partsUsed = row.partsUsed || []; row.log = row.log || [];
+    if (['sold', 'atlas'].includes(row.status)) throw new Error('That device is already sold.');
+    if (x.part) { const nm = String(x.part.name || '').trim(), c = Math.round((+x.part.cost || 0) * 100) / 100; if (!nm) throw new Error('Name the part.'); if (!(c > 0)) throw new Error('Enter what the part cost us.');
+      row.partsUsed.push({name: nm, cost: c, at: now(), by: emp.id, outside: true}); row.log.unshift({at: now(), who: emp.id, text: `Part cost added: ${nm} (${money(c)})`}); }
+    if (x.removeAt) { const r = row.partsUsed.find(p => p.at === x.removeAt); if (!r) throw new Error('That part is already off this device. Reload.');
+      if (r.partId) { const p = d.parts.find(q => q.id === r.partId); if (p) p.qty[row.store] = (p.qty[row.store] || 0) + 1; }
+      row.partsUsed = row.partsUsed.filter(p => p !== r); row.log.unshift({at: now(), who: emp.id, text: `Part taken off: ${r.name} (${money(r.cost)})${r.partId ? ', back on the shelf' : ''}`}); }
+    if ('battery' in x) { const b = parseInt(x.battery, 10); if (!(b >= 1 && b <= 100)) throw new Error('Battery health is a number from 1 to 100.');
+      if (b !== +row.battery) { row.log.unshift({at: now(), who: emp.id, text: `Battery health ${row.battery ? row.battery + '%' : 'not set'} → ${b}%`}); row.battery = b; } }
+    row.partsCost = row.partsUsed.reduce((a, p) => a + (+p.cost || 0), 0); row.updatedAt = now(); this.save(d); return row; },
   async deviceUsePart(emp, store, id, partId){
     const d = this.db(); const row = d.devices.find(x => x.id === id); const p = d.parts.find(x => x.id === partId);
     if ((p.qty[row.store] || 0) < 1) throw new Error(`No ${p.name} left at ${STORES[row.store]}. Order it instead.`);
@@ -596,11 +616,32 @@ const DemoStore = {
     d.devices.filter(x => b.deviceIds.includes(x.id)).forEach(x => { x.soldPrice = Math.round((b.costTotal ? amount * x.cost / b.costTotal : amount / b.deviceIds.length) * 100) / 100; });
     this.log(d, emp.id, b.store, 'Atlas payout', `Batch #${b.number} · paid ${money(amount)}`); this.save(d); return b;
   },
+  async ticketTests(id){ return (this.db().ticketTests || {})[id] || null; },
+  async saveTicketTest(emp, store, id, kind, res, note){ const d = this.db(); d.ticketTests = d.ticketTests || {}; const x = d.ticketTests[id] = d.ticketTests[id] || {ticketId: id};
+    if (!Object.keys(res).length) throw new Error('Mark each test first.');
+    Object.assign(x, {[kind]: res, [kind + 'Note']: note || null, [kind + 'At']: now(), [kind + 'By']: emp.id});
+    const t = d.tickets.find(y => y.id === id); const f = Object.keys(res).filter(k => res[k] === 'fail');
+    t.comments.unshift({id: uid(), at: now(), who: emp.id, text: `${kind === 'checkin' ? 'Check-in' : 'After-repair'} test done · ${f.length ? f.length + ' failed (' + f.join(', ') + ')' : 'everything passed'}${note ? ' · ' + note : ''}`, pub: false, sys: true}); this.save(d); return x; },
+  async announcements(){ return (this.db().announcements || []).filter(a => !a.expiresAt || new Date(a.expiresAt) > new Date()); },
+  async announce(emp, a){ if (RANK[emp.role] < 2) throw new Error('A manager posts announcements.'); if (!a.text?.trim()) throw new Error('Write the announcement first.');
+    const d = this.db(); const row = {id: uid(), at: now(), by: emp.id, text: a.text.trim(), stores: a.stores?.length ? a.stores : null, pinned: !!a.pinned, expiresAt: a.days ? new Date(Date.now() + a.days * 864e5).toISOString() : null};
+    (d.announcements = d.announcements || []).unshift(row); this.save(d); return row; },
+  async removeAnnouncement(emp, id){ const d = this.db(); d.announcements = (d.announcements || []).filter(a => a.id !== id); this.save(d); },
+  async mergeInvoices(emp, store, into, fromIds){ const d = this.db(); const i = d.invoices.find(x => x.id === into); if (!i || i.paid !== false) throw new Error('That invoice is already paid. Reload it.');
+    if (!i.customerId) throw new Error('Add the customer to this invoice first.'); const tno = id => d.tickets.find(t => t.id === id)?.number;
+    i.lines.forEach(l => { if (i.ticketId && !l.ticketNo) l.ticketNo = tno(i.ticketId); });
+    fromIds.forEach(fid => { const f = d.invoices.find(x => x.id === fid); if (!f || f.id === i.id) return; if (f.paid !== false || f.rsId) throw new Error(`Invoice #${f.number} is already paid.`);
+      if (f.customerId !== i.customerId) throw new Error(`Invoice #${f.number} is for a different customer.`);
+      i.lines.push(...f.lines.map(l => f.ticketId && !l.ticketNo ? {...l, ticketNo: tno(f.ticketId)} : l));
+      d.tickets.forEach(t => (t.charges || []).forEach(c => { if (c.invoiceId === f.id) Object.assign(c, {invoiceId: i.id, invoiceNo: i.number}); }));
+      d.invoices = d.invoices.filter(x => x.id !== f.id); });
+    invTotals(i); this.save(d); return i; },
   async ticketInvoices(id){ return this.db().invoices.filter(i => i.ticketId === id).sort((a, b) => new Date(b.at) - new Date(a.at)); },
   async checkout(emp, store, inv){
     const d = this.db(); const resolve = inv.resolve !== false;
     if (inv.invoiceId) { const dr = d.invoices.find(i => i.id === inv.invoiceId); if (!dr || dr.paid !== false) throw new Error('That invoice is already paid.'); if (!dr.lines.length) throw new Error('Add at least one line to the invoice.');
-      inv = {...inv, ticketId: dr.ticketId, customerId: inv.customerId || dr.customerId, lines: dr.lines.filter(l => l.cat !== 'Diagnostic credit'), chargeIds: dr.lines.filter(l => l.chargeId).map(l => l.chargeId), creditIds: dr.lines.filter(l => l.creditId).map(l => l.creditId), _draft: dr}; delete inv.invoiceId; }
+      const own = new Set((d.tickets.find(t => t.id === dr.ticketId)?.charges || []).map(c => c.id));
+      inv = {...inv, ticketId: dr.ticketId, customerId: inv.customerId || dr.customerId, lines: dr.lines.filter(l => !(l.cat === 'Diagnostic credit' && l.creditId && own.has(l.creditId))), chargeIds: dr.lines.filter(l => l.chargeId).map(l => l.chargeId), creditIds: dr.lines.filter(l => l.creditId).map(l => l.creditId), _draft: dr}; delete inv.invoiceId; }
     if (inv.ticketId && resolve) { const t0 = d.tickets.find(x => x.id === inv.ticketId);
       if (needsBH(t0) && !t0.bh && !t0.bhSkip) throw new Error('Record battery health (BH %) on this iPhone ticket before checking out.'); }
     if (inv.ticketId && inv.chargeIds?.length) { const t0 = d.tickets.find(x => x.id === inv.ticketId);
@@ -625,7 +666,7 @@ const DemoStore = {
     const devCost = lines.filter(l => l.deviceId).reduce((a, l) => { const dv = d.devices.find(x => x.id === l.deviceId); return a + (+dv?.cost || 0) + (+dv?.partsCost || 0); }, 0);
     const row = {id: uid(), number: d.nextInvoice++, at: now(), by: emp.id, store, ...inv, lines, subtotal, tax, total, payments, payment: tcSum > 0 ? (rest > 0 ? 'Trade-in credit + ' + pay : 'Trade-in credit') : pay};
     if (inv._draft) { row.id = inv._draft.id; row.number = inv._draft.number; d.nextInvoice--; d.invoices = d.invoices.filter(i => i.id !== row.id); } delete row._draft; row.paid = true; row.paidAt = now();
-    delete row.chargeIds; delete row.resolve; delete row.creditIds; delete row.credits; delete row.cashBack; if (!resolve) row.partsCost = 0; row.partsCost = (row.partsCost || 0) + devCost;
+    delete row.chargeIds; delete row.closeTickets; delete row.otherTickets; delete row.resolve; delete row.creditIds; delete row.credits; delete row.cashBack; if (!resolve) row.partsCost = 0; row.partsCost = (row.partsCost || 0) + devCost;
     let cashBack = 0;
     tc.forEach(x => { const bb = d.buybacks.find(b => b.id === x.buybackId); bb.creditLeft = Math.round((bb.creditLeft - x.amount) * 100) / 100; (bb.creditUsed = bb.creditUsed || []).push({invoiceId: row.id, invoiceNo: row.number, amount: x.amount, at: now()});
       if (inv.cashBack && bb.creditLeft > 0) { cashBack += bb.creditLeft; bb.creditCash = (bb.creditCash || 0) + bb.creditLeft; bb.creditCashAt = now(); bb.creditLeft = 0; } });
@@ -646,6 +687,11 @@ const DemoStore = {
       t.comments.unshift({id: uid(), at: now(), who: emp.id, text: `Paid ${cents(row.total)} · ${inv.payment} · invoice #${row.number}. Ticket resolved.`, pub: false, sys: true}); }
     else if (inv.ticketId) { const t = d.tickets.find(x => x.id === inv.ticketId); t.updatedAt = now();
       t.comments.unshift({id: uid(), at: now(), who: emp.id, text: `Paid ${cents(row.total)} · ${inv.payment} · invoice #${row.number}. Ticket stays open.`, pub: false, sys: true}); }
+    if (inv.closeTickets) { const crd = new Set(row.lines.filter(l => l.creditId).map(l => l.creditId));
+      d.tickets.filter(t => t.id !== inv.ticketId && t.customerId === row.customerId && (t.charges || []).some(c => c.invoiceId === row.id || crd.has(c.id))).forEach(t => {
+        t.charges.forEach(c => { if (c.invoiceId === row.id) { delete c.draft; c.paidAt = now(); } else if (crd.has(c.id)) c.creditedOn = row.number; });
+        const cl = inv.closeTickets.includes(t.id); if (cl) { t.status = 'resolved'; t.invoiceId = row.id; row.partsCost += (t.partsUsed || []).reduce((a, x) => a + (+x.cost || 0), 0); }
+        t.updatedAt = now(); t.comments.unshift({id: uid(), at: now(), who: emp.id, text: `Paid on invoice #${row.number} with this customer's other tickets · ${inv.payment}. Ticket ${cl ? 'resolved' : 'stays open'}.`, pub: false, sys: true}); }); }
     this.log(d, emp.id, store, 'Invoice', `#${row.number} ${cents(row.total)} · ${inv.payment}`); this.save(d); return row;
   },
   async invoices(from, to){ return this.db().invoices.filter(i => i.paid !== false && new Date(i.at) >= from && new Date(i.at) < to); },
@@ -888,6 +934,7 @@ const DemoStore = {
     if (patch.tracking) this.notify(d, po.store, `Tracking added for Sentrix #${po.orderNo || patch.orderNo}: ${patch.tracking}`, {tab: 'parts'});
     Object.assign(po, patch); this.log(d, actor.id, po.store, 'Part order', `PO ${po.number} ${patch.status || ''} ${patch.orderNo || ''} ${patch.tracking || ''}`.trim()); this.save(d); return po;
   },
+  async linkPOLine(emp, store, id, idx, partId){ const d = this.db(); const l = d.pos.find(x => x.id === id).lines[idx]; if (l.received) throw new Error('Already received.'); if (partId) l.partId = partId; else delete l.partId; this.save(d); },
   async receivePOLine(emp, store, id, idx, qty){
     const d = this.db(); const po = d.pos.find(x => x.id === id); const l = po.lines[idx];
     if (po.store !== store) throw new Error(`This order is for ${STORES[po.store]}.`);
@@ -956,6 +1003,12 @@ const LiveStore = {
   async payoutAlert(id){ const {data, error} = await this.sb.functions.invoke('payout-alert', {body: {buybackId: id}}); if (error) { let m = error.message; try { m = (await error.context.json()).error || m; } catch {} throw new Error(m); } if (data?.error) throw new Error(data.error); return data; },
   async buybackPayTo(emp, store, id, to){ return this.rpc('pos_buyback_payto', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_to: to}); },
   async repairUpdate(emp, store, id, patch, note){ return this.rpc('pos_repair_update', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_patch: patch, p_note: note || null}); },
+  async ticketTests(id){ const {data, error} = await this.sb.from('ticket_tests_v').select('*').eq('ticketId', id).maybeSingle(); if (error) return null; return data; },
+  async saveTicketTest(emp, store, id, kind, res, note){ return this.rpc('pos_ticket_test', {p_pin: this.pinFor(emp), p_store: store, p_ticket: id, p_kind: kind, p_res: res, p_note: note || null}); },
+  async announcements(){ const {data, error} = await this.sb.from('announcements_v').select('*').order('pinned', {ascending: false}).order('at', {ascending: false}).limit(50); if (error) return []; return data; },
+  async announce(emp, a){ return this.rpc('pos_announce', {p_pin: this.pinFor(emp), p_text: a.text, p_stores: a.stores?.length ? a.stores : null, p_pinned: !!a.pinned, p_days: a.days || 0}); },
+  async removeAnnouncement(emp, id){ return this.rpc('pos_announce_remove', {p_pin: this.pinFor(emp), p_id: id}); },
+  async deviceExtra(emp, store, id, x){ return this.rpc('pos_device_extra', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_x: x}); },
   async deviceUsePart(emp, store, id, partId){ return this.rpc('pos_device_part', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_part: partId}); },
   async partOrders(){ const {data, error} = await this.sb.from('part_orders_v').select('*').order('createdAt', {ascending: false}).limit(500); if (error) throw error; return data; },
   async orderPart(emp, store, o){ return this.rpc('pos_order_part', {p_pin: this.pinFor(emp), p_store: store, p_o: o}); },
@@ -1005,7 +1058,9 @@ const LiveStore = {
   async setPasscode(emp, store, id, v){ const r = await this.rpc('pos_set_passcode', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_passcode: v || ''}); this.keep(this.cT, [r]); return r; },
   async addComment(emp, store, id, text, pub){ return this.rpc('pos_ticket_comment', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_text: text, p_pub: pub}); },
   async useTicketPart(emp, store, id, partId){ return this.rpc('pos_ticket_part', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_part: partId}); },
-  async checkout(emp, store, inv){ const r = await this.rpc('pos_checkout', {p_pin: this.pinFor(emp), p_store: store, p_inv: inv}); if (inv.ticketId) { this.cT.delete(inv.ticketId); await this.loadTicket(inv.ticketId).catch(() => {}); } this.keep(this.cI, [r]); return r; },
+  async checkout(emp, store, inv){ const r = await this.rpc(inv.closeTickets ? 'pos_checkout_multi' : 'pos_checkout', {p_pin: this.pinFor(emp), p_store: store, p_inv: inv});
+    for (const id of [inv.ticketId, ...(inv.otherTickets || [])].filter(Boolean)) { this.cT.delete(id); await this.loadTicket(id).catch(() => {}); } this.keep(this.cI, [r]); return r; },
+  async mergeInvoices(emp, store, into, fromIds){ const r = await this.rpc('pos_merge_invoices', {p_pin: this.pinFor(emp), p_store: store, p_into: into, p_from: fromIds}); fromIds.forEach(id => this.cI.delete(id)); this.keep(this.cI, [r]); return r; },
   async ticketCharge(emp, store, id, add, removeId){ const r = await this.rpc('pos_ticket_charge', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_add: add || null, p_remove: removeId || null}); this.keep(this.cT, [r]); return r; },
   async tradeCredits(phone){ const {data, error} = await this.sb.from('trade_credits_v').select('*').eq('phone', phone).order('at'); if (error) throw error; return data; },
   async tradeCashout(emp, store, id){ return this.rpc('pos_trade_cashout', {p_pin: this.pinFor(emp), p_store: store, p_id: id}); },
@@ -1083,10 +1138,11 @@ const LiveStore = {
   async transfers(){ return []; },
   async createTransfer(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
   async receiveTransfer(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
-  async pos(){ return []; },
+  async pos(){ const {data, error} = await this.sb.from('sentrix_orders_v').select('*').order('orderedAt', {ascending: false}).limit(60); if (error) return []; return data; },
   async createPO(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
   async updatePO(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
-  async receivePOLine(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
+  async receivePOLine(emp, store, id, idx, qty){ return this.rpc('pos_po_receive', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_idx: idx, p_qty: qty}); },
+  async linkPOLine(emp, store, id, idx, partId){ return this.rpc('pos_po_link', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_idx: idx, p_part: partId || null}); },
   async leads(){ const {data, error} = await this.sb.from('web_leads_v').select('*').gte('at', new Date(Date.now() - 60 * 864e5).toISOString()).order('at', {ascending: false}).limit(300); if (error) return []; return data.map(l => ({...l, notes: l.notes || []})); },
   async updateLead(emp, id, patch, note){ return this.rpc('pos_update_lead', {p_pin: this.pinFor(emp), p_id: id, p_status: patch.status || null, p_note: note || ''}); },
   async reviews(){ return []; },
@@ -1491,10 +1547,12 @@ async function renderShell(){
         <div class="menu" id="bellmenu" hidden style="min-width:320px;max-width:min(420px,90vw);max-height:60vh;overflow:auto">${mine.slice(0, 25).map(n => `<button data-note="${n.id}" style="white-space:normal;line-height:1.35;${n.readBy.includes(S.user.id) ? 'opacity:.6' : 'font-weight:500'}"><span class="small muted">${ago(n.at)}</span><br>${esc(n.text)}</button>`).join('') || '<span class="small muted" style="padding:10px">No alerts.</span>'}</div></div>
       <button class="ab clockin ${open ? 'on' : ''}" id="clockbtn">${open ? 'Clocked in ' + fmtTime(open.t_in) : 'Clock in'}</button>
       <span class="who">${esc(S.user.name)}</span>
+      <button class="ab" id="themebtn" title="Switch light / dark">${isDark() ? '☀ Light mode' : '☾ Dark mode'}</button>
       <button class="ab" id="lockbtn">Lock</button>
     </div></div></header>`;
   $('#app').innerHTML = `<main id="main"></main>`; helpMount();
   $('#lockbtn').onclick = () => renderLock();
+  $('#themebtn').onclick = toggleTheme;
   $('#clockbtn').onclick = () => go('clock');
   document.querySelectorAll('[data-t]').forEach(b => b.onclick = () => go(b.dataset.t));
   const menus = [['#newbtn', '#newmenu'], ['#morebtn', '#moremenu'], ['#bellbtn', '#bellmenu']];
@@ -1590,7 +1648,7 @@ async function viewTicket(el){
   const myOrders = reqs.filter(o => o.forType === 'ticket' && o.forId === t.id);
   const c = custById(custs)[t.customerId] || {};
   const parent = t.parentId ? all.find(x => x.id === t.parentId) : null; const pInv = parent ? await Store.ticketInvoices(parent.id).catch(() => []) : []; const reworks = all.filter(x => x.parentId === t.id);
-  const set = await Store.settings();
+  const set = await Store.settings(); const TT = await Store.ticketTests(t.id).catch(() => null);
   const techs = S.staff.filter(e => e.active);
   const partsCost = t.partsUsed.reduce((a, p) => a + (+p.cost || 0), 0);
   const ch = t.charges || []; const due = ch.filter(x => !x.invoiceId);
@@ -1639,10 +1697,18 @@ async function viewTicket(el){
         ${pInv.length ? `<div class="small stack" style="gap:2px"><span class="label">Invoices on #${parent.number}</span>${pInv.map(i => `<span class="row" style="justify-content:space-between;gap:8px"><span class="num">#${i.number} · ${cents(i.total)}${i.payment ? ' · ' + esc(i.payment) : ''} · ${fmtDate(i.at)}${(i.lines || []).length ? ' · ' + esc(i.lines.map(l => l.desc).join(', ')) : ''}</span><button data-rcpt="${i.id}" style="min-height:30px;padding:2px 10px;flex:none">Receipt</button></span>`).join('')}</div>` : !(parent.charges || []).length ? '<span class="small muted">No charges or invoices on the original.</span>' : ''}
         <span class="small muted">Its notes are copied into this ticket's history (marked "From #${parent.number}"). Add new notes and charges here on the rework.</span>
       </div>` : ''}
+      ${TT || testable(t.device) ? `<div class="panel stack" id="t-tests">
+        <div class="row" style="justify-content:space-between"><h3>Device tests</h3><div class="row" style="gap:6px">${!TT?.checkin && isOpen ? '<button id="tt-in">Check-in test</button>' : ''}${isOpen && (TT?.checkin || TT?.after) ? `<button class="${TT?.after ? '' : 'primary'}" id="tt-after">${TT?.after ? 'Redo after-repair test' : 'After-repair test'}</button>` : ''}${isOpen && !TT?.checkin && !TT?.after ? '' : ''}</div></div>
+        ${TT?.checkin || TT?.after ? `<div class="tbl"><table><thead><tr><th>Test</th><th>Check-in</th><th>After repair</th></tr></thead><tbody>${TCHECKS.map(([k, l]) => { const a = TT?.checkin?.[k], b = TT?.after?.[k]; const worse = a === 'pass' && b === 'fail', fixed = a === 'fail' && b === 'pass';
+          const cell = v => v ? `<span class="pill ${v === 'pass' ? 'ok' : v === 'fail' ? 'bad' : ''}">${TRES[v]}</span>` : '<span class="muted small">—</span>';
+          return `<tr ${worse ? 'style="background:var(--bad-soft)"' : ''}><td>${esc(l)}${worse ? ' <b style="color:var(--bad)">· worked at check-in!</b>' : fixed ? ' <span class="small" style="color:var(--ok)">· fixed</span>' : ''}</td><td>${cell(a)}</td><td>${cell(b)}</td></tr>`; }).join('')}</tbody></table></div>
+          <div class="small muted">${TT?.checkin ? `Check-in by ${esc(staffName(TT.checkinBy))} · ${fmtDate(TT.checkinAt)}${TT.checkinNote ? ' · ' + esc(TT.checkinNote) : ''}` : 'No check-in test.'}${TT?.after ? `<br>After repair by ${esc(staffName(TT.afterBy))} · ${fmtDate(TT.afterAt)}${TT.afterNote ? ' · ' + esc(TT.afterNote) : ''}` : TT?.checkin ? '<br><b>Run the after-repair test before this ticket can be closed.</b>' : ''}</div>`
+          : `<p class="small muted" style="margin:0">No check-in test on this ticket.${isOpen ? ' Run it now if the customer is still here.' : ''}</p>`}
+      </div>` : ''}
       <div class="panel stack" id="t-charges">
         <div class="row" style="justify-content:space-between"><h3>Charges</h3>${isOpen ? '<button class="primary" id="ch-add">+ Add charge</button>' : ''}</div>
         ${isOpen && !(ch.some(x => x.cat === 'Diagnostic') || (t.type === 'rework' && t.warranty)) ? `<div class="row" style="gap:6px"><button data-qch="diag" style="min-height:36px;padding:4px 12px">Diagnostic ${cents(diagFor(t.device, set))} · collect now</button></div>` : ''}
-        ${ch.length ? `<div class="tbl"><table><tbody>${ch.map(x => `<tr><td>${esc(x.desc)}<div class="small muted">${esc(x.cat)}${x.glass ? ' · lifetime warranty' : ''} · ${esc(staffName(x.by))} · ${fmtDate(x.at)}</div>${x.partName ? `<div class="small" style="color:var(--ok)">Part pulled from stock: ${esc(x.partName)}</div>` : ''}${x.refurb ? '<div class="small" style="color:var(--warn)">Original screen → refurb bin</div>' : ''}</td><td class="r num">${cents(x.price)}</td>
+        ${ch.length ? `<div class="tbl"><table><tbody>${ch.map(x => `<tr><td>${esc(x.desc)}<div class="small muted">${esc(x.cat)}${x.glass ? ' · lifetime warranty' : ''} · ${esc(staffName(x.by))} · ${fmtDate(x.at)}</div>${x.partName ? `<div class="small" style="color:var(--ok)">Part pulled from stock: ${esc(x.partName)}</div>` : ''}${x.refurb ? `<div class="small" style="color:var(--warn)">Original screen → refurb bin <button data-rfl="${x.id}" style="min-height:26px;padding:0 8px;font-size:12px">Refurb label</button></div>` : ''}</td><td class="r num">${cents(x.price)}</td>
           <td class="r" style="white-space:nowrap">${x.invoiceId && x.draft ? `<a data-oinv="${x.invoiceId}" class="pill warn" style="cursor:pointer">On invoice #${esc(x.invoiceNo)} · not paid</a>` : x.invoiceId ? `<a data-oinv="${x.invoiceId}" class="pill ok" style="cursor:pointer">Paid · #${esc(x.invoiceNo)}</a>${x.creditedOn ? ` <span class="pill acc">credited on #${esc(x.creditedOn)}</span>` : ''}` : isOpen ? `<span class="pill warn">Due</span> <button data-rmch="${x.id}" aria-label="Remove ${esc(x.desc)}" style="min-height:30px;padding:2px 8px">✕</button>` : '<span class="pill bad">Unpaid</span>'}</td></tr>`).join('')}</tbody></table></div>`
           : `<p class="muted small" style="margin:0">${isOpen ? 'Nothing charged yet. Tap <b>+ Add charge</b> and pick the repair: the part comes out of stock by itself. When the customer picks up, tap <b>Make invoice</b>.' : 'No charges on this ticket.'}</p>`}
         ${ch.length || tInvAll.length ? `<div class="row" style="justify-content:space-between;gap:12px;flex-wrap:wrap"><span class="small">Charged <b class="num">${cents(netCharged)}</b> + tax · Paid <b class="num">${cents(paidSum)}</b>${refSum ? ` · <span style="color:var(--bad)">Refunded ${cents(refSum)}</span>` : ''}${crNow ? ` · <span style="color:var(--ok)">${cents(crNow)} diagnostic comes off the repair</span>` : ch.some(x => x.creditedOn) ? ' · diagnostic credited' : diagCr.length ? ` · <span class="muted">${cents(chSum(diagCr))} diagnostic comes off once the repair is added</span>` : ''}</span><span>Balance due <b class="num" style="font-size:20px">${cents(dueSum + owed)}</b>${due.some(isTaxable) ? ' <span class="small muted">with tax</span>' : ''}</span></div>` : ''}
@@ -1657,7 +1723,7 @@ async function viewTicket(el){
       </div>
       <div class="panel stack">
         <div class="row" style="justify-content:space-between"><h3>Parts pulled from stock</h3>${can(2) ? `<span class="muted small">${money(partsCost)} part cost</span>` : ''}</div>
-        ${t.partsUsed.length ? `<ul style="margin:0;padding-left:18px">${t.partsUsed.map(p => `<li>${esc(p.name)} <span class="muted small">· ${p.chargeId ? 'with its charge' : 'no charge'} · ${esc(staffName(p.by))}</span>${p.rma ? ' <span class="pill warn">old part → RMA</span>' : ''}</li>`).join('')}</ul>` : '<span class="muted small">None yet. Adding a repair charge pulls its part from this store\'s stock automatically.</span>'}
+        ${t.partsUsed.length ? `<ul style="margin:0;padding-left:18px">${t.partsUsed.map(p => `<li>${esc(p.name)} <span class="muted small">· ${p.chargeId ? 'with its charge' : 'no charge'} · ${esc(staffName(p.by))}</span>${p.rma ? ` <button data-rmal="${t.partsUsed.indexOf(p)}" style="min-height:26px;padding:0 8px;font-size:12px">RMA label</button>` : ''}${p.rma ? ' <span class="pill warn">old part → RMA</span>' : ''}</li>`).join('')}</ul>` : '<span class="muted small">None yet. Adding a repair charge pulls its part from this store\'s stock automatically.</span>'}
         ${t.status !== 'resolved' ? `<div class="row"><button id="t-order">+ Special order a part</button></div>
           <details><summary class="small muted" style="cursor:pointer">Pull a part without a charge (warranty or rework)</summary>
           <div class="row" style="margin-top:8px"><select id="t-part" aria-label="Part to use" style="flex:1;min-width:0"><option value="">Pick a part…</option>${parts.map(p => `<option value="${p.id}" ${(p.qty[t.store] || 0) < 1 ? 'disabled' : ''}>${esc(p.name)} (${p.qty[t.store] || 0} at ${t.store})</option>`).join('')}</select><button id="t-usepart">Use part</button></div></details>` : ''}
@@ -1687,7 +1753,11 @@ async function viewTicket(el){
   </div>`;
   const up = async patch => { try { await Store.updateTicket(S.user, S.store, t.id, patch); toast('Ticket updated'); viewTicket(el); } catch (e) { toast(e.message); } };
   $('#back').onclick = () => go('tickets');
-  $('#t-st').onchange = e => up({status: e.target.value});
+  $('#t-st').onchange = async e => { if (e.target.value === 'resolved' && await needsAfterTest(t)) { toast('Run the after-repair test first (Device tests).'); e.target.value = t.status; return; } up({status: e.target.value}); };
+  $('#tt-in') && ($('#tt-in').onclick = () => testSheet(t, 'checkin', TT, () => viewTicket(el)));
+  $('#tt-after') && ($('#tt-after').onclick = () => testSheet(t, 'after', TT, () => viewTicket(el)));
+  el.querySelectorAll('[data-rmal]').forEach(b => b.onclick = () => { const p = t.partsUsed[+b.dataset.rmal]; binLabelSheet('RMA', {name: p.name, device: t.device, reason: 'Rework · defective', ticket: t.number, store: t.store, by: p.by, at: p.at}); });
+  el.querySelectorAll('[data-rfl]').forEach(b => b.onclick = () => { const x = ch.find(y => y.id === b.dataset.rfl); binLabelSheet('REFURB', {name: 'Original screen · ' + t.device, device: x.desc, ticket: t.number, store: t.store, by: x.by, at: x.at}); });
   $('#t-tech').onchange = e => up({techId: e.target.value || null});
   $('#t-pri').onchange = e => up({priority: +e.target.value});
   $('#t-ready') && ($('#t-ready').onclick = async () => { await Store.updateTicket(S.user, S.store, t.id, {status: 'customer'}); S.prefillSms = readyMsg; toast('Waiting on Customer · pickup text ready to send'); viewTicket(el); });
@@ -1696,7 +1766,7 @@ async function viewTicket(el){
     if (t.type === 'rework' && !due.length && !tInvAll.length) return checkoutSheet(t, c);
     if (due.length || drafts.length || !tInv.length) return openInvoiceFor(t);
     sheet(`<div class="row" style="justify-content:space-between"><h3>Close ticket #${t.number}</h3><button data-close>Close</button></div><p style="margin:0">Everything on this ticket is paid (${cents(paidSum)}). Close it?</p><div class="err" id="cl-e" role="alert"></div><button class="primary" id="cl-go">Close ticket</button>`,
-      (L, close) => L.querySelector('#cl-go').onclick = async () => { try { await Store.updateTicket(S.user, S.store, t.id, {status: 'resolved'}); close(); toast('Ticket closed'); viewTicket(el); } catch (e) { L.querySelector('#cl-e').textContent = e.message; } }); });
+      (L, close) => L.querySelector('#cl-go').onclick = async () => { if (await needsAfterTest(t)) { L.querySelector('#cl-e').textContent = 'Run the after-repair test first (Device tests).'; return; } try { await Store.updateTicket(S.user, S.store, t.id, {status: 'resolved'}); close(); toast('Ticket closed'); viewTicket(el); } catch (e) { L.querySelector('#cl-e').textContent = e.message; } }); });
   const addCh = async (add, payNow) => { try { const r = await Store.ticketCharge(S.user, S.store, t.id, add); toast('Added: ' + add.desc);
       if (payNow) { const nt = r?.charges ? r : (await Store.tickets()).find(x => x.id === t.id); const newest = (nt.charges || []).filter(x => !x.invoiceId).slice(-1)[0]; return openInvoiceFor(nt, newest ? [newest.id] : null); }
       viewTicket(el); } catch (e) { toast(e.message); } };
@@ -1742,7 +1812,8 @@ async function viewTicket(el){
   renderThread($('#t-ghl'), t.store, c);
   $('#t-order') && ($('#t-order').onclick = () => specialOrderSheet({forType: 'ticket', forId: t.id, forLabel: `Ticket #${t.number} ${t.subject}`, store: t.store, device: t.device}, () => viewTicket(el)));
   $('#t-usepart') && ($('#t-usepart').onclick = async () => { const p = $('#t-part').value; if (!p) { toast('Pick a part first.'); return; }
-    const use = async rma => { try { await Store.useTicketPart(S.user, S.store, t.id, p, {rma}); toast(rma ? 'Part logged · defective part added to RMA' : 'Part logged'); viewTicket(el); } catch (e) { toast(e.message); } };
+    const use = async rma => { try { await Store.useTicketPart(S.user, S.store, t.id, p, {rma}); toast(rma ? 'Part logged · defective part added to RMA' : 'Part logged'); await viewTicket(el);
+      if (rma) binLabelSheet('RMA', {name: (parts.find(x => x.id === p) || {}).name || 'Part', device: t.device, reason: 'Rework · defective', ticket: t.number, store: t.store, by: S.user.id}); } catch (e) { toast(e.message); } };
     if (t.type !== 'rework') return use(false);
     sheet(`<div class="row" style="justify-content:space-between"><h3>Rework part</h3><button data-close>Close</button></div><p style="margin:0">Is the part you're taking out defective?</p>
       <div class="row"><button class="primary" id="rw-y">Yes, it goes to RMA</button><button id="rw-n">No (customer damage, keep out of RMA)</button></div>`,
@@ -1803,6 +1874,55 @@ function customerSheet(c, after){
   });
 }
 
+/* ---------------- DEVICE TESTS ON TICKETS ----------------
+   Same checklist as a buyback. Check-in: what works before we touch it (protects us from "it worked before").
+   After repair: the tech runs it again; a ticket with a check-in test can't be closed until the after test is done. */
+const TCHECKS = CHECKS.filter(c => !['lock', 'imei'].includes(c[0]));
+const TRES = {pass: 'Pass', fail: 'Fail', na: "Can't test"};
+const testable = device => ['phone', 'tablet'].includes(laborCat(device || ''));
+function testGridHTML(res){
+  return `<div class="row" style="gap:6px;flex-wrap:wrap"><button type="button" data-tall="pass" style="min-height:34px;padding:2px 12px">All pass</button><button type="button" data-tall="dead" style="min-height:34px;padding:2px 12px">Won't power on</button><button type="button" data-tall="na" style="min-height:34px;padding:2px 12px">Can't test (no passcode)</button></div>
+    <div class="tbl"><table><tbody>${TCHECKS.map(([k, l]) => `<tr><td>${esc(l)}</td><td class="r"><div class="tg" style="justify-content:flex-end">${[['pass', 'p', '✓ Pass'], ['fail', 'f', '✗ Fail'], ['na', 'n', 'N/A']].map(([v, c, t]) => `<button type="button" class="${c}" data-tv="${k}:${v}" aria-pressed="${res[k] === v}" aria-label="${esc(l)}: ${TRES[v]}">${t}</button>`).join('')}</div></td></tr>`).join('')}</tbody></table></div>`;
+}
+function bindTestGrid(root, res){
+  const paint = () => root.querySelectorAll('[data-tv]').forEach(b => { const [k, v] = b.dataset.tv.split(':'); b.setAttribute('aria-pressed', String(res[k] === v)); });
+  root.querySelectorAll('[data-tv]').forEach(b => b.onclick = () => { const [k, v] = b.dataset.tv.split(':'); res[k] = v; paint(); });
+  root.querySelectorAll('[data-tall]').forEach(b => b.onclick = () => { const m = b.dataset.tall; TCHECKS.forEach(([k]) => { res[k] = m === 'dead' ? (k === 'power' ? 'fail' : 'na') : m; }); paint(); });
+  paint();
+}
+const testsDone = res => res && TCHECKS.every(([k]) => res[k]);
+function testSheet(t, kind, prev, after){
+  const res = {...(prev?.[kind] || {})};
+  sheet(`<div class="row" style="justify-content:space-between"><h3>${kind === 'checkin' ? 'Check-in test' : 'After-repair test'} · #${t.number}</h3><button data-close>Close</button></div>
+    <div class="small muted">${esc(t.device)} · ${kind === 'checkin' ? 'Test everything with the customer here, before we touch it.' : 'Test everything again before it goes back to the customer.'}</div>
+    <div id="ts-g">${testGridHTML(res)}</div>
+    <div class="field"><label class="label" for="ts-n">Notes (optional)</label><input id="ts-n" value="${esc(prev?.[kind + 'Note'] || '')}" placeholder="${kind === 'checkin' ? 'Dent top left corner, Face ID already off' : 'All good, new screen calibrated'}"></div>
+    <div class="err" id="ts-e" role="alert"></div><button class="primary" id="ts-go">Save test</button>`,
+  (L, close) => { bindTestGrid(L.querySelector('#ts-g'), res);
+    L.querySelector('#ts-go').onclick = async () => { if (!testsDone(res)) { L.querySelector('#ts-e').textContent = 'Mark every line: Pass, Fail or N/A.'; return; }
+      try { await Store.saveTicketTest(S.user, S.store, t.id, kind, res, L.querySelector('#ts-n').value.trim()); close(); toast('Test saved'); after && after(); } catch (e) { L.querySelector('#ts-e').textContent = e.message; } }; });
+}
+/* true when this ticket has a check-in test but no after-repair test yet (so it can't be closed) */
+async function needsAfterTest(t){ if (!t) return false; const x = await Store.ticketTests(t.id).catch(() => null); return !!(x?.checkin && !x?.after); }
+
+/* ---------------- RMA / REFURB LABELS ----------------
+   Same DYMO roll as device labels: big RMA or REFURB, what it is, which ticket, date, who. Barcode = ticket # (scan it to open the ticket). */
+function binLabelSheet(kind, info){
+  const L = LABELS[labelSize()]; const small = parseFloat(L.h) < 1;
+  const dt = new Date(info.at || Date.now()); const md = `${dt.getMonth() + 1}/${dt.getDate()}/${String(dt.getFullYear()).slice(2)}`;
+  const css = `@page{size:${L.w} ${L.h};margin:0}*{box-sizing:border-box}html,body{margin:0}body{width:${L.w};height:${L.h};padding:${L.pad};font:400 ${small ? 7 : 8.5}px/1.2 Arial,Helvetica,sans-serif;color:#000;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden}
+    .k{font:900 ${small ? 13 : 17}px/1 Arial,sans-serif;letter-spacing:.06em}.t{display:flex;justify-content:space-between;align-items:baseline;gap:6px}.m{font-weight:800;font-size:${small ? 8.5 : 10}px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.l{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .bc{display:flex;align-items:flex-end;gap:6px}.bc svg{flex:1;height:${small ? 12 : 18}px;display:block}.sn{font-size:${small ? 7 : 8}px;font-weight:700;white-space:nowrap}`;
+  const body = `<div><div class="t"><span class="k">${kind}</span><span class="small">${esc(STORES[info.store] || '')} · ${md}</span></div>
+    <div class="m">${esc(info.name || '')}</div><div class="l">${esc([info.device, info.reason].filter(Boolean).join(' · '))}</div><div class="l">${esc([info.ticket ? 'Ticket #' + info.ticket : '', info.by ? initials(staffName(info.by)) : ''].filter(Boolean).join(' · '))}</div></div>
+    ${info.ticket ? `<div class="bc">${barcodeSVG(info.ticket, small ? 12 : 18)}<span class="sn">#${esc(info.ticket)}</span></div>` : ''}`;
+  sheet(`<div class="row" style="justify-content:space-between"><h3>${kind === 'RMA' ? 'RMA label' : 'Refurb label'}</h3><button data-close>Close</button></div>
+    <div style="overflow:hidden"><iframe title="Label preview" style="width:calc(${L.w} + 2px);height:calc(${L.h} + 2px);border:1px dashed var(--line);background:#fff;transform:scale(1.5);transform-origin:top left;margin-bottom:calc(${L.h} * .5 + 8px)" srcdoc="${esc(`<!doctype html><html><head><meta charset=utf-8><style>${css}</style></head><body>${body}</body></html>`)}"></iframe></div>
+    <p class="small muted" style="margin:0">${kind === 'RMA' ? 'Stick it on the defective part and put it in the RMA bin.' : 'Stick it on the original screen and put it in the refurb bin.'}</p>
+    <button class="primary" id="bl-go">Print label</button>`,
+  (S2, close) => { S2.querySelector('#bl-go').onclick = () => { printHTML(kind + ' label', body, css); close(); }; });
+}
+
 async function viewNewTicket(el){
   const D = S.draft || (S.draft = {});
   if ((D.cq || '').trim().length >= 2 && !D.customerId) await Store.search(D.cq);
@@ -1838,10 +1958,17 @@ async function viewNewTicket(el){
       <div class="err" id="nt-err" role="alert"></div>
       <button class="primary" type="submit">Create ticket</button>
     </div>
+    <div class="panel stack" id="nt-testp" ${testable(D.device) ? '' : 'hidden'}>
+      <h3>3 · Check-in test</h3>
+      <p class="small muted" style="margin:0">Test it with the customer at the counter, before we touch it. Anything already broken gets marked Fail so it's on record.</p>
+      <div id="nt-tg">${testGridHTML(D.tests || (D.tests = {}))}</div>
+      <div class="field"><label class="label" for="nt-tn">Test notes</label><input id="nt-tn" value="${esc(D.testNote || '')}" placeholder="Back glass cracked, Face ID didn't work before"></div>
+    </div>
   </form>`;
   const keep = () => { if (!$('#nt-dev')) return; Object.assign(D, {device: $('#nt-dev').value, issue: $('#nt-iss').value, estimate: $('#nt-est').value, imei: $('#nt-imei').value, subject: $('#nt-sub').value, notes: $('#nt-notes').value}); };
   $('#back').onclick = () => go('tickets');
   pcField('nt-pc', D.passcode || '', v => { D.passcode = v; }).mount($('#nt-pcbox'));
+  bindTestGrid($('#nt-tg'), D.tests); $('#nt-tn').oninput = e => { D.testNote = e.target.value; };
   const cq = $('#nt-cq'); let cqt; if (cq) cq.oninput = () => { clearTimeout(cqt); cqt = setTimeout(() => { keep(); D.cq = cq.value; viewNewTicket(el).then(() => { const n = $('#nt-cq'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 250); };
   el.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { keep(); D.customerId = b.dataset.c; viewNewTicket(el); });
   el.querySelectorAll('[data-g]').forEach(b => b.onclick = () => { keep(); const g = callers.find(x => String(x.id) === b.dataset.g);
@@ -1851,13 +1978,15 @@ async function viewNewTicket(el){
   $('#nt-newc') && ($('#nt-newc').onclick = () => { keep(); customerSheet({name: /\d/.test(D.cq || '') ? '' : D.cq, phone: /\d/.test(D.cq || '') ? D.cq : ''}, row => { D.customerId = row.id; viewNewTicket(el); }); });
   $('#nt-iss').onchange = () => { $('#nt-iss').dataset.touched = 1; };
   if (D.issue) $('#nt-iss').dataset.touched = 1;
-  $('#nt-dev').oninput = () => { if (!$('#nt-iss').dataset.touched) { const g = issueGuess($('#nt-dev').value); if (g) $('#nt-iss').value = g; } };
+  $('#nt-dev').oninput = () => { if (!$('#nt-iss').dataset.touched) { const g = issueGuess($('#nt-dev').value); if (g) $('#nt-iss').value = g; } $('#nt-testp').hidden = !testable($('#nt-dev').value); };
   $('#nt').onsubmit = async e => {
     e.preventDefault(); keep();
-    const err = !D.customerId ? 'Pick or add the customer first.' : !D.device.trim() ? 'Enter the device.' : !D.issue ? 'Pick the issue.' : !D.subject.trim() ? 'Enter a subject.' : '';
+    const err = !D.customerId ? 'Pick or add the customer first.' : !D.device.trim() ? 'Enter the device.' : !D.issue ? 'Pick the issue.' : !D.subject.trim() ? 'Enter a subject.'
+      : testable(D.device) && !testsDone(D.tests) ? 'Finish the check-in test (3): mark every line Pass, Fail or N/A. Dead phone? Tap "Won\'t power on".' : '';
     $('#nt-err').textContent = err; if (err) return;
     const t = await Store.createTicket(S.user, S.store, {customerId: D.customerId, device: D.device.trim(), issue: D.issue, subject: D.subject.trim(),
       estimate: parseFloat(D.estimate) || null, imei: D.imei.trim(), passcode: (D.passcode || '').trim(), techId: $('#nt-tech').value || null, notes: D.notes.trim()});
+    if (testable(D.device) && testsDone(D.tests)) { try { await Store.saveTicketTest(S.user, S.store, t.id, 'checkin', D.tests, (D.testNote || '').trim()); } catch (e) { toast("Ticket made, but the check-in test didn't save: " + e.message); } }
     S.draft = {}; S.justCreated = t.id; go('ticket', {ticketId: t.id});
   };
 }
@@ -1893,17 +2022,21 @@ const STORE_INFO = {DZ: {addr: '6565 Babcock Rd, San Antonio, TX 78249', phone: 
   BV: {addr: '17910 Bulverde Rd Suite 106, San Antonio, TX 78259', phone: '(726) 227-4665'},
   PT: {addr: '9230 Potranco Rd #105, San Antonio, TX 78251', phone: '(726) 227-4697'}};
 /* r = {number, at, store, lines, subtotal, tax, total, payment, ticket, device, customer}. Same layout as r.html (the page the texted link opens). */
+/* bottom of every receipt: same disclaimer RepairShopr prints (Admin → Templates → Receipt Disclaimer) */
+const RECEIPT_DISCLAIMER = 'All phone sales include a 30-day limited warranty. This covers any issue with the device that is not caused by physical damage or misuse. Phones that are wanting to be returned will be subject to a 20% restocking fee.';
 function receiptHTML(r){
   const si = STORE_INFO[r.store] || {}; const sub = r.subtotal ?? r.total, tax = r.tax || 0;
   const glass = (r.lines || []).some(l => l.glass || /tempered glass/i.test(l.desc || '')); const repair = (r.lines || []).some(l => REPAIR_CATS.includes(l.cat) || /repair/i.test(l.cat || ''));
+  const tnos = [...new Set((r.lines || []).map(l => l.ticketNo).filter(Boolean))]; const multiT = tnos.length > 1;
+  if (multiT) r = {...r, ticket: tnos.join(', #'), device: null};
   return `<div style="font:13px/1.45 -apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111;max-width:320px;margin:0 auto">
     <div style="text-align:center"><div style="font-size:18px;font-weight:700">Cellular Zone</div><div>${esc(STORES[r.store] || '')}</div><div>${esc(si.addr || '')}</div><div>${esc(si.phone || '')} · cellularzonesa.com</div></div>
     <hr style="border:0;border-top:1px dashed #999;margin:10px 0">
     ${r.total < 0 ? '<div style="text-align:center;font-size:16px;font-weight:700;letter-spacing:.08em">REFUND</div>' : ''}
     <div>Receipt #${esc(r.number)}<span style="float:right">${new Date(r.at).toLocaleString('en-US', {month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'})}</span></div>
-    ${r.customer ? `<div>Customer: ${esc(r.customer)}</div>` : ''}${r.ticket ? `<div>Ticket #${esc(r.ticket)}${r.device ? ' · ' + esc(r.device) : ''}</div>` : ''}
+    ${r.customer ? `<div>Customer: ${esc(r.customer)}</div>` : ''}${r.ticket ? `<div>Ticket${multiT ? 's' : ''} #${esc(r.ticket)}${r.device ? ' · ' + esc(r.device) : ''}</div>` : ''}
     <hr style="border:0;border-top:1px dashed #999;margin:10px 0">
-    ${(r.lines || []).map(l => `<div style="display:flex;justify-content:space-between;gap:10px"><span>${esc(l.desc)}${+l.qty > 1 ? ' × ' + l.qty : ''}</span><span style="white-space:nowrap">${+l.orig > +l.price ? `<s style="color:#777">${cents(+l.orig * (+l.qty || 1))}</s> ` : ''}${cents(+l.price * (+l.qty || 1))}</span></div>${discNote(l) ? `<div style="font-size:11px;color:#555;margin:-2px 0 2px">${esc(discNote(l))}</div>` : ''}`).join('')}
+    ${(r.lines || []).map(l => `<div style="display:flex;justify-content:space-between;gap:10px"><span>${esc(l.desc)}${+l.qty > 1 ? ' × ' + l.qty : ''}</span><span style="white-space:nowrap">${+l.orig > +l.price ? `<s style="color:#777">${cents(+l.orig * (+l.qty || 1))}</s> ` : ''}${cents(+l.price * (+l.qty || 1))}</span></div>${discNote(l) ? `<div style="font-size:11px;color:#555;margin:-2px 0 2px">${esc(discNote(l))}</div>` : ''}${multiT && l.ticketNo ? `<div style="font-size:11px;color:#555;margin:-2px 0 2px">Ticket #${esc(l.ticketNo)}</div>` : ''}`).join('')}
     <hr style="border:0;border-top:1px dashed #999;margin:10px 0">
     <div style="display:flex;justify-content:space-between"><span>Subtotal</span><span>${cents(sub)}</span></div>
     <div style="display:flex;justify-content:space-between"><span>Sales tax (8.25%)</span><span>${cents(tax)}</span></div>
@@ -1912,7 +2045,7 @@ function receiptHTML(r){
     ${r.cashBack > 0 ? `<div style="display:flex;justify-content:space-between"><span>Trade-in credit given back in cash</span><span>${cents(r.cashBack)}</span></div>` : ''}
     ${r.creditLeft > 0 ? `<div style="display:flex;justify-content:space-between"><span>Trade-in credit still on file</span><span>${cents(r.creditLeft)}</span></div>` : ''}
     <hr style="border:0;border-top:1px dashed #999;margin:10px 0">
-    <div style="text-align:center;font-size:12px">${repair ? '<div>Repairs carry a 6-month warranty from today.</div>' : ''}${glass ? '<div>Tempered glass: lifetime warranty. Bring it back any time for a new one for $5.</div>' : ''}<div style="margin-top:6px">Thank you for choosing Cellular Zone!</div></div></div>`;
+    <div style="text-align:center;font-size:12px">${repair ? '<div>Repairs carry a 6-month warranty from today.</div>' : ''}${glass ? '<div>Tempered glass: lifetime warranty. Bring it back any time for a new one for $5.</div>' : ''}<div style="margin-top:6px;text-align:left">${RECEIPT_DISCLAIMER}</div><div style="margin-top:6px">Thank you for choosing Cellular Zone!</div></div></div>`;
 }
 /* Epson TM-T88V: 80 mm roll, 72 mm printable width, page as long as the receipt (up to 297 mm) */
 function printReceipt(r){
@@ -2229,7 +2362,7 @@ async function chargeSheet(t, c, after, opts = {}){
           const ask = refurbAsk(picked.desc, picked.device); const rf = ask === 'always' ? 'yes' : ask === 'ask' ? L.querySelector('[name="cs-rf"]:checked')?.value : null;
           if (ask === 'ask' && !rf) { toast('Say whether the original screen goes in the refurb bin.'); return; }
           await add({desc: picked.desc, cat: picked.cat, price, ...(pid ? {partId: pid} : {}), ...(rf === 'yes' ? {refurb: true} : rf ? {origScreen: rf} : {})}, e.target);
-          if (added) { if (rf === 'yes') toast('Refurb bin +1: put the original screen in the refurb bin'); picked = null; body(); } };
+          if (added) { if (rf === 'yes') { toast('Refurb bin +1: put the original screen in the refurb bin'); const dsc = picked.desc; setTimeout(() => binLabelSheet('REFURB', {name: 'Original screen · ' + (t.device || ''), device: dsc, ticket: t.number, store: t.store, by: S.user.id}), 400); } picked = null; body(); } };
         return;
       }
       if (tab === 'price') {
@@ -3333,7 +3466,7 @@ async function viewInvoice(el){
           ${t ? `<dt>Ticket</dt><dd><a id="iv-t" style="color:var(--accent);cursor:pointer">#${t.number}</a> · ${esc(t.device || '')} · ${esc(t.subject || '')}</dd>` : ''}</dl>
         <div class="tbl"><table><thead><tr><th>Item</th><th class="r" style="width:70px">Qty</th><th class="r" style="width:110px">Price</th><th style="width:80px;text-align:center">Taxable</th><th class="r" style="width:100px">Total</th>${open ? '<th style="width:44px"></th>' : ''}</tr></thead><tbody>
         ${L.map((l, i) => { const neg = l.price < 0 || ['Discount', 'Diagnostic credit'].includes(l.cat); const dOpen = IV_OPEN.has(inv.id + ':' + i); const dn = discNote(l);
-          return open ? `<tr><td><input data-ld="${i}" value="${esc(l.desc)}" aria-label="Item" style="min-height:36px"><div class="small muted">${esc(l.cat || '')}${l.chargeId ? ' · from the ticket' : ''}${l.glass ? ' · lifetime warranty' : ''}</div>${dn ? `<div class="small" style="color:var(--ok)">${esc(dn)}</div>` : ''}</td>
+          return open ? `<tr><td><input data-ld="${i}" value="${esc(l.desc)}" aria-label="Item" style="min-height:36px"><div class="small muted">${esc(l.cat || '')}${l.chargeId ? (l.ticketNo ? ' · ticket #' + l.ticketNo : ' · from the ticket') : ''}${l.glass ? ' · lifetime warranty' : ''}</div>${dn ? `<div class="small" style="color:var(--ok)">${esc(dn)}</div>` : ''}</td>
             <td class="r"><input data-lq="${i}" value="${l.qty}" inputmode="numeric" aria-label="Qty" style="width:60px;min-height:36px;text-align:right" ${neg ? 'disabled' : ''}></td>
             <td class="r">${dn ? `<div class="small muted" style="white-space:nowrap">Regular</div>` : ''}<input data-lp="${i}" value="${(+(l.orig || l.price)).toFixed(2)}" inputmode="decimal" aria-label="${dn ? 'Regular price' : 'Price'}" style="width:100px;min-height:36px;text-align:right" ${l.cat === 'Diagnostic credit' ? 'disabled' : ''}>${dn ? `<div class="small num" style="white-space:nowrap">now <b>${cents(l.price)}</b></div>` : ''}</td>
             <td style="text-align:center"><input type="checkbox" data-lt="${i}" ${isTaxable(l) ? 'checked' : ''} aria-label="Taxable" style="width:22px;height:22px"></td>
@@ -3458,9 +3591,46 @@ async function viewInvoice(el){
   $('#iv-del').onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Delete invoice #${inv.number}?</h3><button data-close>Keep it</button></div>
       <p style="margin:0">It was never paid, so nothing is refunded. ${t ? 'The ticket\'s charges go back on the ticket as due.' : ''}</p><div class="err" id="vd-e" role="alert"></div><button class="danger" id="vd-go">Delete invoice</button>`,
     (S2, close) => S2.querySelector('#vd-go').onclick = async () => { try { await Store.voidInvoice(S.user, S.store, inv.id); close(); toast(`Invoice #${inv.number} deleted`); t ? go('ticket', {ticketId: t.id}) : go('invoices'); } catch (e) { S2.querySelector('#vd-e').textContent = e.message; } });
-  $('#iv-pay').onclick = () => payInvoiceSheet(inv, t, c, el);
+  $('#iv-pay').onclick = () => combineThenPay(inv, t, c, el);
 }
-function payInvoiceSheet(inv, t, c, el){
+/* Take payment: if this customer has other open invoices, or tickets with charges not invoiced yet (same store),
+   offer to ring them all up together: one payment, one receipt (like RepairShopr). */
+async function combineThenPay(inv, t, c, el){
+  const cid = inv.customerId || c?.id; if (!cid) return payInvoiceSheet(inv, t, c, el);
+  const btn = $('#iv-pay'); if (btn) btn.disabled = true;
+  const [invs, tix] = await Promise.all([Store.allInvoices(inv.store).catch(() => []), Store.tickets().catch(() => [])]); if (btn) btn.disabled = false;
+  const tById = Object.fromEntries(tix.map(x => [x.id, x]));
+  const oInv = invs.filter(x => x.id !== inv.id && x.customerId === cid && x.paid === false && !x.rsId && !x.refundOf && (x.lines || []).length);
+  const onInv = new Set([inv.ticketId, ...oInv.map(x => x.ticketId)].filter(Boolean));
+  const oTix = tix.filter(x => x.customerId === cid && x.store === inv.store && !onInv.has(x.id) && (x.charges || []).some(ch => !ch.invoiceId));
+  if (!oInv.length && !oTix.length) return payInvoiceSheet(inv, t, c, el);
+  const due = x => (x.charges || []).filter(ch => !ch.invoiceId); const first = (c?.name || '').split(' ')[0] || 'This customer';
+  const row = (k, id, title, sub, amt) => `<label class="row" style="gap:10px;align-items:flex-start;cursor:pointer;border:1px solid var(--line);border-radius:var(--r);padding:10px 12px"><input type="checkbox" data-cb="${k}:${id}" checked style="width:22px;height:22px;margin-top:2px"><span style="flex:1"><b>${title}</b><span class="small muted" style="display:block">${sub}</span></span><span class="num">${amt}</span></label>`;
+  sheet(`<div class="row" style="justify-content:space-between"><h3>Ring these up together?</h3><button data-close>Close</button></div>
+    <p style="margin:0">${esc(first)} has other open charges at ${STORES[inv.store]}. Check the ones they're paying for now: it all goes on invoice #${inv.number}, one payment and one receipt.</p>
+    <div class="stack" style="gap:8px">
+      <div class="small muted">Invoice #${inv.number}${t ? ` · ticket #${t.number} · ${esc(t.device || '')}` : ''} · ${cents(inv.total)} (this one)</div>
+      ${oInv.map(x => { const tk = tById[x.ticketId]; return row('i', x.id, `Invoice #${x.number}`, `${tk ? `Ticket #${tk.number} · ${esc(tk.device || '')} · ` : ''}${esc(x.lines.map(l => l.desc).join(', ')).slice(0, 120)}`, cents(x.total)); }).join('')}
+      ${oTix.map(x => row('t', x.id, `Ticket #${x.number} · ${esc(x.device || '')}`, `Not invoiced yet: ${esc(due(x).map(ch => ch.desc).join(', ')).slice(0, 120)}`, cents(due(x).reduce((a, ch) => a + (+ch.price || 0), 0)) + ' + tax')).join('')}
+    </div>
+    <div class="err" id="cb-e" role="alert"></div>
+    <button class="primary" id="cb-go" style="min-height:52px;font-size:16px">Ring them up together</button>
+    <button id="cb-one">Only invoice #${inv.number}</button>`,
+  (L, close) => {
+    L.querySelector('#cb-one').onclick = () => { close(); payInvoiceSheet(inv, t, c, el); };
+    L.querySelector('#cb-go').onclick = async () => { const b = L.querySelector('#cb-go');
+      const picked = [...L.querySelectorAll('[data-cb]:checked')].map(x => x.dataset.cb.split(':'));
+      if (!picked.length) { close(); return payInvoiceSheet(inv, t, c, el); }
+      b.disabled = true; b.textContent = 'Combining…';
+      try { const ids = picked.filter(p => p[0] === 'i').map(p => p[1]); const others = new Set(picked.filter(p => p[0] === 'i').map(p => invs.find(x => x.id === p[1])?.ticketId).filter(Boolean));
+        for (const [k, id] of picked.filter(p => p[0] === 't')) { const ni = await Store.makeInvoice(S.user, S.store, id, null); ids.push(ni.id); others.add(id); }
+        const merged = await Store.mergeInvoices(S.user, S.store, inv.id, ids);
+        const fresh = await Store.tickets().catch(() => tix); const more = [...others].filter(id => id !== inv.ticketId).map(id => fresh.find(x => x.id === id)).filter(Boolean);
+        close(); await viewInvoice(el); payInvoiceSheet(merged, t, c, el, more);
+      } catch (e) { L.querySelector('#cb-e').textContent = e.message; b.disabled = false; b.textContent = 'Ring them up together'; } };
+  });
+}
+function payInvoiceSheet(inv, t, c, el, more = []){
   const TRp = {credits: [], use: true, cashBack: true}; const tot = Math.round(inv.total * 100) / 100;
   const diagOnly = inv.lines.length && inv.lines.every(l => l.cat === 'Diagnostic');
   const dueLeft = t ? (t.charges || []).filter(x => !x.invoiceId).length : 0;
@@ -3472,6 +3642,9 @@ function payInvoiceSheet(inv, t, c, el){
       <span><b>Repair is done: close ticket #${t.number}</b><span class="small muted" style="display:block">${dueLeft ? `${dueLeft} charge${dueLeft === 1 ? ' is' : 's are'} still on the ticket and not on this invoice.` : diagOnly ? 'Diagnostic only: the ticket usually stays open.' : 'Ticket moves to Resolved and the customer gets the review text.'}</span></span></label>
     <div id="pi-bh" class="grid g2" hidden><div class="field"><label class="label" for="pi-bhv">Battery health % (needed to close this iPhone ticket)</label><input id="pi-bhv" inputmode="numeric" placeholder="87"></div>
       <div class="field"><label class="label" for="pi-bhs">Or: couldn't read it because</label><select id="pi-bhs"><option value="">—</option><option>Disabled / passcode unknown</option><option>No display / can't see it</option><option>Won't turn on</option><option>Boot looping</option></select></div></div>` : ''}
+    ${more.map(x => { const mine = inv.lines.filter(l => (x.charges || []).some(ch => ch.id === l.chargeId)); const dOnly = mine.length && mine.every(l => l.cat === 'Diagnostic');
+      return x.status === 'resolved' ? '' : `<label class="row" style="gap:10px;align-items:flex-start;cursor:pointer;background:var(--soft);border-radius:var(--r);padding:10px 12px"><input type="checkbox" data-mres="${x.id}" ${dOnly ? '' : 'checked'} style="width:22px;height:22px;margin-top:2px">
+        <span><b>Close ticket #${x.number}</b> · ${esc(x.device || '')}<span class="small muted" style="display:block">${dOnly ? 'Diagnostic only: the ticket usually stays open.' : 'Picked up and paid: moves to Resolved.'}</span></span></label>`; }).join('')}
     <div class="field" id="pi-payf"><label class="label" for="pi-pay">Paid with</label><select id="pi-pay">${PAYMENTS.map(p => `<option>${p}</option>`).join('')}</select></div>
     <div class="banner warn small" id="pi-sq">Charge the card on the Square iPad first, then record it here.</div>
     ${cashBoxHTML('pi', '')}
@@ -3494,8 +3667,14 @@ function payInvoiceSheet(inv, t, c, el){
         if (v && !(+v >= 1 && +v <= 100)) { L.querySelector('#pi-err').textContent = 'Battery health: enter a number from 1 to 100.'; return; }
         if (!v && !sk) { L.querySelector('#pi-err').textContent = "Record the battery health % (or pick why it couldn't be read) before closing."; return; }
         try { await Store.updateTicket(S.user, S.store, t.id, v ? {bh: +v, bhSkip: null} : {bhSkip: sk}); Object.assign(t, v ? {bh: +v} : {bhSkip: sk}); } catch (e) { L.querySelector('#pi-err').textContent = e.message; return; } }
+      const closeT = [...L.querySelectorAll('[data-mres]:checked')].map(x => x.dataset.mres);
+      if (resolve && t && await needsAfterTest(t)) { L.querySelector('#pi-err').textContent = `Run the after-repair test on ticket #${t.number} first (Device tests), or uncheck "close ticket".`; return; }
+      for (const x of more.filter(m => closeT.includes(m.id))) if (await needsAfterTest(x)) { L.querySelector('#pi-err').textContent = `Run the after-repair test on ticket #${x.number} first, or uncheck "Close ticket #${x.number}".`; return; }
+      const noBH = more.find(x => closeT.includes(x.id) && needsBH(x) && !x.bh && !x.bhSkip);
+      if (noBH) { L.querySelector('#pi-err').textContent = `Ticket #${noBH.number} is an iPhone: record its battery health on the ticket first, or uncheck "Close ticket #${noBH.number}".`; return; }
       btn.disabled = true;
       try { const r = await Store.checkout(S.user, S.store, {invoiceId: inv.id, ticketId: inv.ticketId || null, customerId: inv.customerId || c?.id || null, payment: pay.value, resolve: !!t && resolve,
+          ...(more.length ? {closeTickets: closeT, otherTickets: more.map(x => x.id)} : {}),
           ...(tk.applied > 0 ? {credits: tk.alloc, cashBack: tk.left > 0 && TRp.cashBack} : {})});
         close(); await viewInvoice(el); receiptSheet(r, {c: c || {}, t, justPaid: true, cash, note: t ? (resolve ? 'ticket closed' : 'ticket stays open') : '', cashBack: r.cashBack || 0, creditLeft: tk.applied > 0 && !TRp.cashBack ? tk.left : 0});
       } catch (e) { L.querySelector('#pi-err').textContent = e.message; btn.disabled = false; } };
@@ -4117,12 +4296,15 @@ async function viewRepair(el){
       </div>
       <div class="panel stack">
         <h3>Parts</h3>
-        ${d.partsUsed?.length ? `<ul style="margin:0;padding-left:18px">${d.partsUsed.map(p => `<li>${esc(p.name)} <span class="muted small">· ${cents(p.cost)} · ${esc(staffName(p.by))}</span></li>`).join('')}</ul>` : ''}
+        ${d.partsUsed?.length ? `<div class="tbl"><table><tbody>${d.partsUsed.map(p => `<tr><td>${esc(p.name)}<div class="small muted">${p.outside ? 'outside part' : 'from stock'} · ${esc(staffName(p.by))}</div></td><td class="r num">${cents(p.cost)}</td><td class="r"><button data-prm="${esc(p.at)}" aria-label="Take ${esc(p.name)} off" title="Logged by mistake? Take it off${p.partId ? ' (goes back on the shelf)' : ''}" style="min-height:30px;padding:2px 8px">✕</button></td></tr>`).join('')}<tr><td><b>Parts total</b></td><td class="r num"><b>${cents(d.partsCost || 0)}</b></td><td></td></tr></tbody></table></div>` : '<span class="small muted">No parts logged yet.</span>'}
         ${po.length ? `<div class="tbl"><table><tbody>${po.map(o => `<tr><td>${esc(o.name)} ×${o.qty}</td><td><span class="pill ${o.status === 'received' ? 'ok' : o.status === 'ordered' ? 'acc' : 'bad'}">${PO_ST[o.status]}</span>${o.ref ? ` <span class="small muted">${esc(o.ref)}</span>` : ''}</td></tr>`).join('')}</tbody></table></div>` : ''}
         ${d.status === 'repair' ? `<div class="row"><select id="r-part" aria-label="Part from stock" style="flex:1;min-width:0"><option value="">Use a part from ${d.store} stock…</option>${parts.map(p => `<option value="${p.id}" ${(p.qty[d.store] || 0) < 1 ? 'disabled' : ''}>${esc(p.name)} (${p.qty[d.store] || 0} left · ${cents(p.cost)})</option>`).join('')}</select><button id="r-use">Use part</button></div>
+        <div class="row" style="gap:6px"><input id="r-xn" placeholder="Part not in stock (e.g. Battery from Sentrix)" style="flex:2;min-width:160px"><input id="r-xc" inputmode="decimal" placeholder="Cost $" style="flex:1;min-width:80px;max-width:110px"><button id="r-xadd">Add cost</button></div>
         <button id="r-order">+ Order a part for this device</button>` : ''}
       </div>
       ${d.status === 'repair' ? `<div class="panel stack"><h3>Repair finished?</h3>
+        <div class="row" style="gap:10px;align-items:flex-end;flex-wrap:wrap"><div class="field" style="margin:0"><label class="label" for="r-bh">Battery health now</label><input id="r-bh" inputmode="numeric" placeholder="${d.battery ? d.battery + '%' : 'e.g. 100'}" style="width:120px"></div>
+          <span class="small muted" style="flex:1;min-width:160px">Was ${d.battery ? d.battery + '%' : 'not recorded'} when we bought it. Parts so far: <b>${cents(d.partsCost || 0)}</b>, so all-in cost is <b>${cents((+d.cost || 0) + (+d.partsCost || 0))}</b>. Missing a part? Add it above first.</span></div>
         <div class="row"><select id="r-next" aria-label="Move device to" style="flex:1;min-width:0"><option value="${HOT_STOCK.includes(d.model.toUpperCase()) ? 'hot' : 'tolist'}">${HOT_STOCK.includes(d.model.toUpperCase()) ? 'Hot stock (sell in store)' : 'Ready to list on Swappa'}</option><option value="hot">Hot stock (sell in store)</option><option value="tolist">Ready to list on Swappa</option><option value="atlas">Can't fix it: send to Atlas</option></select><button class="primary" id="r-done">Move it</button></div></div>` : ''}
     </div>
     <div class="panel stack"><h3>Notes</h3>
@@ -4140,7 +4322,16 @@ async function viewRepair(el){
   $('#r-addnote').onclick = () => { const v = $('#r-note').value.trim(); if (!v) { toast('Type the note first.'); return; } up({}, v, 'Note added'); };
   $('#r-use') && ($('#r-use').onclick = async () => { const p = $('#r-part').value; if (!p) { toast('Pick a part first.'); return; } try { await Store.deviceUsePart(S.user, S.store, d.id, p); toast('Part logged'); viewRepair(el); } catch (e) { toast(e.message); } });
   $('#r-order') && ($('#r-order').onclick = () => specialOrderSheet({forType: 'device', forId: d.id, forLabel: `Stock #${d.stockNo} ${d.model}`, store: d.store, device: d.model, part: (d.needs || [])[0] || ''}, () => viewRepair(el)));
-  $('#r-done') && ($('#r-done').onclick = () => { const st = $('#r-next').value; up({status: st}, `Repair finished → ${STATUS_LABEL[st]}`, `#${d.stockNo} moved to ${STATUS_LABEL[st]}`).then(() => go(st === 'atlas' ? 'inventory' : 'repairs')); });
+  const ext = async (x, msg) => { try { await Store.deviceExtra(S.user, S.store, d.id, x); toast(msg); viewRepair(el); return true; } catch (e) { toast(e.message); return false; } };
+  el.querySelectorAll('[data-prm]').forEach(b => b.onclick = () => ext({removeAt: b.dataset.prm}, 'Part taken off'));
+  $('#r-xadd') && ($('#r-xadd').onclick = () => { const n = $('#r-xn').value.trim(), c = parseFloat($('#r-xc').value.replace(/[$,]/g, ''));
+    if (!n) { toast('Name the part.'); return; } if (!(c > 0)) { toast('Enter what the part cost us.'); return; } ext({part: {name: n, cost: c}}, `Added ${cents(c)} to the cost`); });
+  $('#r-done') && ($('#r-done').onclick = async () => { const st = $('#r-next').value; const bh = $('#r-bh').value.replace(/[%\s]/g, '');
+    const swapped = (d.needs || []).some(n => /batt/i.test(n)) || (d.partsUsed || []).some(p => /batt/i.test(p.name));
+    if (st !== 'atlas' && swapped && !bh) { toast('The battery was replaced: enter the battery health now (usually 100).'); $('#r-bh').focus(); return; }
+    if (bh) { const b = parseInt(bh, 10); if (!(b >= 1 && b <= 100)) { toast('Battery health is a number from 1 to 100.'); return; }
+      try { await Store.deviceExtra(S.user, S.store, d.id, {battery: b}); } catch (e) { toast(e.message); return; } }
+    up({status: st}, `Repair finished → ${STATUS_LABEL[st]}`, `#${d.stockNo} moved to ${STATUS_LABEL[st]}${bh ? ' · battery ' + parseInt(bh, 10) + '%' : ''} · reprint the label`).then(() => go(st === 'atlas' ? 'inventory' : 'repairs')); });
 }
 function orderPartSheet(ctx, after){
   Store.parts().then(parts => sheet(`<div class="row" style="justify-content:space-between"><h3>Order a part</h3><button data-close>Close</button></div>
@@ -4375,10 +4566,32 @@ async function viewInventory(el){
   $('#iv-st') && ($('#iv-st').onchange = e => { F.store = e.target.value; viewInventory(el); });
   el.querySelectorAll('tr[data-id]').forEach(tr => { const go = () => deviceSheet(all.find(d => d.id === tr.dataset.id), () => viewInventory(el)); tr.onclick = go; tr.onkeydown = e => { if (e.key === 'Enter') go(); }; });
 }
+/* after a repair: add parts we paid for (all-in cost on the label) and update battery health; works on any device not sold yet */
+async function partsBatterySheet(d, after){
+  const parts = await Store.parts().catch(() => []);
+  sheet(`<div class="row" style="justify-content:space-between"><h3>Parts & battery · #${d.stockNo}</h3><button data-close>Close</button></div>
+    <div class="small muted">${esc(d.model)} ${esc(d.storage || '')} · buy ${cents(d.cost)} + parts ${cents(d.partsCost || 0)} = <b>${cents((+d.cost || 0) + (+d.partsCost || 0))}</b></div>
+    ${d.partsUsed?.length ? `<div class="tbl"><table><tbody>${d.partsUsed.map(p => `<tr><td>${esc(p.name)}<div class="small muted">${p.outside ? 'outside part' : 'from stock'}</div></td><td class="r num">${cents(p.cost)}</td><td class="r"><button data-prm="${esc(p.at)}" aria-label="Take ${esc(p.name)} off" style="min-height:30px;padding:2px 8px">✕</button></td></tr>`).join('')}</tbody></table></div>` : ''}
+    <div class="field"><label class="label" for="pb-p">Part from ${d.store} stock</label><select id="pb-p"><option value="">—</option>${parts.map(p => `<option value="${p.id}" ${(p.qty?.[d.store] || 0) < 1 ? 'disabled' : ''}>${esc(p.name)} (${p.qty?.[d.store] || 0} left · ${cents(p.cost)})</option>`).join('')}</select></div>
+    <div class="grid g2"><div class="field"><label class="label" for="pb-n">Or a part not in stock</label><input id="pb-n" placeholder="Battery from Sentrix"></div><div class="field"><label class="label" for="pb-c">What it cost us</label><input id="pb-c" inputmode="decimal" placeholder="18.50"></div></div>
+    <div class="field" style="max-width:200px"><label class="label" for="pb-b">Battery health now</label><input id="pb-b" inputmode="numeric" placeholder="${d.battery ? d.battery + '%' : 'e.g. 100'}"></div>
+    <div class="err" id="pb-e" role="alert"></div><button class="primary" id="pb-go">Save</button>
+    <span class="small muted">Then reprint the label so it shows the new cost and battery health.</span>`,
+  (L, close) => { const err = m => L.querySelector('#pb-e').textContent = m;
+    L.querySelectorAll('[data-prm]').forEach(b => b.onclick = async () => { try { const r = await Store.deviceExtra(S.user, S.store, d.id, {removeAt: b.dataset.prm}); close(); toast('Part taken off'); partsBatterySheet({...d, ...r}, after); } catch (e) { err(e.message); } });
+    L.querySelector('#pb-go').onclick = async () => { const pid = L.querySelector('#pb-p').value, n = L.querySelector('#pb-n').value.trim(), c = parseFloat(L.querySelector('#pb-c').value.replace(/[$,]/g, '')), bh = L.querySelector('#pb-b').value.replace(/[%\s]/g, '');
+      if (n && !(c > 0)) return err('Enter what the part cost us.'); if (!n && L.querySelector('#pb-c').value.trim()) return err('Name the part.');
+      if (!pid && !n && !bh) return err('Pick a part, add a cost or enter the battery health.');
+      try { let r = d;
+        if (pid) r = await Store.deviceUsePart(S.user, S.store, d.id, pid);
+        if (n || bh) r = await Store.deviceExtra(S.user, S.store, d.id, {...(n ? {part: {name: n, cost: c}} : {}), ...(bh ? {battery: parseInt(bh, 10)} : {})});
+        close(); toast('Saved · reprint the label'); const nd = {...d, ...(r || {})}; after && after(); labelSheet(nd);
+      } catch (e) { err(e.message); } }; });
+}
 function deviceSheet(d, after){
   sheet(`
     <div class="row" style="justify-content:space-between"><h3>#${d.stockNo ?? ''} ${esc(d.model)} ${esc([d.storage, d.carrier].filter(Boolean).join(' · '))}</h3><button data-close>Close</button></div>
-    <div class="row"><button type="button" id="d-lbl">Print label</button>${d.buybackId ? '<button type="button" id="d-bos2">Bill of sale</button>' : ''}${d.status === 'repair' ? '<button type="button" id="d-rep2">Open in repair stock</button>' : ''}</div>
+    <div class="row"><button type="button" id="d-lbl">Print label</button>${d.buybackId ? '<button type="button" id="d-bos2">Bill of sale</button>' : ''}${d.status === 'repair' ? '<button type="button" id="d-rep2">Open in repair stock</button>' : ''}${!['sold', 'atlas'].includes(d.status) ? '<button type="button" id="d-pb">Parts & battery</button>' : ''}</div>
     <div class="grid g3 small">
       <div class="stat"><span class="label">Cost</span><span class="num">${money(d.cost)}</span></div>
       <div class="stat"><span class="label">Bought</span><span>${fmtDate(d.createdAt)} · ${d.store}</span></div>
@@ -4402,6 +4615,7 @@ function deviceSheet(d, after){
       L.querySelector('#d-lbl').onclick = () => labelSheet(d);
       L.querySelector('#d-bos2') && (L.querySelector('#d-bos2').onclick = () => bosSheet(d.buybackId, d.id));
       L.querySelector('#d-rep2') && (L.querySelector('#d-rep2').onclick = () => { close(); go('repair', {deviceId: d.id}); });
+      L.querySelector('#d-pb') && (L.querySelector('#d-pb').onclick = () => { close(); partsBatterySheet(d, after); });
       const sync = () => { const s = L.querySelector('#d-s').value; L.querySelector('#d-list-f').hidden = s !== 'swappa'; L.querySelector('#d-ret-f').hidden = ['sold', 'atlas'].includes(s); L.querySelector('#d-sold-f').hidden = !['sold','atlas'].includes(s); };
       L.querySelector('#d-s').onchange = sync; sync();
       L.querySelector('#d-save').onclick = async () => {
@@ -4550,11 +4764,14 @@ function viewOrders(box, parts, reqs, pos, re){
       <div class="tbl"><table><tbody>${reqs.filter(r => r.status === 'needed' && !r.poId).map(r => `<tr><td><b>${esc(r.name)}</b> ×${r.qty}${r.example ? ' <span class="pill">example</span>' : ''}</td><td class="small">${esc(r.forLabel || 'Shelf stock')}</td><td>${r.store}</td><td class="small">${fmtDate(r.createdAt)} · ${esc(staffName(r.by))}</td></tr>`).join('') || '<tr><td class="muted">None.</td></tr>'}</tbody></table></div></div>
     <div class="panel stack"><h3>Orders</h3>
     ${pos.filter(p => can(2) || p.store === S.store).map(p => `<div class="stack" style="border:1px solid var(--line);border-radius:12px;padding:12px;gap:8px">
-      <div class="row" style="justify-content:space-between"><b>PO ${p.number} · ${STORES[p.store]}</b><span class="pill ${p.status === 'received' ? 'ok' : p.status === 'draft' ? '' : 'acc'}">${PO_LABEL[p.status]}</span></div>
-      <div class="small muted">${p.orderNo ? 'Sentrix #' + esc(p.orderNo) : 'Not placed yet'}${p.tracking ? ` · Tracking <span class="mono">${esc(p.tracking)}</span>` : ''} · created ${fmtDate(p.at)} by ${esc(staffName(p.by))}</div>
-      <div class="tbl"><table><tbody>${p.lines.map((l, i) => `<tr><td>${esc(l.name)}${l.requestIds?.length ? ' <span class="pill acc">special</span>' : ''}</td><td class="r num">${l.received}/${l.qty}</td>
-        <td class="r">${['placed','partial'].includes(p.status) && p.store === S.store && l.received < l.qty ? `<button data-rl="${p.id}:${i}" style="min-height:32px;padding:2px 10px">Received ${l.qty - l.received}</button>` : l.received >= l.qty ? '<span class="pill ok">✓</span>' : ''}</td></tr>`).join('')}</tbody></table></div>
-      <div class="row">${p.status === 'draft' && can(2) ? `<button class="primary" data-place="${p.id}">Mark placed</button>` : ''}${['placed','partial'].includes(p.status) && can(2) ? `<button data-track="${p.id}">${p.tracking ? 'Change' : 'Add'} tracking #</button>` : ''}</div>
+      <div class="row" style="justify-content:space-between"><b>${p.orderNo ? "Sentrix #" + esc(p.orderNo) : "PO " + p.number} · ${STORES[p.store]}</b><span class="pill ${p.status === 'received' ? 'ok' : p.status === 'draft' ? '' : 'acc'}">${PO_LABEL[p.status]}</span></div>
+      <div class="small muted">${p.orderNo ? 'Sentrix #' + esc(p.orderNo) : 'Not placed yet'}${p.tracking ? ` · ${esc(p.carrier || 'Tracking')} <span class="mono">${esc(p.tracking)}</span>` : ''} · ordered ${fmtDate(p.orderedAt || p.at)}${p.by ? ' by ' + esc(staffName(p.by)) : ''}${p.total ? ` · ${cents(p.total)}` : ''}</div>
+      ${['placed','partial'].includes(p.status) && p.store === S.store ? '<p class="small muted" style="margin:0">Check each part off as you unpack it. Stocked parts go straight onto the shelf count and the part cost updates to what we paid. Anything missing or broken, leave it unchecked and tell a manager.</p>' : ''}
+      <div class="tbl"><table><tbody>${p.lines.map((l, i) => { const pt = l.partId && parts.find(x => x.id === l.partId); const rec = +l.received || 0; const open = ['placed','partial'].includes(p.status) && p.store === S.store && rec < l.qty;
+        return `<tr><td>${esc(l.name)}${l.requestIds?.length ? ' <span class="pill acc">special</span>' : ''}<div class="small muted">${pt ? '→ ' + esc(pt.name) + ` (${pt.qty?.[p.store] ?? 0} on shelf)` : 'Not a stocked part (supplies)'}${l.cost ? ' · ' + cents(l.cost) + ' each' : ''}</div>
+          ${open && !rec ? `<select data-plink="${p.id}:${i}" aria-label="Stocked part for ${esc(l.name)}" style="min-height:30px;margin-top:4px;max-width:320px"><option value="">Not a stocked part</option>${parts.map(x => `<option value="${x.id}" ${x.id === l.partId ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>` : ''}</td><td class="r num">${rec}/${l.qty}</td>
+        <td class="r">${open ? `<button data-rl="${p.id}:${i}" style="min-height:32px;padding:2px 10px">Received ${l.qty - rec}</button>` : rec >= l.qty ? '<span class="pill ok">✓</span>' : ''}</td></tr>`; }).join('')}</tbody></table></div>
+      <div class="row">${['placed','partial'].includes(p.status) && p.store === S.store && p.lines.some(l => (+l.received || 0) < l.qty) ? `<button class="primary" data-rall="${p.id}">Everything arrived: receive all</button>` : ''}${p.status === 'draft' && can(2) ? `<button class="primary" data-place="${p.id}">Mark placed</button>` : ''}${['placed','partial'].includes(p.status) && can(2) ? `<button data-track="${p.id}">${p.tracking ? 'Change' : 'Add'} tracking #</button>` : ''}</div>
     </div>`).join('') || '<p class="muted small">No orders yet.</p>'}</div></div>`;
   $('#po-st') && ($('#po-st').onchange = e => { S.poStore = e.target.value; re(); });
   box.querySelectorAll('[data-sq]').forEach(i => i.onchange = () => { sug[+i.dataset.sq].qty = Math.max(0, parseInt(i.value) || 0); });
@@ -4567,7 +4784,11 @@ function viewOrders(box, parts, reqs, pos, re){
     <div class="field"><label class="label" for="tk-no">Tracking #</label><input id="tk-no" placeholder="1Z..."></div><button class="primary" id="tk-go">Save</button>`,
     (L, close) => L.querySelector('#tk-go').onclick = async () => { const v = L.querySelector('#tk-no').value.trim(); if (!v) return; await Store.updatePO(S.user, b.dataset.track, {tracking: v}); close(); toast('Tracking saved. The store can see it.'); re(); }));
   box.querySelectorAll('[data-rl]').forEach(b => b.onclick = async () => { const [id, i] = b.dataset.rl.split(':'); const po = pos.find(x => x.id === id); const l = po.lines[+i];
-    try { await Store.receivePOLine(S.user, S.store, id, +i, l.qty - l.received); toast(`${l.name}: received. Count updated.`); re(); } catch (e) { toast(e.message); } });
+    b.disabled = true; try { await Store.receivePOLine(S.user, S.store, id, +i, l.qty - (+l.received || 0)); toast(`${l.name}: received.${l.partId ? ' Shelf count updated.' : ''}`); re(); } catch (e) { toast(e.message); b.disabled = false; } });
+  box.querySelectorAll('[data-plink]').forEach(sel => sel.onchange = async () => { const [id, i] = sel.dataset.plink.split(':'); try { await Store.linkPOLine(S.user, S.store, id, +i, sel.value); re(); } catch (e) { toast(e.message); } });
+  box.querySelectorAll('[data-rall]').forEach(b => b.onclick = async () => { const po = pos.find(x => x.id === b.dataset.rall); b.disabled = true;
+    try { for (let i = 0; i < po.lines.length; i++) { const l = po.lines[i]; const left = l.qty - (+l.received || 0); if (left > 0) await Store.receivePOLine(S.user, S.store, po.id, i, left); }
+      toast(`Sentrix #${po.orderNo || po.number} received. Shelf counts updated.`); re(); } catch (e) { toast(e.message); re(); } });
 }
 async function viewRmaRefurb(box, parts, re){
   const [rma, ref] = await Promise.all([Store.rmaLog(), Store.refurbLog()]);
@@ -4579,13 +4800,13 @@ async function viewRmaRefurb(box, parts, re){
       <div class="grid" style="grid-template-columns:1fr 1fr 1fr"><div class="stat"><span class="label">RMA screens</span><span class="v">${c.screens}</span></div><div class="stat"><span class="label">RMA small</span><span class="v">${c.small}</span></div><div class="stat"><span class="label">Refurb</span><span class="v">${c.refurb}</span></div></div></div>`; }).join('')}</div>
     <div class="panel stack"><div class="row" style="justify-content:space-between"><h2>RMA</h2><button id="rm-add">+ Log a defective part</button></div>
       <p class="muted small" style="margin:0">Goes up automatically when a part is replaced on a rework ticket. Log parts that arrive dead from Sentrix here too. The screen count is screens only; small parts are logged but kept out of it, same as today.</p>
-      <div class="tbl"><table><thead><tr>${can(2) ? '<th></th>' : ''}<th>Part</th><th>Why</th><th>Store</th><th>When</th><th>By</th></tr></thead><tbody>
-      ${held.map(x => `<tr>${can(2) ? `<td><input type="checkbox" data-rmsel="${x.id}" style="width:auto;min-height:auto" aria-label="Select"></td>` : ''}<td>${esc(x.name)} ${x.screen ? '<span class="pill">screen</span>' : '<span class="pill">small part</span>'}</td><td class="small">${esc(x.reason)}</td><td>${x.store}</td><td class="small">${fmtDate(x.at)}</td><td class="small">${esc(staffName(x.by))}</td></tr>`).join('') || `<tr><td colspan="${can(2) ? 6 : 5}" class="muted">No RMA parts on hand.</td></tr>`}
+      <div class="tbl"><table><thead><tr>${can(2) ? '<th></th>' : ''}<th>Part</th><th>Why</th><th>Store</th><th>When</th><th>By</th><th></th></tr></thead><tbody>
+      ${held.map(x => `<tr>${can(2) ? `<td><input type="checkbox" data-rmsel="${x.id}" style="width:auto;min-height:auto" aria-label="Select"></td>` : ''}<td>${esc(x.name)} ${x.screen ? '<span class="pill">screen</span>' : '<span class="pill">small part</span>'}</td><td class="small">${esc(x.reason)}</td><td>${x.store}</td><td class="small">${fmtDate(x.at)}</td><td class="small">${esc(staffName(x.by))}</td><td class="r"><button data-rml="${x.id}" style="min-height:30px;padding:2px 8px;font-size:12px">Label</button></td></tr>`).join('') || `<tr><td colspan="${can(2) ? 7 : 6}" class="muted">No RMA parts on hand.</td></tr>`}
       </tbody></table></div>${can(2) && held.length ? '<button id="rm-ship">Ship selected to Sentrix</button>' : ''}</div>
     <div class="panel stack"><div class="row" style="justify-content:space-between"><h2>Refurb</h2><button id="rf-add">+ Add a refurb screen</button></div>
       <p class="muted small" style="margin:0">Goes up automatically on every Glass Only invoice line (any model, any quality). Add screens pulled from repair-stock phones or a customer's screen that turned out good with the button.</p>
-      <div class="tbl"><table><thead><tr>${can(2) ? '<th></th>' : ''}<th>Model</th><th>Why</th><th>From</th><th>Store</th><th>When</th></tr></thead><tbody>
-      ${rh.map(x => `<tr>${can(2) ? `<td><input type="checkbox" data-rfsel="${x.id}" style="width:auto;min-height:auto" aria-label="Select"></td>` : ''}<td>${esc(x.model)}</td><td class="small">${esc(x.reason)}</td><td class="small">${esc(x.ref)}</td><td>${x.store}</td><td class="small">${fmtDate(x.at)}</td></tr>`).join('') || `<tr><td colspan="${can(2) ? 6 : 5}" class="muted">No refurb screens logged in the POS yet.</td></tr>`}
+      <div class="tbl"><table><thead><tr>${can(2) ? '<th></th>' : ''}<th>Model</th><th>Why</th><th>From</th><th>Store</th><th>When</th><th></th></tr></thead><tbody>
+      ${rh.map(x => `<tr>${can(2) ? `<td><input type="checkbox" data-rfsel="${x.id}" style="width:auto;min-height:auto" aria-label="Select"></td>` : ''}<td>${esc(x.model)}</td><td class="small">${esc(x.reason)}</td><td class="small">${esc(x.ref)}</td><td>${x.store}</td><td class="small">${fmtDate(x.at)}</td><td class="r"><button data-rfl2="${x.id}" style="min-height:30px;padding:2px 8px;font-size:12px">Label</button></td></tr>`).join('') || `<tr><td colspan="${can(2) ? 7 : 6}" class="muted">No refurb screens logged in the POS yet.</td></tr>`}
       </tbody></table></div>${can(2) && rh.length ? '<button id="rf-ship">Ship selected for refurb credit</button>' : ''}</div></div>`;
   $('#rm-add').onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Log a defective part</h3><button data-close>Close</button></div>
     <div class="field"><label class="label" for="ra-p">Part</label><select id="ra-p"><option value="">Pick a part…</option>${parts.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
@@ -4602,6 +4823,9 @@ async function viewRmaRefurb(box, parts, re){
     <div class="field"><label class="label" for="sh-r">${kind === 'rma' ? 'Sentrix RMA #' : 'Refurb shipment / credit #'}</label><input id="sh-r"></div><button class="primary" id="sh-go">Mark shipped</button>`,
     (L, close) => L.querySelector('#sh-go').onclick = async () => { const ids = [...box.querySelectorAll(sel + ':checked')].map(x => x.dataset[sel === '[data-rmsel]' ? 'rmsel' : 'rfsel']);
       if (!ids.length) { toast('Select the items in the box first.'); return; } const n = await Store.shipOut(S.user, S.store, kind, ids, L.querySelector('#sh-r').value.trim()); close(); toast(`${n} marked shipped`); re(); });
+  const tnum = r => (String(r || '').match(/#(\d+)/) || [])[1] || '';
+  box.querySelectorAll('[data-rml]').forEach(b => b.onclick = () => { const x = held.find(y => y.id === b.dataset.rml); binLabelSheet('RMA', {name: x.name, reason: x.reason, ticket: tnum(x.reason || x.ref), store: x.store, by: x.by, at: x.at}); });
+  box.querySelectorAll('[data-rfl2]').forEach(b => b.onclick = () => { const x = rh.find(y => y.id === b.dataset.rfl2); binLabelSheet('REFURB', {name: 'Original screen · ' + x.model, reason: x.reason, ticket: tnum(x.ref), store: x.store, by: x.by, at: x.at}); });
   $('#rm-ship') && ($('#rm-ship').onclick = () => ship('rma', '[data-rmsel]'));
   $('#rf-ship') && ($('#rf-ship').onclick = () => ship('refurb', '[data-rfsel]'));
 }
@@ -4846,10 +5070,14 @@ async function viewDashboard(el){
   const lineup = tix.filter(t => DS.includes(t.store) && ['new','progress','board'].includes(t.status)).sort((a, b) => (a.status === 'board') - (b.status === 'board') || new Date(a.createdAt) - new Date(b.createdAt));
   const late = tix.filter(t => DS.includes(t.store) && t.status === 'parts' && daysOld(t.createdAt) >= 5);
   const bar = v => `<div style="height:8px;background:var(--soft);border-radius:4px;overflow:hidden"><div style="height:100%;width:${Math.min(100, v / DAILY_GOAL * 100)}%;background:${v >= DAILY_GOAL ? 'var(--ok)' : 'var(--accent)'}"></div></div>`;
+  const anns = (await Store.announcements().catch(() => [])).filter(a => !a.stores?.length || a.stores.includes(S.store) || can(3)).sort((a, b) => (b.pinned - a.pinned) || new Date(b.at) - new Date(a.at));
+  const annHTML = `<div class="panel stack" id="ann-box"><div class="row" style="justify-content:space-between"><h3>📣 Announcements</h3>${can(2) ? '<button class="primary" id="ann-new" style="min-height:36px">+ New announcement</button>' : ''}</div>
+    <div class="stack" style="gap:8px;max-height:300px;overflow:auto">${anns.map(a => `<div class="ann ${a.pinned ? 'pin' : ''}"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:nowrap;align-items:flex-start"><span class="small muted">${a.pinned ? '📌 ' : ''}${esc(staffName(a.by))} · ${ago(a.at)}${a.stores?.length ? ' · ' + a.stores.map(x => STORES[x] || x).join(', ') + ' only' : ''}${a.expiresAt ? ' · until ' + fmtDate(a.expiresAt) : ''}</span>${can(2) ? `<button data-annx="${a.id}" aria-label="Remove announcement" style="min-height:26px;padding:0 8px;font-size:12px">✕</button>` : ''}</div><div style="margin-top:4px">${esc(a.text)}</div></div>`).join('') || '<p class="small muted" style="margin:0">No announcements right now.</p>'}</div></div>`;
   const QA = [['customer', 'New customer', 'Add someone to the system'], ['ticket', 'New ticket', 'Check in a repair'], ['buyback', 'New buyback', 'Test, pay and label a device'],
     ['appraisal', 'New appraisal', 'Price a device for a seller'], ['quote', 'New quote', 'Repair price + phone script']];
   el.innerHTML = `<div class="stack">
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">${QA.map(([k, l, d]) => `<button class="qa" data-qa="${k}" style="min-height:76px;text-align:left;align-items:flex-start;flex-direction:column;justify-content:center;gap:2px;border-radius:12px"><b style="font-size:16px;display:block">+ ${l}</b><span class="small muted" style="display:block;font-weight:400">${d}</span></button>`).join('')}</div>
+    ${annHTML}
     ${can(3) && att.length ? `<div class="panel stack"><h3>Needs attention</h3><div class="stack" style="gap:6px">${att.map(([k, t, tab]) => `<button data-att="${tab}" style="text-align:left;justify-content:flex-start;min-height:40px"><span class="pill ${k}" style="margin-right:8px">!</span>${esc(t)}</button>`).join('')}</div></div>` : ''}
     <div class="grid ${per.length > 1 ? 'g3' : ''}">${per.map(p => `<div class="panel stack">
       <div class="row" style="justify-content:space-between"><h3>${STORES[p.s]}</h3><span class="pill ${p.on.length ? 'ok' : 'bad'}">${p.on.length ? esc(p.on.join(', ')) : 'nobody on'}</span></div>
@@ -4872,6 +5100,17 @@ async function viewDashboard(el){
     </div></div>`;
   el.querySelectorAll('tr[data-t]').forEach(tr => tr.onclick = () => go('ticket', {ticketId: tr.dataset.t}));
   el.querySelectorAll('[data-att]').forEach(b => b.onclick = () => (b.dataset.att === 'swappa' && (S.sw.tab = 'ship'), go(b.dataset.att)));
+  el.querySelectorAll('[data-annx]').forEach(b => b.onclick = async () => { try { await Store.removeAnnouncement(S.user, b.dataset.annx); toast('Announcement removed'); viewDashboard(el); } catch (e) { toast(e.message); } });
+  $('#ann-new') && ($('#ann-new').onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>New announcement</h3><button data-close>Close</button></div>
+      <div class="field"><label class="label" for="an-t">Message</label><textarea id="an-t" rows="4" placeholder="Starting Monday, every buyback needs the IMEI checked on SickW before paying."></textarea></div>
+      <div class="field"><span class="label">Who sees it</span><div class="row" style="gap:12px">${Object.entries(STORES).map(([k, v]) => `<label class="row small" style="gap:6px"><input type="checkbox" data-anst="${k}" checked style="width:auto;min-height:0"> ${v}</label>`).join('')}</div></div>
+      <div class="grid g2"><div class="field"><label class="label" for="an-d">Show it for</label><select id="an-d"><option value="0">Until I remove it</option><option value="1">1 day</option><option value="3">3 days</option><option value="7" selected>1 week</option><option value="30">30 days</option></select></div>
+        <label class="row" style="gap:8px;align-self:end;cursor:pointer"><input type="checkbox" id="an-p" style="width:22px;height:22px"> Pin it to the top</label></div>
+      <div class="err" id="an-e" role="alert"></div><button class="primary" id="an-go">Post</button>`,
+    (L, close) => L.querySelector('#an-go').onclick = async () => { const st = [...L.querySelectorAll('[data-anst]:checked')].map(x => x.dataset.anst);
+      if (!st.length) { L.querySelector('#an-e').textContent = 'Pick at least one store.'; return; }
+      try { await Store.announce(S.user, {text: L.querySelector('#an-t').value, stores: st.length === Object.keys(STORES).length ? [] : st, pinned: L.querySelector('#an-p').checked, days: +L.querySelector('#an-d').value}); close(); toast('Posted'); viewDashboard(el); }
+      catch (e) { L.querySelector('#an-e').textContent = e.message; } }));
   el.querySelectorAll('[data-qa]').forEach(b => b.onclick = () => { const k = b.dataset.qa;
     if (k === 'customer') customerSheet(null, c => go('customer', {customerId: c.id}));
     else if (k === 'ticket') go('newticket', {draft: {}});
