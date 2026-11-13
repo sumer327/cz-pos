@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794594502";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794596526";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -1555,8 +1555,13 @@ window.addEventListener('popstate', e => {
 });
 const myNotes = list => list.filter(n => (!n.store || n.store === S.store) && (!n.role || RANK[S.user.role] >= (n.role === 'owner' ? 3 : 2)));
 
+/* every page change gets a number; a page that finishes loading after you've already moved on is dropped quietly
+   (that was the random "Cannot set properties of null" banner: the old page woke up and looked for buttons that were gone) */
+let RENDER_NO = 0;
 async function renderShell(){
+  const tok = ++RENDER_NO;
   const [open, notes] = await Promise.all([Store.openPunch(S.user.id), Store.notes().catch(() => [])]);
+  if (tok !== RENDER_NO || !S.user) return;
   const mine = myNotes(notes); const unread = mine.filter(n => !n.readBy.includes(S.user.id));
   const cur = ALIAS[S.tab] || S.tab; const moreOn = MORE.some(m => m[0] === cur);
   $('#bar').innerHTML = `<header class="appbar"><div class="in">
@@ -1601,7 +1606,10 @@ async function renderShell(){
     hours: viewHours, staff: viewStaff, tickets: viewTickets, ticket: viewTicket, newticket: viewNewTicket, customers: viewCustomers,
     customer: viewCustomer, search: viewSearch, invoices: viewInvoices, invoice: viewInvoice, eod: viewEod, techboard: viewTechboard, calls: viewInbox, inbox: viewInbox, repairs: viewRepairs, repair: viewRepair,
     register: viewRegister, closeout: viewCloseout, bblog: viewBbLog, reports: viewReports, counts: viewCounts, transfers: viewTransfers};
-  try { await (views[S.tab] || viewTickets)($('#main')); } catch (e) { console.error(e); $('#main').innerHTML = `<div class="banner bad">${esc(e.message)}</div>`; }
+  const mainEl = $('#main');
+  try { await (views[S.tab] || viewTickets)(mainEl); }
+  catch (e) { console.error(e); if (tok !== RENDER_NO || !mainEl.isConnected) return;   /* you already went somewhere else: ignore */
+    mainEl.innerHTML = `<div class="banner bad stack" style="gap:8px"><span>${esc(e.message)}</span><button id="err-retry" style="align-self:flex-start">Try again</button></div>`; const rb = $('#err-retry'); if (rb) rb.onclick = () => go(S.tab); }
 }
 
 /* ---------------- TICKETS (RepairShopr layout) ---------------- */
