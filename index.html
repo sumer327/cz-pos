@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794591557";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794592714";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -4332,18 +4332,20 @@ async function viewRepairs(el){
     <div class="row" style="justify-content:space-between"><div><h2>Repair stock</h2><p class="muted small" style="margin:0">Bought devices that need work before they can sell. ${all.length} devices · ${money(tied)} tied up.</p></div>
       ${can(3) ? `<select id="rf-store" aria-label="Store" style="width:auto"><option value="mine">${STORES[S.store]}</option><option value="all">All stores</option>${Object.entries(STORES).filter(([k]) => k !== S.store).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>` : ''}</div>
     <div class="statusbar" role="group" aria-label="Filter by repair status"><button data-rs="all" aria-pressed="${F.st === 'all'}">All (${all.length})</button>${REPAIR_ST.map(([k, l]) => `<button data-rs="${k}" aria-pressed="${F.st === k}">${l} (${all.filter(d => (d.repairStatus || 'diag') === k).length})</button>`).join('')}</div>
-    <div class="tbl"><table><thead><tr><th>Stock #</th><th>Device</th><th>Needs</th><th>Repair status</th><th>Parts</th><th class="r">Cost so far</th><th>In repair</th><th>Store</th></tr></thead><tbody>
+    <div class="tbl"><table><thead><tr><th>Stock #</th><th>Device</th><th>Needs</th><th>Repair status</th><th>Tech</th><th>Parts</th><th class="r">Cost so far</th><th>In repair</th><th>Store</th></tr></thead><tbody>
     ${rows.map(d => { const po = orders.filter(o => o.forId === d.id && o.status !== 'received'); const age = daysOld(d.createdAt); return `<tr class="click" data-d="${d.id}" tabindex="0">
       <td class="num"><a style="color:var(--accent)">${d.stockNo}</a></td>
       <td><b>${esc(d.model)}</b> <span class="muted">${esc(d.storage)} · ${esc(d.carrier)}</span>${d.example ? ' <span class="pill">example</span>' : ''}</td>
       <td>${(d.needs || []).map(n => `<span class="pill warn" style="margin:1px">${esc(n)}</span>`).join(' ') || '<span class="muted small">—</span>'}</td>
       <td><select class="techsel" data-rst="${d.id}" aria-label="Repair status for ${d.stockNo}">${REPAIR_ST.map(([k, l]) => `<option value="${k}" ${(d.repairStatus || 'diag') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></td>
+      <td><select class="techsel" data-rtech="${d.id}" aria-label="Tech for ${d.stockNo}"><option value="">Unassigned</option>${S.staff.filter(e => e.active || e.id === d.techId).map(e => `<option value="${e.id}" ${d.techId === e.id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select></td>
       <td class="small">${po.length ? po.map(o => `${esc(o.name)} <span class="pill ${o.status === 'ordered' ? 'acc' : 'bad'}">${PO_ST[o.status]}</span>`).join('<br>') : (d.partsUsed?.length ? d.partsUsed.length + ' used' : '<span class="muted">—</span>')}</td>
       <td class="r num">${money((+d.cost || 0) + (+d.partsCost || 0))}</td>
-      <td class="small"><span class="${age >= 14 ? 'pill bad' : age >= 7 ? 'pill warn' : ''}">${age}d</span></td><td>${d.store}</td></tr>`; }).join('') || '<tr><td colspan="8" class="muted">Nothing in repair stock. Devices land here when a buyback fails a test.</td></tr>'}
+      <td class="small"><span class="${age >= 14 ? 'pill bad' : age >= 7 ? 'pill warn' : ''}">${age}d</span></td><td>${d.store}</td></tr>`; }).join('') || '<tr><td colspan="9" class="muted">Nothing in repair stock. Devices land here when a buyback fails a test.</td></tr>'}
     </tbody></table></div></div>`;
   $('#rf-store') && ($('#rf-store').value = F.store, $('#rf-store').onchange = e => { F.store = e.target.value; viewRepairs(el); });
   el.querySelectorAll('[data-rs]').forEach(b => b.onclick = () => { F.st = b.dataset.rs; viewRepairs(el); });
+  el.querySelectorAll('[data-rtech]').forEach(sel => { sel.onclick = e => e.stopPropagation(); sel.onchange = async () => { try { await Store.deviceTech(S.user, S.store, sel.dataset.rtech, sel.value || null); toast(sel.value ? 'Assigned to ' + staffName(sel.value) : 'Unassigned'); viewRepairs(el); } catch (e) { toast(e.message); } }; });
   el.querySelectorAll('[data-rst]').forEach(sel => { sel.onclick = e => e.stopPropagation(); sel.onchange = async () => { await Store.repairUpdate(S.user, S.store, sel.dataset.rst, {repairStatus: sel.value}); toast('Repair status: ' + REPAIR_LABEL[sel.value]); viewRepairs(el); }; });
   el.querySelectorAll('tr[data-d]').forEach(tr => { const o = e => { if (e.target.closest('select')) return; go('repair', {deviceId: tr.dataset.d}); }; tr.onclick = o; tr.onkeydown = e => { if (e.key === 'Enter') o(e); }; });
 }
@@ -4362,7 +4364,8 @@ async function viewRepair(el){
           <dt>Bought</dt><dd>${fmtDate(d.createdAt)} · ${STORES[d.store]} · ${esc(staffName(d.by))}</dd>
           <dt>Cost</dt><dd class="num">${cents(d.cost)} buy + ${cents(d.partsCost || 0)} parts = <b>${cents((+d.cost || 0) + (+d.partsCost || 0))}</b></dd>
           ${fails.length ? `<dt>Failed tests</dt><dd>${fails.map(f => esc(f[1])).join('; ')}</dd>` : ''}</dl>
-        ${d.status === 'repair' ? `<div class="field"><label class="label" for="r-st">Repair status</label><select id="r-st">${REPAIR_ST.map(([k, l]) => `<option value="${k}" ${(d.repairStatus || 'diag') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>` : ''}
+        ${d.status === 'repair' ? `<div class="grid g2"><div class="field"><label class="label" for="r-st">Repair status</label><select id="r-st">${REPAIR_ST.map(([k, l]) => `<option value="${k}" ${(d.repairStatus || 'diag') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+          <div class="field"><label class="label" for="r-tech">Tech</label><select id="r-tech"><option value="">Unassigned</option>${S.staff.filter(e => e.active || e.id === d.techId).map(e => `<option value="${e.id}" ${d.techId === e.id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select></div></div>` : ''}
         <div class="row"><button id="r-label">Print label</button>${d.buybackId ? '<button id="r-bos">Bill of sale</button>' : ''}</div>
       </div>
       <div class="panel stack">
@@ -4391,6 +4394,7 @@ async function viewRepair(el){
   const up = async (patch, note, msg) => { try { await Store.repairUpdate(S.user, S.store, d.id, patch, note); toast(msg || 'Saved'); viewRepair(el); } catch (e) { toast(e.message); } };
   $('#back').onclick = () => go('repairs');
   $('#r-st') && ($('#r-st').onchange = e => up({repairStatus: e.target.value}, null, 'Repair status: ' + REPAIR_LABEL[e.target.value]));
+  $('#r-tech') && ($('#r-tech').onchange = async e => { try { await Store.deviceTech(S.user, S.store, d.id, e.target.value || null); toast(e.target.value ? 'Assigned to ' + staffName(e.target.value) : 'Unassigned'); viewRepair(el); } catch (x) { toast(x.message); } });
   $('#r-label').onclick = () => labelSheet(d);
   $('#r-bos') && ($('#r-bos').onclick = () => bosSheet(d.buybackId, d.id));
   el.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => up({needs: d.needs.filter((_, i) => i !== +b.dataset.rm)}));
