@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794590685";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794591557";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -376,6 +376,9 @@ const DemoStore = {
       bbSeq: {DZ: 2501, BV: 2501, PT: 2501}, nextTicket: num, nextInvoice: 300002, nextStock: stockNo, nextReceipt: 70001, nextTransfer: 1001, nextPO: 501});
   },
   log(d, who, store, action, detail){ d.audit.unshift({id: uid(), at: now(), who, store, action, detail}); d.audit = d.audit.slice(0, 500); },
+  async changePin(emp, oldPin, newPin){ if (!/^\d{4}$/.test(newPin)) throw new Error('Your new PIN must be exactly 4 numbers.'); if (newPin === oldPin) throw new Error('Pick a PIN different from the one you were given.');
+    const d = this.db(); const h = await hashPin(newPin); if (d.employees.some(x => x.id !== emp.id && x.pin === h)) throw new Error('Someone else already uses that PIN. Pick another one.');
+    const e = d.employees.find(x => x.id === emp.id); e.pin = h; e.pinReset = false; this.save(d); return true; },
   async verifyPin(pin){
     const h = await hashPin(pin);
     const e = this.db().employees.find(x => x.active && x.pin === h);
@@ -988,6 +991,7 @@ const LiveStore = {
   async rpc(fn, args, allowNull){ const {data, error} = await this.sb.rpc(fn, args); if (error) throw new Error(error.message); if (data == null && !allowNull) throw new Error('PIN check failed. Lock the screen and enter your PIN again.'); return data; },
   pinFor(emp){ return this.pinCache.get(emp.id); },
   async verifyPin(pin){ const e = await this.rpc('pos_verify_pin', {p_pin: pin}, true); if (e) this.pinCache.set(e.id, pin); return e; },
+  async changePin(emp, oldPin, newPin){ await this.rpc('pos_change_pin', {p_pin: oldPin, p_new: newPin}); this.pinCache.set(emp.id, newPin); return true; },
   async employees(){ const {data, error} = await this.sb.from('employees_public').select('*').order('name'); if (error) throw error; return data; },
   async saveEmployee(actor, e){ return this.rpc('pos_save_employee', {p_actor_pin: this.pinFor(actor), p_emp: e}); },
   async openPunch(empId){ const {data} = await this.sb.from('punches').select('*').eq('emp', empId).is('t_out', null).maybeSingle(); return data; },
@@ -1264,6 +1268,20 @@ function enterStore(emp, store, openP){
   renderShell();
 }
 
+/* pick your own PIN. forced=true on first login with a PIN a manager set */
+function newPinSheet(emp, oldPin, forced){
+  return new Promise(res => sheet(`<div class="row" style="justify-content:space-between"><h3>${forced ? `Welcome ${esc(emp.name.split(' ')[0])}: pick your own PIN` : 'Change my PIN'}</h3><button data-close>${forced ? 'Not now' : 'Close'}</button></div>
+    ${forced ? '<p style="margin:0">You were given a temporary PIN. Pick a 4-number PIN only you know. You\'ll use it to log in and clock in from now on.</p>' : ''}
+    ${oldPin ? '' : '<div class="field"><label class="label" for="np-o">Current PIN</label><input id="np-o" inputmode="numeric" maxlength="4" type="password" autocomplete="off"></div>'}
+    <div class="field"><label class="label" for="np-a">New PIN</label><input id="np-a" inputmode="numeric" maxlength="4" type="password" autocomplete="off"></div>
+    <div class="field"><label class="label" for="np-b">Type it again</label><input id="np-b" inputmode="numeric" maxlength="4" type="password" autocomplete="off"></div>
+    <div class="err" id="np-e" role="alert"></div><button class="primary" id="np-go">Save my PIN</button>`,
+  (L, close) => { let done = false; const f = L.querySelector(oldPin ? '#np-a' : '#np-o'); f && f.focus();
+    L.querySelector('[data-close]').addEventListener('click', () => { if (!done) res(!forced); });
+    L.querySelector('#np-go').onclick = async () => { const o = oldPin || L.querySelector('#np-o').value, a = L.querySelector('#np-a').value, b = L.querySelector('#np-b').value;
+      if (!/^\d{4}$/.test(a)) { L.querySelector('#np-e').textContent = 'Your new PIN must be exactly 4 numbers.'; return; } if (a !== b) { L.querySelector('#np-e').textContent = "The two PINs don't match. Type them again."; return; }
+      try { await Store.changePin(emp, o, a); done = true; close(); toast('New PIN saved. Use it from now on.'); res(true); } catch (e) { L.querySelector('#np-e').textContent = e.message; } }; }));
+}
 async function renderLock(){
   S.user = null; $('#bar').innerHTML = ''; $('#layer').innerHTML = ''; helpUnmount();
   const open = S.store ? (await Store.punches(new Date(Date.now() - 2*86400000), new Date(Date.now() + 86400000))).filter(p => !p.t_out && p.store === S.store) : [];
@@ -1296,6 +1314,7 @@ async function renderLock(){
     if (pin.length === 4) {
       const emp = await Store.verifyPin(pin);
       if (!emp) { $('#pe').textContent = 'That PIN didn\'t match anyone. Try again.'; pin = ''; draw(); return; }
+      if (emp.pinReset) { const ok = await newPinSheet(emp, pin, true); if (!ok) { pin = ''; draw(); return; } }
       S.user = emp; const openP = await Store.openPunch(emp.id); S.user = null;
       if (openP) return enterStore(emp, openP.store, openP);
       renderPickStore(emp, null);
@@ -3693,6 +3712,7 @@ async function viewClock(el){
       <h2>${open ? `Clocked in at ${STORES[open.store]} since ${fmtTime(open.t_in)}` : `You're not clocked in`}</h2>
       ${open && open.store !== S.store ? `<div class="banner warn small">You're clocked in at ${STORES[open.store]}, not here. Clock out, then clock in at ${STORES[S.store]}.</div>` : ''}
       <button class="${open ? 'danger' : 'primary'}" id="clk" style="min-height:64px;font-size:18px">${open ? 'Clock out' : `Clock in at ${STORES[S.store]}`}</button>${open ? '' : `<button class="small" id="clk-sw" style="align-self:center">Not at ${STORES[S.store]}? Pick another store</button>`}
+      <button class="small" id="clk-pin" style="align-self:center">Change my PIN</button>
       <p class="muted small">Clock-ins only work from a store computer. Forgot to clock in or out? Ask a manager to fix your hours on the Timesheets tab.</p>
     </div>
     <div class="panel stack">
@@ -3702,6 +3722,7 @@ async function viewClock(el){
       </tbody></table></div>
     </div></div>`;
   $('#clk-sw') && ($('#clk-sw').onclick = () => { const u = S.user; renderPickStore(u, null); });
+  $('#clk-pin').onclick = () => newPinSheet(S.user, null, false);
   $('#clk').onclick = async () => { const inNow = await Store.clock(S.user, open ? open.store : S.store); toast(inNow ? `Clocked in at ${STORES[S.store]}` : 'Clocked out'); if (!inNow) return renderLock(); go('tickets'); };
 }
 
@@ -3784,6 +3805,37 @@ function billOfSaleHTML(bb, dv, emp){
     <div class="sig"><div class="line">Seller signature</div><div class="line">Date</div><div class="line">Store employee: ${esc(emp?.name || '')}</div><div class="line">Employee signature</div></div>`;
   return {css, body};
 }
+async function visitLoad(){ const devs = await Store.devices(); return Promise.all(S.visit.items.map(async x => ({bb: await Store.buyback(x.buybackId), dv: devs.find(d => d.id === x.deviceId)}))); }
+function billOfSaleMultiHTML(L, emp){
+  const one = billOfSaleHTML(L[0].bb, L[0].dv, emp); const s = L[0].bb.seller; const us = d => d ? new Date(d + 'T12:00').toLocaleDateString('en-US') : '';
+  const when = new Date(L[L.length - 1].bb.at); const tot = L.reduce((a, x) => a + (+x.bb.paid || 0), 0);
+  const pays = {}; L.forEach(x => { const k = x.bb.payout + (SAM_PAYS.includes(x.bb.payout) ? ' to ' + (x.bb.payoutTo || x.bb.seller?.payoutTo || '________') : ''); pays[k] = (pays[k] || 0) + (+x.bb.paid || 0); });
+  const cert = one.body.slice(one.body.indexOf('<div class="cert">'));
+  const body = `<div class="top"><div><h1>Bill of Sale · Device Purchase (${L.length} devices)</h1><div>Cellular Zone (Strictly Commerce LLC) · ${STORES[L[0].bb.store]} store</div></div>
+    <div style="text-align:right"><b>Buybacks ${L.map(x => esc(x.bb.bbId || '')).join(', ')}</b><br>${when.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})} · ${when.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})}</div></div>
+    <h2>Seller</h2><table>
+      <tr><td class="k">Name</td><td>${esc(s.firstName)} ${esc(s.lastName)}</td><td class="k">Phone</td><td>${fmtPhone(s.phone)}</td></tr>
+      ${s.address ? `<tr><td class="k">Address</td><td colspan="3">${esc(s.address)}, ${esc(s.city)}, ${esc(s.state)} ${esc(s.zip)}</td></tr>` : ''}
+      <tr><td class="k">Date of birth</td><td>${us(s.dob)}</td><td class="k">ID</td><td>${esc(s.idType)} · ${esc(s.idState || '')} ${esc(s.idNumber)} · exp ${us(s.idExp)}</td></tr></table>
+    <h2>Devices</h2><table style="font-size:11px"><tr style="font-weight:700"><td>Stock #</td><td>Device</td><td>IMEI / serial</td><td>Condition</td><td>Tests</td><td style="text-align:right">Price</td></tr>
+      ${L.map(({bb, dv}) => { const fails = CHECKS.filter(([k]) => dv.checklist?.[k] === 'fail').map(c => c[1]); const grade = (CONDS.find(c => c[0] === dv.cond) || [,''])[1];
+        return `<tr style="border-top:1px solid #ccc"><td>${dv.stockNo}<br><span style="color:#555">${esc(bb.bbId || '')}</span></td><td>${esc(dv.model)} ${esc(dv.storage || '')}${dv.color ? ' · ' + esc(dv.color) : ''}<br>${esc(dv.carrier || '')}</td><td>${esc(dv.imei)}</td><td>${esc(grade)}${dv.battery ? '<br>battery ' + dv.battery + '%' : ''}</td><td>${fails.length ? 'Failed: ' + esc(fails.join('; ')) : 'Passed'}</td><td style="text-align:right">${cents(bb.paid)}</td></tr>`; }).join('')}
+      <tr style="border-top:2px solid #000;font-weight:700"><td colspan="5">Total for ${L.length} devices</td><td style="text-align:right">${cents(tot)}</td></tr></table>
+    <h2>Payment</h2><table>${Object.entries(pays).map(([k, v]) => `<tr><td class="k">Paid by</td><td><b>${esc(k)}</b></td><td style="text-align:right"><b>${cents(v)}</b></td></tr>`).join('')}</table>
+    ${cert.replace('the device described above', 'each device described above').replace('the device is not stolen', 'none of the devices are stolen').replace(/this device/g, 'these devices').replace(/the price above/g, 'the prices above')}`;
+  return {css: one.css, body};
+}
+function visitBosSheet(L){
+  const emp = S.staff.find(e => e.id === L[0].bb.by); const h = billOfSaleMultiHTML(L, emp);
+  sheet(`<div class="row" style="justify-content:space-between"><h3>Bill of sale · ${L.length} devices</h3><button data-close>Close</button></div>
+    <iframe title="Bill of sale preview" style="width:100%;height:60vh;border:1px solid var(--line);border-radius:8px;background:#fff" srcdoc="${esc(`<!doctype html><html><head><meta charset=utf-8><style>${h.css}body{padding:24px}</style></head><body>${h.body}</body></html>`)}"></iframe>
+    <div class="row"><button class="primary" id="vb-print">Print bill of sale</button><button id="vb-lbl">Print all ${L.length} labels</button></div>
+    <p class="small muted" style="margin:0">Print two: one for the seller, one signed copy for the store file.</p>`,
+  L2 => { L2.querySelector('#vb-print').onclick = () => printHTML('Bill of sale ' + L.map(x => x.bb.receiptNo).join('-'), h.body, h.css); L2.querySelector('#vb-lbl').onclick = () => printLabels(L.map(x => x.dv).filter(Boolean)); });
+}
+/* several device labels in one print job, one label per page */
+function printLabels(devs){ if (!devs.length) return; const hs = devs.map(labelHTML); const css = hs[0].css.replace('body{width', '.lb{width') + '.lb{page-break-after:always;break-after:page}.lb:last-child{page-break-after:auto;break-after:auto}';
+  printHTML(devs.length + ' labels', hs.map(h => `<div class="lb">${h.body}</div>`).join(''), css); }
 async function bosSheet(bbId, dvId){
   const [bb, devs] = await Promise.all([Store.buyback(bbId), Store.devices()]); const dv = devs.find(x => x.id === dvId);
   if (!bb || !dv) { toast('Bill of sale not found.'); return; }
@@ -4069,7 +4121,7 @@ async function viewBuyback(el){
   if (S.bbDone) return viewBuybackDone(el);
   const B = S.bb; const P = S.prices;
   if (!B.appraisal) { const open0 = await Store.openPunch(S.user.id);
-    el.innerHTML = `${!open0 ? '<div class="banner bad" style="margin-bottom:12px">Clock in before buying devices. Buybacks are tied to who is on the clock.</div>' : ''}
+    el.innerHTML = `${!open0 ? '<div class="banner bad" style="margin-bottom:12px">Clock in before buying devices. Buybacks are tied to who is on the clock.</div>' : ''}${B.fromVisit && S.visit ? `<div class="banner acc small" style="margin-bottom:12px">Next device for <b>${esc([S.visit.seller.firstName, S.visit.seller.lastName].join(' '))}</b> (${S.visit.items.length} bought so far). Appraise it, and their seller info is already filled in.</div>` : ''}
       <div class="panel stack" style="padding:10px"><div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><h2 style="margin:0">1 · What are they selling?</h2><button id="bb-log" style="margin-left:auto">📒 Buyback log</button>
         <span class="small muted">Pick the device and condition, then tap the green <b>Buy it</b> button to test it, add the seller and pay.</span></div>
         <iframe id="bb-counter" src="${COUNTER_URL}" title="Counter appraisal" style="width:100%;height:900px;border:1px solid var(--line);border-radius:var(--r);background:#fff"></iframe>
@@ -4128,6 +4180,9 @@ async function viewBuyback(el){
       </div>
       ${max != null ? `<form class="panel stack" id="bb-form" novalidate autocomplete="off">
         <h2>3 · Seller</h2>
+        ${S.visit?.items.length && B.fromVisit ? `<div class="banner acc small">Adding to <b>${esc([S.visit.seller.firstName, S.visit.seller.lastName].join(' '))}</b>'s visit: ${S.visit.items.length} device${S.visit.items.length === 1 ? '' : 's'} bought so far. Their info is filled in. One bill of sale prints for everything at the end.</div>` : ''}
+        <div class="field"><label class="label" for="s-find">Sold to us before? Search by phone or name</label><input id="s-find" placeholder="210 555 0142 or Maria Lopez" autocomplete="off"></div>
+        <div id="s-hits" class="stack" style="gap:6px"></div>
         <div class="grid g2">
           <div class="field"><label class="label" for="s-phone">Mobile phone</label><input id="s-phone" data-s="phone" inputmode="tel" value="${sv('phone')}"></div>
           <div class="field"><label class="label" for="s-dob">Date of birth</label><input id="s-dob" data-s="dob" type="date" value="${sv('dob')}"></div>
@@ -4170,9 +4225,23 @@ async function viewBuyback(el){
   el.querySelectorAll('[data-b]').forEach(i => i.oninput = i.onchange = () => { B[i.dataset.b] = i.value; if (i.dataset.b === 'battery') { const y = window.scrollY; clearTimeout(S._bt); S._bt = setTimeout(() => re().then(() => { window.scrollTo(0, y); const n = $('#bb-bat'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }), 600); } });
   el.querySelectorAll('[data-s]').forEach(i => i.oninput = i.onchange = () => { B.seller[i.dataset.s] = i.value; });
   const form = $('#bb-form'); if (!form) return;
-  // returning seller: fill name from the customer list
+  // returning seller: search everyone who sold to us before and fill in everything from their last buy
+  const sellers = async () => { if (!S.sellers || Date.now() - S.sellersAt > 300000) { const all = await Store.buybackLog().catch(() => []); const m = new Map();
+      all.forEach(b => { const s0 = b.seller || {}; const ph = String(s0.phone || b.phone || '').replace(/\D/g, ''); if (!ph) return; const k = ph; const x = m.get(k);
+        if (!x) m.set(k, {seller: {...s0, phone: ph}, n: 1, last: b.at}); else { x.n++; if (new Date(b.at) > new Date(x.last)) { x.seller = {...s0, phone: ph}; x.last = b.at; } } });
+      S.sellers = [...m.values()]; S.sellersAt = Date.now(); } return S.sellers; };
+  const fill = x => { const keep = ['firstName', 'lastName', 'phone', 'email', 'address', 'city', 'state', 'zip', 'dob', 'idType', 'idNumber', 'idState', 'idExp'];
+    keep.forEach(k => { if (x.seller[k]) B.seller[k] = x.seller[k]; }); B.seller.heardFrom = 'Returning Customer';
+    const expired = B.seller.idExp && new Date(B.seller.idExp) < new Date(new Date().toDateString()); if (expired) B.seller.idExp = '';
+    const y = window.scrollY; re().then(() => { window.scrollTo(0, y); toast(expired ? 'Filled in from their last buy. Their ID on file is expired: get the new ID number and expiration.' : 'Filled in from their last buy. Check the photo ID still matches.'); }); };
+  let sft; $('#s-find').oninput = e => { clearTimeout(sft); sft = setTimeout(async () => { const q = e.target.value.trim().toLowerCase(), qd = q.replace(/\D/g, ''); const box = $('#s-hits'); if (!box) return;
+    if (q.length < 2) { box.innerHTML = ''; return; } const list = (await sellers()).filter(x => (qd.length >= 3 && x.seller.phone.includes(qd)) || (!qd.length && [x.seller.firstName, x.seller.lastName].join(' ').toLowerCase().includes(q))).slice(0, 6);
+    box.innerHTML = list.length ? list.map((x, i) => `<button type="button" data-sel="${i}" style="text-align:left;justify-content:flex-start"><b>${esc([x.seller.firstName, x.seller.lastName].join(' '))}</b>&nbsp;<span class="muted num">${fmtPhone(x.seller.phone)}</span>&nbsp;<span class="small muted">· ${x.n} buy${x.n === 1 ? '' : 's'} · last ${fmtDate(x.last)}</span></button>`).join('') : '<span class="small muted">Nobody found. Fill in their info below.</span>';
+    box.querySelectorAll('[data-sel]').forEach(b => b.onclick = () => fill(list[+b.dataset.sel])); }, 200); };
+  // typing a phone number of someone who sold before fills everything in too
   $('#s-phone').addEventListener('change', async () => {
     const ph = B.seller.phone.replace(/\D/g, ''); if (ph.length !== 10) return;
+    const prev = (await sellers()).find(x => x.seller.phone === ph); if (prev && !B.seller.idNumber) return fill(prev);
     const c = await Store.customerByPhone(ph);
     if (c) { const [f, ...r] = c.name.split(' '); if (!B.seller.firstName) { B.seller.firstName = f; $('#s-first').value = f; } if (!B.seller.lastName) { B.seller.lastName = r.join(' '); $('#s-last').value = B.seller.lastName; } if (c.email && !B.seller.email) { B.seller.email = c.email; $('#s-email').value = c.email; } if (!B.seller.heardFrom) { B.seller.heardFrom = 'Returning Customer'; $('#s-heard').value = 'Returning Customer'; } $('#s-known').innerHTML = `<span class="pill acc">Returning customer: ${esc(c.name)}</span>`; }
   });
@@ -4202,6 +4271,8 @@ async function viewBuyback(el){
       battery: B.battery === '' ? null : +B.battery, checklist: {...B.checks}, needs, paid, max, payout: B.payout, payoutTo: (B.payoutTo || '').trim(), notes: B.notes.trim(),
       seller: {...sl, phone: ph, email: (sl.email || '').trim().toLowerCase(), firstName: sl.firstName.trim(), lastName: sl.lastName.trim(), state: sl.state.toUpperCase()}}, override);
     S.bbDone = {deviceId: r.device.id, buybackId: r.buyback.id};
+    if (!S.visit || S.visit.phone !== ph) S.visit = {phone: ph, seller: {...sl, phone: ph}, payout: B.payout, payoutTo: B.payoutTo || '', items: []};
+    S.visit.items.push({buybackId: r.buyback.id, deviceId: r.device.id}); S.sellers = null;
     S.bb = newBB(); window.scrollTo(0, 0); viewBuyback(el);
   };
 }
@@ -4230,8 +4301,13 @@ async function viewBuybackDone(el){
         <button data-dest="wholesale" aria-pressed="${dv.status === 'wholesale'}">Wholesale<span class="small muted" style="display:block">ship to Atlas</span></button>
       </div>
       ${dv.status === 'repair' ? '<button id="d-rep">Open in repair stock</button>' : ''}
-      <button id="d-next">Buy another device</button>
+      ${S.visit?.items.length > 1 ? `<div class="banner acc stack" style="gap:8px"><span><b>${esc(S.visit.seller.firstName)}'s visit: ${S.visit.items.length} devices</b> · <span id="d-vtot"></span></span>
+        <div class="row" style="gap:8px"><button class="primary" id="d-vbos">Print ONE bill of sale for all ${S.visit.items.length}</button><button id="d-vlbl">Print all ${S.visit.items.length} labels</button></div></div>` : ''}
+      <div class="row" style="gap:8px"><button class="${S.visit?.items.length ? 'primary' : ''}" id="d-more" style="flex:1">+ Buy another device from ${esc(bb?.seller?.firstName || 'this seller')}</button><button id="d-next" style="flex:1">Next seller</button></div>
     </div></div>`;
+  $('#d-more').onclick = () => { const v = S.visit; S.bb = newBB(); if (v) { S.bb.seller = {...S.bb.seller, ...v.seller}; S.bb.payout = v.payout; S.bb.payoutTo = v.payoutTo; S.bb.fromVisit = true; } S.bbDone = null; viewBuyback(el); };
+  if (S.visit?.items.length > 1) visitLoad().then(L => { const t = $('#d-vtot'); if (t) t.textContent = cents(L.reduce((a, x) => a + (+x.bb?.paid || 0), 0)) + ' total';
+    $('#d-vbos').onclick = () => visitBosSheet(L); $('#d-vlbl').onclick = () => printLabels(L.map(x => x.dv).filter(Boolean)); });
   el.querySelectorAll('[data-dest]').forEach(b => b.onclick = async () => { if (b.getAttribute('aria-pressed') === 'true') return;
     try { await Store.updateDevice(S.user, S.store, dv.id, {status: b.dataset.dest}); toast(b.dataset.dest === 'wholesale' ? `Added to ${STORES[dv.store]} wholesale` : `Moved to ${STATUS_LABEL[b.dataset.dest]}`); viewBuybackDone(el); } catch (e) { toast(e.message); } });
   $('#d-bos').onclick = () => bosSheet(S.bbDone.buybackId, dv.id);
@@ -4241,7 +4317,7 @@ async function viewBuybackDone(el){
     (L, close) => L.querySelector('#tc-go').onclick = async () => { try { await Store.tradeCashout(S.user, S.store, bb.id); close(); toast(`${cents(bb.creditLeft)} paid in cash from the buyback fund`); viewBuybackDone(el); } catch (e) { L.querySelector('#tc-e').textContent = e.message; } }));
   $('#d-label').onclick = () => labelSheet(dv);
   $('#d-rep') && ($('#d-rep').onclick = () => { S.bbDone = null; go('repair', {deviceId: dv.id}); });
-  $('#d-next').onclick = () => { S.bbDone = null; viewBuyback(el); };
+  $('#d-next').onclick = () => { S.bbDone = null; S.visit = null; S.bb = newBB(); viewBuyback(el); };
 }
 
 /* ---------------- REPAIR STOCK ---------------- */
@@ -4784,7 +4860,8 @@ function viewOrders(box, parts, reqs, pos, re){
     <div class="field"><label class="label" for="tk-no">Tracking #</label><input id="tk-no" placeholder="1Z..."></div><button class="primary" id="tk-go">Save</button>`,
     (L, close) => L.querySelector('#tk-go').onclick = async () => { const v = L.querySelector('#tk-no').value.trim(); if (!v) return; await Store.updatePO(S.user, b.dataset.track, {tracking: v}); close(); toast('Tracking saved. The store can see it.'); re(); }));
   box.querySelectorAll('[data-rl]').forEach(b => b.onclick = async () => { const [id, i] = b.dataset.rl.split(':'); const po = pos.find(x => x.id === id); const l = po.lines[+i];
-    b.disabled = true; try { await Store.receivePOLine(S.user, S.store, id, +i, l.qty - (+l.received || 0)); toast(`${l.name}: received.${l.partId ? ' Shelf count updated.' : ''}`); re(); } catch (e) { toast(e.message); b.disabled = false; } });
+    b.disabled = true; try { const r = await Store.receivePOLine(S.user, S.store, id, +i, l.qty - (+l.received || 0)); const sp = +(r?.lines?.[+i]?.specials || 0);
+      toast(`${l.name}: received.${l.partId ? ' Shelf count updated.' : ''}${sp ? ` ${sp} special order${sp > 1 ? 's' : ''} ready: the ticket / repair phone was updated.` : ''}`); re(); } catch (e) { toast(e.message); b.disabled = false; } });
   box.querySelectorAll('[data-plink]').forEach(sel => sel.onchange = async () => { const [id, i] = sel.dataset.plink.split(':'); try { await Store.linkPOLine(S.user, S.store, id, +i, sel.value); re(); } catch (e) { toast(e.message); } });
   box.querySelectorAll('[data-rall]').forEach(b => b.onclick = async () => { const po = pos.find(x => x.id === b.dataset.rall); b.disabled = true;
     try { for (let i = 0; i < po.lines.length; i++) { const l = po.lines[i]; const left = l.qty - (+l.received || 0); if (left > 0) await Store.receivePOLine(S.user, S.store, po.id, i, left); }
