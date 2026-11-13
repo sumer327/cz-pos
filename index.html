@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794598354";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794598902";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -873,7 +873,7 @@ const DemoStore = {
     const parts = inv.flatMap(payParts);
     return {cashSales: sum(parts.filter(p => p.method === 'Cash'), p => p.amount), cardSales: sum(parts.filter(p => /^Square/.test(p.method)), p => p.amount),
       otherSales: sum(parts.filter(p => p.method !== 'Cash' && !/^Square/.test(p.method) && p.method !== 'Trade-in credit'), p => p.amount),
-      cashBuys: sum(d.buybacks.filter(b => same(b) && /^cash/i.test(b.payout || '')), b => b.paid) + sum(d.buybacks.filter(b => b.store === store && b.creditCashAt && dayKey(b.creditCashAt) === day), b => b.creditCash || 0)}; },
+      cashBuys: sum(d.buybacks.filter(b => same(b) && /^cash$/i.test((b.payout || '').trim())), b => b.paid) + sum(d.buybacks.filter(b => b.store === store && b.creditCashAt && dayKey(b.creditCashAt) === day), b => b.creditCash || 0)}; },
   async registerDays(){ return (this.db().registers || []); },
   async registerToday(store){ const d = this.db(); const r = (d.registers || []).find(x => x.store === store && !x.closedAt); return r ? {id: r.id, day: r.day, ...this.regTotals(d, store, r.day)} : null; },
   async openRegister(emp, store, drawer, fund){ const d = this.db(); d.registers = d.registers || []; const day = dayKey(new Date());
@@ -2657,7 +2657,7 @@ async function regReport(day, store = S.store){
   const line = (label, amt, opt = {}) => `<tr${opt.bold ? ' style="font-weight:700"' : ''}><td>${label}${opt.sub ? `<div class="small muted">${opt.sub}</div>` : ''}</td><td class="r num" style="${amt < 0 ? 'color:var(--bad)' : ''}">${amt == null ? '' : cents(amt)}</td><td class="r small">${opt.tag || ''}</td></tr>`;
   const sales = act.rows.filter(x => x.kind !== 'buyback'), buys = act.rows.filter(x => x.kind === 'buyback');
   const cashIn = r2(sales.filter(x => x.method === 'Cash' && x.amt > 0).reduce((a, x) => a + x.amt, 0)), cashRef = r2(sales.filter(x => x.method === 'Cash' && x.amt < 0).reduce((a, x) => a + x.amt, 0));
-  const cashBuyRows = buys.filter(x => /^cash/i.test(x.method || ''));
+  const cashBuyRows = buys.filter(x => /^cash$/i.test((x.method || '').trim()));
   const title = `${STORES[store]} register · ${fmtDate(day + 'T12:00')}`;
   if (!R) return {title, html: `<p class="muted">The register wasn't opened at ${STORES[store]} on ${fmtDate(day + 'T12:00')}.</p>${act.rows.length ? `<h4>Transactions</h4>${act.table}` : ''}`};
   const closed = !!R.closedAt;
@@ -2701,7 +2701,7 @@ async function regReport(day, store = S.store){
       ${line(closed ? '= Should be in the fund' : '= Should be in the fund now (before tonight\'s deposit)', fexp, {bold: true})}
       ${closed ? line('Counted at close', R.fundCounted, {tag: off(R.fundCounted, fexp)}) : ''}
     </tbody></table></div>
-    ${buys.some(x => !/^cash/i.test(x.method || '')) ? `<h4 style="margin:8px 0 4px">Buybacks paid another way (not from the fund)</h4><div class="tbl"><table><tbody>${buys.filter(x => !/^cash/i.test(x.method || '')).map(x => line(`${esc(x.what)} · ${esc(x.method || '')}`, -x.amt, {sub: `${fmtTime(x.at)} · ${esc(x.who)}${x.bb?.payoutStatus === 'requested' ? ' · waiting on Sam' : ''}`})).join('')}</tbody></table></div>` : ''}
+    ${buys.some(x => !/^cash$/i.test((x.method || '').trim())) ? `<h4 style="margin:8px 0 4px">Buybacks paid another way (not from the fund)</h4><div class="tbl"><table><tbody>${buys.filter(x => !/^cash$/i.test((x.method || '').trim())).map(x => line(`${esc(x.what)} · ${esc(x.method || '')}`, -x.amt, {sub: `${fmtTime(x.at)} · ${esc(x.who)}${x.bb?.payoutStatus === 'requested' ? ' · waiting on Sam' : ''}`})).join('')}</tbody></table></div>` : ''}
     ${R.notes ? `<div class="banner small"><b>Close notes:</b> ${esc(R.notes)}</div>` : ''}
     <h4 style="margin:8px 0 4px">Every transaction (${act.rows.length})</h4>${act.table}
     <p class="small muted" style="margin:0">Only cash taken in that day goes into the buyback fund, and the drawer never goes under ${cents(DRAWER_KEEP)}. Buybacks are negative.</p>`;
