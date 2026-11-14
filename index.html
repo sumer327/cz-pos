@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794616154";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794617259";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -3858,9 +3858,9 @@ async function htmlToPdf(body, css, kind){
       const m = css.match(/@page\{size:([\d.]+)in ([\d.]+)in/); const pw = +m[1], ph = +m[2];
       const els = [...doc.querySelectorAll('.lb')]; const targets = els.length ? els : [doc.body];
       /* the DYMO's label stock runs portrait (1.1 in wide, 3.5 in long), so a wide label is turned 90° onto a portrait page */
-      const rot = pw > ph, PW = rot ? ph : pw, PH = rot ? pw : ph;
-      pdf = new jsPDF({orientation: 'portrait', unit: 'in', format: [PW, PH]});
-      for (let i = 0; i < targets.length; i++) { if (i) pdf.addPage([PW, PH], 'portrait'); let c = await snap(targets[i]);
+      const rot = false, PW = pw, PH = ph;   /* sent wide, like Chrome does; the paper option tells the DYMO it's the 30252 roll */
+      pdf = new jsPDF({orientation: PW > PH ? 'landscape' : 'portrait', unit: 'in', format: [PW, PH]});
+      for (let i = 0; i < targets.length; i++) { if (i) pdf.addPage([PW, PH], PW > PH ? 'landscape' : 'portrait'); let c = await snap(targets[i]);
         if (rot) { const r = document.createElement('canvas'); r.width = c.height; r.height = c.width; const g = r.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, r.width, r.height); g.translate(r.width, 0); g.rotate(Math.PI / 2); g.drawImage(c, 0, 0); c = r; }
         pdf.addImage(jpg(c), 'JPEG', 0, 0, PW, PH); }
     } else if (kind === 'receipt') {
