@@ -166,7 +166,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794693216";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794693488";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -4168,7 +4168,7 @@ async function printHTML(title, body, css, kind = printKind(css), extra = {}){
     toast(`Sending to the ${PRINT_KIND[kind]}…`);
     try { const {stretch, ...ex} = extra; const st = kind === 'label' ? (stretch ?? LABEL_STRETCH[S.store] ?? 1) : 1;
       const r = kind === 'receipt' ? await Store.cloudPrint({store: S.store, kind, title, raw: await htmlToEscpos(body, css)})
-        : kind === 'label' && (ex.native ?? DYMO_NATIVE[S.store]) ? await Store.cloudPrint({store: S.store, kind, title, raw: await htmlToDymo(body, css, ex)})
+        : kind === 'label' && (ex.native ?? DYMO_NATIVE[S.store]) ? await Store.cloudPrint({store: S.store, kind, title, raw: await htmlToDymo(body, css, ex), ...(ex.printerId ? {printerId: ex.printerId} : {})})
         : await Store.cloudPrint({store: S.store, kind, title, pdf: await htmlToPdf(body, css, kind, st), ...(kind === 'label' ? {paper: DYMO_PAPER[labelSize()]} : {}), ...ex});
       toast(`Printing on ${r.printer}${r.paper ? ' · ' + r.paper : ''} ✓`); return; }
     catch (e) { console.error(e); toast(`Couldn't send it (${e.message}). Opening the print window instead.`); }
@@ -4185,7 +4185,7 @@ async function printersSheet(){
         <div class="tbl"><table><tbody>${Object.entries(PRINT_KIND).map(([k, n]) => `<tr><td><b>${n}</b><div class="small muted">${k === 'label' ? 'device, RMA and refurb labels' : k === 'receipt' ? 'receipts and drop-off tickets' : k === 'ship' ? 'Swappa shipping labels (falls back to the Brother)' : 'bills of sale, reports, packing lists'}</div></td>
           <td class="small">${mine[k] ? esc(mine[k]) : '<span class="muted">not found</span>'}</td><td class="r">${mine[k] ? `<button data-pt="${k}" style="min-height:34px">Test print</button>` : ''}</td></tr>`).join('')}</tbody></table></div>
         ${!on && PN.list.length ? `<p class="small muted" style="margin:0">PrintNode sees: ${esc([...new Set(PN.list.map(p => p.computer))].join(', '))}. Rename the ${STORES[S.store]} front computer in PrintNode so its name has "${S.store}" or "${STORES[S.store]}" in it.</p>` : ''}
-        ${PN.list.length ? `<details class="small"><summary style="cursor:pointer">Printer details (for setup help)</summary><div class="stack" style="gap:6px;margin-top:6px">${PN.list.map(p => `<div><b>${esc(p.name)}</b> · ${esc(p.computer)} · ${esc(p.state || '')}${p.description ? ' · ' + esc(p.description) : ''}${/dymo|labelwriter/i.test(p.name + ' ' + p.description) ? ` <button data-pid="${p.id}" style="min-height:28px;padding:2px 10px">Test this DYMO</button>` : ''}<div class="muted">${esc((p.papers || []).join(' | ') || 'no paper sizes reported')}</div></div>`).join('')}</div></details>` : ''}
+        ${PN.list.length ? `<details class="small"><summary style="cursor:pointer">Printer details (for setup help)</summary><div class="stack" style="gap:6px;margin-top:6px">${PN.list.map(p => `<div><b>${esc(p.name)}</b> · ${esc(p.computer)} · ${esc(p.state || '')}${p.description ? ' · ' + esc(p.description) : ''}${/dymo|labelwriter/i.test(p.name + ' ' + p.description) ? ` <button data-pid="${p.id}" style="min-height:28px;padding:2px 10px">Test this DYMO</button> <button data-pid="${p.id}" data-native="1" style="min-height:28px;padding:2px 10px">Direct test</button>` : ''}<div class="muted">${esc((p.papers || []).join(' | ') || 'no paper sizes reported')}</div></div>`).join('')}</div></details>` : ''}
         <label class="row small" style="gap:8px"><input type="checkbox" id="pr-local" style="width:auto;min-height:auto" ${ls.get('czpos-localprint', '') ? 'checked' : ''}> Always use the normal print window on this computer</label>
         <button id="pr-re">Check again</button>`;
       box.querySelectorAll('[data-pt]').forEach(b => b.onclick = () => { const k = b.dataset.pt; const when = new Date().toLocaleString('en-US');
@@ -4197,7 +4197,7 @@ async function printersSheet(){
       /* several DYMO entries for one printer: print a test to one specific entry to find the one that works */
       box.querySelectorAll('[data-pid]').forEach(b => b.onclick = () => { const p = PN.list.find(x => String(x.id) === b.dataset.pid); const sz = LABELS[labelSize()];
         const lcss = `@page{size:${sz.w} ${sz.h};margin:0}*{box-sizing:border-box}html,body{margin:0}body{width:${sz.w};height:${sz.h};position:relative;font-family:Arial}`;
-        printHTML('DYMO test ' + p.name, `<div style="position:absolute;inset:0;border:3px solid #000"></div><div style="position:absolute;left:0;right:0;top:30%;text-align:center;font:700 14px Arial">${esc(p.name)}</div><div style="position:absolute;left:0;right:0;top:62%;text-align:center;font:11px Arial">entry #${p.id}</div>`, lcss, 'label', {printerId: p.id}); });
+        printHTML('DYMO test ' + p.name, `<div style="position:absolute;inset:0;border:3px solid #000"></div><div style="position:absolute;left:0;right:0;top:30%;text-align:center;font:700 14px Arial">${esc(p.name)}</div><div style="position:absolute;left:0;right:0;top:62%;text-align:center;font:11px Arial">entry #${p.id}${b.dataset.native ? ' · DIRECT' : ''}</div>`, lcss, 'label', {printerId: p.id, ...(b.dataset.native ? {native: true} : {})}); });
       box.querySelector('#pr-local') && (box.querySelector('#pr-local').onchange = e => ls.set('czpos-localprint', e.target.checked ? '1' : ''));
       box.querySelector('#pr-re') && (box.querySelector('#pr-re').onclick = () => draw(true)); };
     draw(true);
