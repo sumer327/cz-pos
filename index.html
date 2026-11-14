@@ -67,6 +67,7 @@ input,select,textarea{background:var(--panel);border:1px solid var(--line);borde
 .pinshow i.on{background:var(--ink);border-color:var(--ink)}
 .pad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .pad button{font-size:24px;min-height:64px;font-family:var(--mono)}
+.pad button.pressed{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 /* tables */
 .tbl{overflow-x:auto;border:1px solid var(--line);border-radius:12px}
 table{border-collapse:collapse;width:100%;font-size:14px}
@@ -165,7 +166,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794684270";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794689126";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -1315,6 +1316,18 @@ function newPinSheet(emp, oldPin, forced){
       if (!/^\d{4}$/.test(a)) { L.querySelector('#np-e').textContent = 'Your new PIN must be exactly 4 numbers.'; return; } if (a !== b) { L.querySelector('#np-e').textContent = "The two PINs don't match. Type them again."; return; }
       try { await Store.changePin(emp, o, a); done = true; close(); toast('New PIN saved. Use it from now on.'); res(true); } catch (e) { L.querySelector('#np-e').textContent = e.message; } }; }));
 }
+/* type the PIN on the keyboard: number keys (top row or keypad), Backspace, and Enter all work like tapping the pad.
+   Works on the lock screen and in "Manager PIN" popups (whichever PIN pad is showing on top). */
+document.addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const pad = $('#layer #pp') || $('#app .lock #pp'); if (!pad) return;
+  const t = e.target; if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) && !pad.contains(t)) return;
+  let k = /^[0-9]$/.test(e.key) ? e.key : e.key === 'Backspace' || e.key === 'Delete' ? '⌫' : null;
+  if (e.key === 'Enter') { e.preventDefault(); return; }   /* the PIN goes through by itself after the 4th number */
+  if (k == null) return;
+  const b = pad.querySelector(`[data-k="${k}"]`); if (!b) return;
+  e.preventDefault(); b.click(); b.classList.add('pressed'); setTimeout(() => b.classList.remove('pressed'), 120);
+});
 async function renderLock(){
   S.user = null; $('#bar').innerHTML = ''; $('#layer').innerHTML = ''; helpUnmount();
   const open = S.store ? (await Store.punches(new Date(Date.now() - 2*86400000), new Date(Date.now() + 86400000))).filter(p => !p.t_out && p.store === S.store) : [];
