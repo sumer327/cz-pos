@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794616036";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794616154";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -3838,6 +3838,8 @@ async function cloudPrinters(force){
   PN.at = Date.now(); return PN.map;
 }
 const printKind = css => /72mm/.test(css) ? 'receipt' : /@page\{size:[\d.]+in [\d.]+in/.test(css) ? 'label' : 'paper';
+/* the DYMO driver's own name for each label roll (width × height in points) */
+const DYMO_PAPER = {'30252': 'w79h252', '30336': 'w72h154', '30334': '30334_2-1_4_in_x_1-1_4_in', '30330': 'w54h144'};
 const PRINT_KIND = {label: 'DYMO label printer', receipt: 'Epson receipt printer', paper: 'Brother printer'};
 const H2C = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js', JSPDF = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
 const loadScript = (doc, src) => new Promise((ok, no) => { const s = doc.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => no(new Error("couldn't load the PDF maker")); doc.head.appendChild(s); });
@@ -3912,7 +3914,7 @@ async function printHTML(title, body, css, kind = printKind(css)){
   if (map && map[S.store]?.[kind]) {
     toast(`Sending to the ${PRINT_KIND[kind]}…`);
     try { const r = kind === 'receipt' ? await Store.cloudPrint({store: S.store, kind, title, raw: await htmlToEscpos(body, css)})
-        : await Store.cloudPrint({store: S.store, kind, title, pdf: await htmlToPdf(body, css, kind)});
+        : await Store.cloudPrint({store: S.store, kind, title, pdf: await htmlToPdf(body, css, kind), ...(kind === 'label' ? {paper: DYMO_PAPER[labelSize()]} : {})});
       toast(`Printing on ${r.printer}${r.paper ? ' · ' + r.paper : ''} ✓`); return; }
     catch (e) { console.error(e); toast(`Couldn't send it (${e.message}). Opening the print window instead.`); }
   }
