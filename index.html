@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794617697";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794617810";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -2780,6 +2780,18 @@ async function registerPanel(box, again){
       if (isNaN(fu)) { L.querySelector('#or-e').textContent = 'Count the buyback fund.'; return; }
       try { await Store.openRegister(S.user, S.store, dr, fu); close(); toast('Register open · drawer ' + cents(dr)); again(); } catch (e) { L.querySelector('#or-e').textContent = e.message; } }; }));
 }
+/* register phone search: stock #, IMEI, buyback ID (BV70002), or words like "16 pro max 512".
+   Short numbers must match a whole word of the model / storage ("16" ≠ IMEI digits, "12" ≠ "128GB"); 5+ digits can be part of the IMEI or stock #. */
+function devMatch(d, q){
+  q = q.toLowerCase().replace(/^#/, '').trim(); if (!q) return false;
+  const imei = (d.imei || '').toLowerCase(), bb = (d.bbId || '').toLowerCase();
+  if (String(d.stockNo) === q || imei === q || (bb && bb === q.replace(/\s+/g, ''))) return true;
+  if (q.length < 3) return false;
+  const toks = `${d.model || ''} ${d.storage || ''} ${d.carrier || ''} ${d.color || ''}`.toLowerCase().split(/[\s\-\/(),]+/).filter(Boolean);
+  return q.split(/\s+/).every(w => /^\d+$/.test(w)
+    ? toks.some(t => t.replace(/(gb|tb)$/, '') === w) || (w.length === 4 && imei.endsWith(w)) || (w.length >= 5 && (imei.includes(w) || String(d.stockNo).includes(w)))
+    : toks.some(t => t.startsWith(w)) || (w.length >= 5 && (imei.includes(w) || bb.includes(w))));
+}
 async function viewRegister(el){
   const set = await Store.settings();
   if (!S.prods || Date.now() - S.prodsAt > 120000) { S.prods = await Store.products().catch(() => []); S.prodsAt = Date.now(); }
@@ -2788,7 +2800,7 @@ async function viewRegister(el){
   /* phones in this store's stock can be sold here too: search by stock #, IMEI or model */
   if (pq && (!S.rgDevs || Date.now() - S.rgDevsAt > 60000)) { S.rgDevs = (await Store.devices().catch(() => [])).filter(d => d.store === S.store && ['hot', 'tolist', 'swappa', 'testing'].includes(d.status) && !d.transferId); S.rgDevsAt = Date.now(); }
   const pql = pq.toLowerCase().replace(/^#/, '');
-  const devHits = pq ? (S.rgDevs || []).filter(d => !S.cart.some(l => l.deviceId === d.id) && (String(d.stockNo) === pql || (d.imei || '').toLowerCase() === pql || (pql.length >= 3 && pql.split(/\s+/).every(w => `${d.model} ${d.storage} ${d.carrier} ${d.imei} ${d.stockNo}`.toLowerCase().includes(w))))).slice(0, 8) : [];
+  const devHits = pq ? (S.rgDevs || []).filter(d => !S.cart.some(l => l.deviceId === d.id) && devMatch(d, pql)).slice(0, 8) : [];
   const sub = S.cart.reduce((a, l) => a + l.price * (l.qty || 1), 0), rtax = taxOf(S.cart), total = Math.round((sub + rtax) * 100) / 100;
   const ph10 = (S.cartPhone || '').replace(/\D/g, '');
   const TR = S.rgTrade = S.rgTrade || {phone: '', credits: [], use: true, cashBack: true};
@@ -2867,7 +2879,7 @@ async function viewRegister(el){
   const rq = $('#rg-q'); let rqt;
   rq.oninput = () => { clearTimeout(rqt); rqt = setTimeout(() => { S.rgq = rq.value; viewRegister(el).then(() => { const n = $('#rg-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 200); };
   rq.onkeydown = e => { if (e.key === 'Enter') { const v = rq.value.trim(); if (!v) return; clearTimeout(rqt); const m = S.prods.filter(x => x.category !== 'Phone Sale' && prodMatch(x, v)); const p = S.prods.find(x => x.upc && x.upc === v) || (m.length === 1 ? m[0] : null);
-    if (p) addProd(p); else if (!m.length && !(S.rgDevs || []).some(d => String(d.stockNo) === v.replace(/^#/, '') || d.imei === v)) manual(v); } };
+    if (p) addProd(p); else if (!m.length && !(S.rgDevs || []).some(d => devMatch(d, v))) manual(v); } };
   if (exact) { addProd(exact); return; }
   registerPanel($('#rg-day'), () => viewRegister(el)).catch(e => { $('#rg-day').innerHTML = `<div class="banner warn small">Register open/close isn't available: ${esc(e.message)}</div>`; });
   $('#rg-ph').oninput = e => { S.cartPhone = e.target.value; if (e.target.value.replace(/\D/g, '').length === 10 || TR.phone) viewRegister(el).then(() => { const n = $('#rg-ph'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); };
