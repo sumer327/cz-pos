@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794617810";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794617924";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -3852,10 +3852,11 @@ async function cloudPrinters(force){
 const printKind = css => /72mm/.test(css) ? 'receipt' : /@page\{size:[\d.]+in [\d.]+in/.test(css) ? 'label' : 'paper';
 /* the DYMO driver's own name for each label roll (width × height in points) */
 const DYMO_PAPER = {'30252': 'w79h252', '30336': 'w72h154', '30334': '30334_2-1_4_in_x_1-1_4_in', '30330': 'w54h144'};
+const LABEL_STRETCH = {};   /* per store, once measured */
 const PRINT_KIND = {label: 'DYMO label printer', receipt: 'Epson receipt printer', paper: 'Brother printer'};
 const H2C = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js', JSPDF = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
 const loadScript = (doc, src) => new Promise((ok, no) => { const s = doc.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => no(new Error("couldn't load the PDF maker")); doc.head.appendChild(s); });
-async function htmlToPdf(body, css, kind){
+async function htmlToPdf(body, css, kind, stretch = 1){
   const f = document.createElement('iframe'); f.setAttribute('aria-hidden', 'true');
   f.style.cssText = 'position:fixed;left:-20000px;top:0;border:0;width:9in;height:20px;background:#fff';
   document.body.appendChild(f);
@@ -3870,7 +3871,8 @@ async function htmlToPdf(body, css, kind){
       const m = css.match(/@page\{size:([\d.]+)in ([\d.]+)in/); const pw = +m[1], ph = +m[2];
       const els = [...doc.querySelectorAll('.lb')]; const targets = els.length ? els : [doc.body];
       /* the DYMO's label stock runs portrait (1.1 in wide, 3.5 in long), so a wide label is turned 90° onto a portrait page */
-      const rot = false, PW = pw, PH = ph;   /* sent wide, like Chrome does; the paper option tells the DYMO it's the 30252 roll */
+      /* the Bulverde DYMO (via PrintNode) prints labels shortened lengthwise, so the label is sent stretched by `stretch` to come out right */
+      const rot = false, PW = pw * stretch, PH = ph;   /* sent wide, like Chrome does; the paper option tells the DYMO it's the 30252 roll */
       pdf = new jsPDF({orientation: PW > PH ? 'landscape' : 'portrait', unit: 'in', format: [PW, PH]});
       for (let i = 0; i < targets.length; i++) { if (i) pdf.addPage([PW, PH], PW > PH ? 'landscape' : 'portrait'); let c = await snap(targets[i]);
         if (rot) { const r = document.createElement('canvas'); r.width = c.height; r.height = c.width; const g = r.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, r.width, r.height); g.translate(r.width, 0); g.rotate(Math.PI / 2); g.drawImage(c, 0, 0); c = r; }
@@ -3925,8 +3927,9 @@ async function printHTML(title, body, css, kind = printKind(css), extra = {}){
   const map = ls.get('czpos-localprint', '') ? null : await cloudPrinters();
   if (map && map[S.store]?.[kind]) {
     toast(`Sending to the ${PRINT_KIND[kind]}…`);
-    try { const r = kind === 'receipt' ? await Store.cloudPrint({store: S.store, kind, title, raw: await htmlToEscpos(body, css)})
-        : await Store.cloudPrint({store: S.store, kind, title, pdf: await htmlToPdf(body, css, kind), ...(kind === 'label' ? {paper: DYMO_PAPER[labelSize()]} : {}), ...extra});
+    try { const {stretch, ...ex} = extra; const st = kind === 'label' ? (stretch ?? LABEL_STRETCH[S.store] ?? 1) : 1;
+      const r = kind === 'receipt' ? await Store.cloudPrint({store: S.store, kind, title, raw: await htmlToEscpos(body, css)})
+        : await Store.cloudPrint({store: S.store, kind, title, pdf: await htmlToPdf(body, css, kind, st), ...(kind === 'label' ? {paper: DYMO_PAPER[labelSize()]} : {}), ...ex});
       toast(`Printing on ${r.printer}${r.paper ? ' · ' + r.paper : ''} ✓`); return; }
     catch (e) { console.error(e); toast(`Couldn't send it (${e.message}). Opening the print window instead.`); }
   }
@@ -3947,7 +3950,7 @@ async function printersSheet(){
         <button id="pr-re">Check again</button>`;
       box.querySelectorAll('[data-pt]').forEach(b => b.onclick = () => { const k = b.dataset.pt; const when = new Date().toLocaleString('en-US');
         if (k === 'label') { const sz = LABELS[labelSize()]; const lbl = t => `<div style="position:absolute;inset:0;border:3px solid #000"></div><div style="position:absolute;left:6px;top:4px;font:700 13px Arial">TOP LEFT</div><div style="position:absolute;right:6px;bottom:4px;font:700 13px Arial">BOTTOM RIGHT</div><div style="position:absolute;left:0;right:0;top:38%;text-align:center;font:700 16px Arial">${t}</div>`, lcss = `@page{size:${sz.w} ${sz.h};margin:0}*{box-sizing:border-box}html,body{margin:0}body{position:relative;width:${sz.w};height:${sz.h};overflow:hidden}`;
-          printHTML('Test label A', lbl('TEST A · fit on'), lcss, 'label', {fit: true}).then(() => printHTML('Test label B', lbl('TEST B · fit off'), lcss, 'label', {fit: false})); }
+          printHTML('Test label C', lbl('TEST C · stretch fit off'), lcss, 'label', {fit: false, stretch: 2.58}).then(() => printHTML('Test label D', lbl('TEST D · stretch fit on'), lcss, 'label', {fit: true, stretch: 2.58})); }
         else if (k === 'receipt') printHTML('Test receipt', `<div style="font:700 16px Arial;text-align:center">CELLULAR ZONE</div><div style="text-align:center;font:12px Arial">Test receipt · ${esc(STORES[S.store])}<br>${when}</div>`, '@page{size:72mm 297mm;margin:0}html,body{margin:0;width:72mm}body{padding:2mm 3mm;box-sizing:border-box}', 'receipt');
         else printHTML('Test page', `<h1 style="font:700 22px Arial">Cellular Zone · test page</h1><p style="font:14px Arial">${esc(STORES[S.store])} · ${when}. If this came out of the Brother, bills of sale will too.</p>`, '@page{size:letter;margin:.6in}', 'paper'); });
       box.querySelector('#pr-local') && (box.querySelector('#pr-local').onchange = e => ls.set('czpos-localprint', e.target.checked ? '1' : ''));
