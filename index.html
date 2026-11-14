@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794619162";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794619416";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -200,6 +200,8 @@ const LINE_CATS = ['Repair','Board-level repair','Diagnostic','Water damage trea
    diagnostics and water damage treatments. The database works out the tax on every invoice the same way; this is for showing it. */
 const TAX_RATE = 0.0825;
 /* how an invoice was paid: split payments (trade-in credit + card) or the single method */
+/* "Other" (no cash or card, e.g. store credit for a device we damaged) always needs a note saying why; it shows on the day report */
+const otherNoteHTML = id => `<div class="field" id="${id}-onf" hidden><label class="label" for="${id}-on">Why "Other"? (required: shows on the day report)</label><input id="${id}-on" placeholder="Repair credited to a new phone: we damaged their device" autocomplete="off"></div>`;
 const payParts = i => i.payments?.length ? i.payments : [{method: i.payment, amount: i.total}];
 /* line discount (like RepairShopr's ▾ on a line): price is what they pay, orig is the regular price, discPct when it was a % */
 const discNote = l => +l.orig > +l.price ? `Originally ${cents(l.orig)}, less discount of ${cents(+l.orig - +l.price)}${l.discPct ? ` (${l.discPct}%)` : ''}` : '';
@@ -671,9 +673,14 @@ const DemoStore = {
     tcSum = Math.round(tcSum * 100) / 100; if (tcSum > total + 0.001) throw new Error(`The trade-in credit applied (${cents(tcSum)}) is more than the sale (${cents(total)}).`);
     if (lines.some(l => l.deviceId && ['sold', 'atlas'].includes(d.devices.find(x => x.id === l.deviceId)?.status))) throw new Error('One of those phones is already marked sold. Reload the register.');
     const pay = inv.payment || 'Cash'; const rest = Math.round((total - tcSum) * 100) / 100;
-    const payments = [...(tcSum > 0 ? [{method: 'Trade-in credit', amount: tcSum}] : []), ...(rest > 0 ? [{method: pay, amount: rest}] : [])];
+    const sp = Array.isArray(inv.splits) && inv.splits.length ? inv.splits.map(x => ({method: x.method, amount: Math.round(+x.amount * 100) / 100})) : null;
+    if (sp) { if (sp.some(x => !x.method || !(x.amount > 0))) throw new Error('Each payment needs a method and an amount.');
+      const ss = Math.round(sp.reduce((a, x) => a + x.amount, 0) * 100) / 100; if (Math.abs(ss - rest) > 0.009) throw new Error(`The payments (${cents(ss)}) don't add up to the balance (${cents(rest)}).`); }
+    let payments = [...(tcSum > 0 ? [{method: 'Trade-in credit', amount: tcSum}] : []), ...(sp ? sp : rest > 0 ? [{method: pay, amount: rest}] : [])];
+    if (inv.payNote) payments = payments.map(x => x.method === 'Other' ? {...x, note: x.note || inv.payNote} : x);
     const devCost = lines.filter(l => l.deviceId).reduce((a, l) => { const dv = d.devices.find(x => x.id === l.deviceId); return a + (+dv?.cost || 0) + (+dv?.partsCost || 0); }, 0);
-    const row = {id: uid(), number: d.nextInvoice++, at: now(), by: emp.id, store, ...inv, lines, subtotal, tax, total, payments, payment: tcSum > 0 ? (rest > 0 ? 'Trade-in credit + ' + pay : 'Trade-in credit') : pay};
+    const row = {id: uid(), number: d.nextInvoice++, at: now(), by: emp.id, store, ...inv, lines, subtotal, tax, total, payments, payment: sp ? (tcSum > 0 ? 'Trade-in credit + ' : '') + [...new Set(sp.map(x => x.method))].join(' + ') : tcSum > 0 ? (rest > 0 ? 'Trade-in credit + ' + pay : 'Trade-in credit') : pay};
+    delete row.splits; delete row.payNote;
     if (inv._draft) { row.id = inv._draft.id; row.number = inv._draft.number; d.nextInvoice--; d.invoices = d.invoices.filter(i => i.id !== row.id); } delete row._draft; row.paid = true; row.paidAt = now();
     delete row.chargeIds; delete row.closeTickets; delete row.otherTickets; delete row.resolve; delete row.creditIds; delete row.credits; delete row.cashBack; if (!resolve) row.partsCost = 0; row.partsCost = (row.partsCost || 0) + devCost;
     let cashBack = 0;
@@ -2493,6 +2500,7 @@ function checkoutSheet(t, c){
     <div class="small muted" id="co-gp"></div>
     <div class="field"><label class="label" for="co-pay">Paid with</label><select id="co-pay">${PAYMENTS.map(p => `<option>${p}</option>`).join('')}</select></div>
     <div class="banner warn small" id="co-sq">Charge the card on the Square iPad first, then record it here.</div>
+    ${otherNoteHTML('co')}
     <div class="err" id="co-err" role="alert"></div>
     <button class="primary" id="co-go">Record payment</button>`,
   (L, close) => {
@@ -2502,11 +2510,12 @@ function checkoutSheet(t, c){
     L.querySelector('#co-glassp').onclick = () => { lines.push({desc: 'Privacy tempered glass (lifetime warranty)', cat: 'Tempered glass', price: GLASS.privacy, glass: 'privacy'}); draw(L); };
     L.querySelector('#co-case').onclick = () => { lines.push({desc: 'Case', cat: 'Accessory', price: 5}); draw(L); };
     Store.settings().then(set => { const u = L.querySelector('#co-up'); if (u) u.innerHTML = upsellBox(set); });
-    L.querySelector('#co-pay').onchange = e => { L.querySelector('#co-sq').hidden = !e.target.value.startsWith('Square'); };
+    L.querySelector('#co-pay').onchange = e => { L.querySelector('#co-sq').hidden = !e.target.value.startsWith('Square'); L.querySelector('#co-onf').hidden = e.target.value !== 'Other'; };
     L.querySelector('#co-go').onclick = async () => {
       const bad = lines.find(l => !l.desc.trim() || !(l.price > 0));
       if (bad) { L.querySelector('#co-err').textContent = 'Every line needs an item name and a price.'; return; }
-      let inv; try { inv = await Store.checkout(S.user, S.store, {ticketId: t?.id || null, customerId: c?.id || null, lines: lines.map(l => ({desc: l.desc.trim(), cat: l.cat, price: +l.price, ...(l.glass ? {glass: l.glass} : {}), ...(l.glassWarrantyId ? {glassWarrantyId: l.glassWarrantyId} : {})})), partsCost, payment: L.querySelector('#co-pay').value}); }
+      const coNote = L.querySelector('#co-on').value.trim(); if (L.querySelector('#co-pay').value === 'Other' && coNote.length < 4) { L.querySelector('#co-err').textContent = 'Write why "Other" was used (it shows on the day report).'; L.querySelector('#co-on').focus(); return; }
+      let inv; try { inv = await Store.checkout(S.user, S.store, {...(L.querySelector('#co-pay').value === 'Other' ? {payNote: coNote} : {}), ticketId: t?.id || null, customerId: c?.id || null, lines: lines.map(l => ({desc: l.desc.trim(), cat: l.cat, price: +l.price, ...(l.glass ? {glass: l.glass} : {}), ...(l.glassWarrantyId ? {glassWarrantyId: l.glassWarrantyId} : {})})), partsCost, payment: L.querySelector('#co-pay').value}); }
       catch (e) { L.querySelector('#co-err').textContent = e.message; return; }
       close(); t ? viewTicket($('#main')) : go('invoices'); receiptSheet(inv, {c, t, justPaid: true});
     };
@@ -2641,11 +2650,11 @@ async function regActivity(day, store = S.store){
   const [invs, bbs] = await Promise.all([Store.invoices(t0, t1).catch(() => []), Store.buybacks(t0, t1).catch(() => [])]);
   const iv = invs.filter(i => i.store === store && i.paid !== false && (!i.rsId || i.by)).sort((a, b) => new Date(a.at) - new Date(b.at));
   const bb = bbs.filter(b => b.store === store).sort((a, b) => new Date(a.at) - new Date(b.at));
-  const rows = [...iv.flatMap(i => payParts(i).map(p => ({at: i.at, what: `${i.refundOf ? 'Refund' : 'Sale'} #${i.number}`, who: i.by ? staffName(i.by) : '', method: p.method, amt: +p.amount || 0, kind: i.refundOf ? 'refund' : 'sale'}))),
+  const rows = [...iv.flatMap(i => payParts(i).map(p => ({at: i.at, what: `${i.refundOf ? 'Refund' : 'Sale'} #${i.number}`, who: i.by ? staffName(i.by) : '', method: p.method, note: p.note || '', amt: +p.amount || 0, kind: i.refundOf ? 'refund' : 'sale'}))),
     ...bb.map(b => ({at: b.at, what: `Buyback ${b.store}${b.receiptNo}`, who: staffName(b.by), method: b.payout, amt: -(+b.paid || 0), kind: 'buyback', bb: b}))].sort((a, b) => new Date(a.at) - new Date(b.at));
   const by = {}; rows.forEach(r => { const k = /^square/i.test(r.method) ? 'Square (card)' : r.method || 'Other'; by[k] = (by[k] || 0) + r.amt; });
   const table = `<div class="tbl"><table><thead><tr><th>Time</th><th>What</th><th>By</th><th>How</th><th class="r">Amount</th></tr></thead><tbody>
-    ${rows.map(r => `<tr><td class="small num">${fmtTime(r.at)}</td><td>${esc(r.what)}</td><td class="small">${esc(r.who)}</td><td class="small">${esc(r.method || '')}</td><td class="r num" style="${r.amt < 0 ? 'color:var(--bad)' : ''}">${cents(r.amt)}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">Nothing yet.</td></tr>'}
+    ${rows.map(r => `<tr><td class="small num">${fmtTime(r.at)}</td><td>${esc(r.what)}</td><td class="small">${esc(r.who)}</td><td class="small">${esc(r.method || '')}${r.method === 'Other' ? `<div style="color:${r.note ? 'inherit' : 'var(--bad)'}"><b>${r.note ? 'Note:' : 'No note'}</b> ${esc(r.note)}</div>` : ''}</td><td class="r num" style="${r.amt < 0 ? 'color:var(--bad)' : ''}">${cents(r.amt)}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">Nothing yet.</td></tr>'}
     </tbody></table></div>`;
   const html = `<details class="panel" style="padding:10px"><summary style="cursor:pointer"><b>Today's transactions (${rows.length})</b> · ${Object.entries(by).map(([k, v]) => `${esc(k)} ${cents(v)}`).join(' · ') || 'none yet'}</summary>
     <div style="margin-top:8px">${table}</div><p class="small muted" style="margin:6px 0 0">Buybacks are negative. Cash buybacks come out of the buyback fund; Zelle / Cash App / Apple Pay / PayPal are sent by Sam.</p></details>`;
@@ -2712,6 +2721,7 @@ async function regReport(day, store = S.store){
       ${closed ? line('Counted at close', R.fundCounted, {tag: off(R.fundCounted, fexp)}) : ''}
     </tbody></table></div>
     ${buys.some(x => !/^cash$/i.test((x.method || '').trim())) ? `<h4 style="margin:8px 0 4px">Buybacks paid another way (not from the fund)</h4><div class="tbl"><table><tbody>${buys.filter(x => !/^cash$/i.test((x.method || '').trim())).map(x => line(`${esc(x.what)} · ${esc(x.method || '')}`, -x.amt, {sub: `${fmtTime(x.at)} · ${esc(x.who)}${x.bb?.payoutStatus === 'requested' ? ' · waiting on Sam' : ''}`})).join('')}</tbody></table></div>` : ''}
+    ${sales.some(x => x.method === 'Other') ? `<h4 style="margin:8px 0 4px">Paid with "Other" (no cash or card)</h4><div class="tbl"><table><tbody>${sales.filter(x => x.method === 'Other').map(x => line(`${esc(x.what)} · ${fmtTime(x.at)}`, x.amt, {sub: `${esc(x.who)} · ${x.note ? esc(x.note) : '<b style="color:var(--bad)">no note</b>'}`})).join('')}</tbody></table></div>` : ''}
     ${R.notes ? `<div class="banner small"><b>Close notes:</b> ${esc(R.notes)}</div>` : ''}
     <h4 style="margin:8px 0 4px">Every transaction (${act.rows.length})</h4>${act.table}
     <p class="small muted" style="margin:0">Only cash taken in that day goes into the buyback fund, and the drawer never goes under ${cents(DRAWER_KEEP)}. Buybacks are negative.</p>`;
@@ -2865,6 +2875,7 @@ async function viewRegister(el){
       <div id="rg-trade">${S.cart.length ? tradeBox(TR.credits, total, TR) : (TR.credits.length ? `<div class="banner ok small">${esc(TR.credits[0].name || 'This customer')} has ${cents(tradeCalc(TR.credits, 1e9, {use: true}).avail)} trade-in credit. Add what they're buying.</div>` : '')}</div>
       <div class="field" ${S.cart.length && tk.applied > 0 && tk.due <= 0 ? 'hidden' : ''}><label class="label" for="rg-pay">${tk.applied > 0 ? 'Balance paid with' : 'Paid with'}</label><select id="rg-pay">${PAYMENTS.map(p => `<option ${S.rgPay === p ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
       <div class="banner warn small" id="rg-sq" ${(S.rgPay || PAYMENTS[0]).startsWith('Square') ? '' : 'hidden'}>Charge the card on the Square iPad first, then record it here.</div>
+      ${S.cart.length && (S.rgPay || PAYMENTS[0]) === 'Other' && !(tk.applied > 0 && tk.due <= 0) ? otherNoteHTML('rg').replace(' hidden>', '>') : ''}
       ${S.cart.length && (S.rgPay || PAYMENTS[0]) === 'Cash' && !(tk.applied > 0 && tk.due <= 0) ? cashBoxHTML('rg', S.rgGiven) : ''}
       <div class="err" id="rg-err" role="alert"></div>
       <button class="primary" id="rg-go" ${S.cart.length ? '' : 'disabled'} style="min-height:52px;font-size:16px">Record sale</button>
@@ -2930,7 +2941,9 @@ async function viewRegister(el){
     if (ph) { cust = (await Store.customerByPhone(ph)) || await Store.saveCustomer(S.user, S.store, {name: 'Walk-in ' + ph.slice(-4), phone: ph, heardFrom: 'Walk in / drive by'}); }
     const useTr = tk.applied > 0;
     let cash = null; if ($('#rg-given')) { cash = cashCheck('rg', el, rgDue()); if (cash.err) { $('#rg-err').textContent = cash.err; return; } }
-    let inv; try { inv = await Store.checkout(S.user, S.store, {ticketId: null, customerId: cust?.id || null, lines: S.cart.map(l => ({desc: l.desc, cat: l.cat, price: l.price, ...(l.productId ? {productId: l.productId} : {}), ...(l.deviceId ? {deviceId: l.deviceId} : {}), ...(l.glass ? {glass: l.glass} : {}), ...(l.glassWarrantyId ? {glassWarrantyId: l.glassWarrantyId} : {})})), partsCost: 0, payment: $('#rg-pay').value,
+    const rgOther = $('#rg-on'); if (rgOther && rgOther.value.trim().length < 4) { $('#rg-err').textContent = 'Write why "Other" was used (it shows on the day report).'; rgOther.focus(); return; }
+    const rgSplit = rgOther ? {payNote: rgOther.value.trim()} : {};
+    let inv; try { inv = await Store.checkout(S.user, S.store, {...rgSplit, ticketId: null, customerId: cust?.id || null, lines: S.cart.map(l => ({desc: l.desc, cat: l.cat, price: l.price, ...(l.productId ? {productId: l.productId} : {}), ...(l.deviceId ? {deviceId: l.deviceId} : {}), ...(l.glass ? {glass: l.glass} : {}), ...(l.glassWarrantyId ? {glassWarrantyId: l.glassWarrantyId} : {})})), partsCost: 0, payment: $('#rg-pay').value,
       ...(useTr ? {credits: tk.alloc, cashBack: tk.left > 0 && TR.cashBack} : {})}); } catch (e) { $('#rg-err').textContent = e.message; return; }
     S.cart = []; S.cartPhone = ''; S.prods = null; S.rgDevs = null; S.rgTrade = null; S.rgGiven = ''; viewRegister(el);
     receiptSheet(inv, {c: cust || {}, justPaid: true, cash, cashBack: inv.cashBack || 0, creditLeft: useTr && !TR.cashBack ? tk.left : 0});
@@ -3822,7 +3835,10 @@ function payInvoiceSheet(inv, t, c, el, more = []){
     ${more.map(x => { const mine = inv.lines.filter(l => (x.charges || []).some(ch => ch.id === l.chargeId)); const dOnly = mine.length && mine.every(l => l.cat === 'Diagnostic');
       return x.status === 'resolved' ? '' : `<label class="row" style="gap:10px;align-items:flex-start;cursor:pointer;background:var(--soft);border-radius:var(--r);padding:10px 12px"><input type="checkbox" data-mres="${x.id}" ${dOnly ? '' : 'checked'} style="width:22px;height:22px;margin-top:2px">
         <span><b>Close ticket #${x.number}</b> · ${esc(x.device || '')}<span class="small muted" style="display:block">${dOnly ? 'Diagnostic only: the ticket usually stays open.' : 'Picked up and paid: moves to Resolved.'}</span></span></label>`; }).join('')}
-    <div class="field" id="pi-payf"><label class="label" for="pi-pay">Paid with</label><select id="pi-pay">${PAYMENTS.map(p => `<option>${p}</option>`).join('')}</select></div>
+    <div class="field" id="pi-payf"><label class="label" for="pi-pay">Paid with</label><select id="pi-pay">${PAYMENTS.map(p => `<option>${p}</option>`).join('')}</select>
+      <button type="button" id="pi-split" style="align-self:flex-start;margin-top:6px;min-height:36px">+ Split between payment methods</button></div>
+    <div id="pi-splits" class="stack" style="gap:6px" hidden></div>
+    ${otherNoteHTML('pi')}
     <div class="banner warn small" id="pi-sq">Charge the card on the Square iPad first, then record it here.</div>
     ${cashBoxHTML('pi', '')}
     <div class="err" id="pi-err" role="alert"></div>
@@ -3835,11 +3851,34 @@ function payInvoiceSheet(inv, t, c, el, more = []){
     draw();
     if (c?.phone) Store.tradeCredits(c.phone).then(cr => { TRp.credits = cr || []; if (TRp.credits.length) draw(); }).catch(() => {});
     L.querySelector('#pi-res') && (L.querySelector('#pi-res').onchange = e => { resolve = e.target.checked; draw(); });
-    const pay = L.querySelector('#pi-pay'); const cashDue = () => { const tk = tradeCalc(TRp.credits, tot, TRp); return Math.round((tk.applied ? tk.due : tot) * 100) / 100; };
-    const sq = () => { L.querySelector('#pi-sq').hidden = !pay.value.startsWith('Square'); L.querySelector('#pi-cash').hidden = pay.value !== 'Cash' || L.querySelector('#pi-payf').hidden; }; pay.onchange = sq; sq();
+    const pay = L.querySelector('#pi-pay'); const balDue = () => { const tk = tradeCalc(TRp.credits, tot, TRp); return Math.round((tk.applied ? tk.due : tot) * 100) / 100; };
+    /* split payment: e.g. $440 cash + $260 other. Each row is one method and amount; together they make the balance. */
+    let splits = null;
+    const cashDue = () => splits ? Math.round(splits.filter(x => x.m === 'Cash').reduce((a, x) => a + (+x.a || 0), 0) * 100) / 100 : balDue();
+    const drawSplits = () => { const box = L.querySelector('#pi-splits'); box.hidden = !splits; L.querySelector('#pi-pay').closest('.field').querySelector('select').hidden = !!splits;
+      L.querySelector('#pi-split').textContent = splits ? '✕ One payment method' : '+ Split between payment methods';
+      if (!splits) { sq(); return; }
+      const used = Math.round(splits.reduce((a, x) => a + (+x.a || 0), 0) * 100) / 100, left = Math.round((balDue() - used) * 100) / 100;
+      box.innerHTML = splits.map((x, i) => `<div class="row" style="gap:8px;flex-wrap:nowrap"><span class="small muted" style="width:70px">Payment ${i + 1}</span><select data-sm="${i}" style="flex:1">${PAYMENTS.map(p => `<option ${p === x.m ? 'selected' : ''}>${p}</option>`).join('')}</select>
+        <input data-sa="${i}" inputmode="decimal" value="${x.a}" placeholder="0.00" style="width:110px;text-align:right" aria-label="Amount for payment ${i + 1}">${splits.length > 2 ? `<button type="button" data-sx="${i}" aria-label="Remove payment ${i + 1}" style="min-height:36px">✕</button>` : ''}</div>`).join('')
+        + `<div class="row" style="justify-content:space-between"><button type="button" id="pi-sadd" style="min-height:34px">+ Another payment</button><span class="small ${Math.abs(left) < 0.005 ? '' : 'muted'}">${Math.abs(left) < 0.005 ? '<b style="color:var(--ok)">Adds up ✓</b>' : left > 0 ? `${cents(left)} left to put on a payment` : `<b style="color:var(--bad)">${cents(-left)} too much</b>`}</span></div>`;
+      box.querySelectorAll('[data-sm]').forEach(x => x.onchange = () => { splits[+x.dataset.sm].m = x.value; drawSplits(); });
+      box.querySelectorAll('[data-sa]').forEach(x => x.onchange = () => { splits[+x.dataset.sa].a = x.value.replace(/[$,]/g, ''); const i = +x.dataset.sa;
+        if (splits.length === 2 && i === 0) { const r = Math.round((balDue() - (+splits[0].a || 0)) * 100) / 100; if (r > 0) splits[1].a = r.toFixed(2); } drawSplits(); });
+      box.querySelectorAll('[data-sx]').forEach(x => x.onclick = () => { splits.splice(+x.dataset.sx, 1); drawSplits(); });
+      box.querySelector('#pi-sadd').onclick = () => { splits.push({m: 'Other', a: left > 0 ? left.toFixed(2) : ''}); drawSplits(); };
+      L.querySelector('#pi-sq').hidden = !splits.some(x => x.m.startsWith('Square')); L.querySelector('#pi-cash').hidden = !splits.some(x => x.m === 'Cash'); L.querySelector('#pi-onf').hidden = !splits.some(x => x.m === 'Other'); };
+    L.querySelector('#pi-split').onclick = () => { splits = splits ? null : [{m: pay.value, a: ''}, {m: pay.value === 'Cash' ? 'Square (card)' : 'Cash', a: ''}]; drawSplits(); };
+    const sq = () => { if (splits) return; L.querySelector('#pi-sq').hidden = !pay.value.startsWith('Square'); L.querySelector('#pi-cash').hidden = pay.value !== 'Cash' || L.querySelector('#pi-payf').hidden; L.querySelector('#pi-onf').hidden = pay.value !== 'Other' || L.querySelector('#pi-payf').hidden; }; pay.onchange = sq; sq();
     bindCash('pi', L, cashDue);
     L.querySelector('#pi-go').onclick = async () => { const btn = L.querySelector('#pi-go'); const tk = tradeCalc(TRp.credits, tot, TRp);
-      let cash = null; if (pay.value === 'Cash' && !L.querySelector('#pi-cash').hidden) { cash = cashCheck('pi', L, cashDue()); if (cash.err) { L.querySelector('#pi-err').textContent = cash.err; return; } }
+      let sp = null; if (splits) { sp = splits.map(x => ({method: x.m, amount: Math.round((+x.a || 0) * 100) / 100}));
+        if (sp.some(x => !(x.amount > 0))) { L.querySelector('#pi-err').textContent = 'Enter an amount for each payment (or remove the empty one).'; return; }
+        const ss = Math.round(sp.reduce((a, x) => a + x.amount, 0) * 100) / 100; if (Math.abs(ss - balDue()) > 0.009) { L.querySelector('#pi-err').textContent = `The payments add up to ${cents(ss)}, but the balance is ${cents(balDue())}.`; return; } }
+      const usesOther = sp ? sp.some(x => x.method === 'Other') : pay.value === 'Other' && !L.querySelector('#pi-payf').hidden; const onote = L.querySelector('#pi-on').value.trim();
+      if (usesOther && onote.length < 4) { L.querySelector('#pi-err').textContent = 'Write why "Other" was used (it shows on the day report).'; L.querySelector('#pi-on').focus(); return; }
+      if (usesOther && sp) sp = sp.map(x => x.method === 'Other' ? {...x, note: onote} : x);
+      let cash = null; if ((sp ? sp.some(x => x.method === 'Cash') : pay.value === 'Cash') && !L.querySelector('#pi-cash').hidden) { cash = cashCheck('pi', L, cashDue()); if (cash.err) { L.querySelector('#pi-err').textContent = cash.err; return; } }
       if (L.querySelector('#pi-bh') && !L.querySelector('#pi-bh').hidden) { const v = L.querySelector('#pi-bhv').value.trim(), sk = L.querySelector('#pi-bhs').value;
         if (v && !(+v >= 1 && +v <= 100)) { L.querySelector('#pi-err').textContent = 'Battery health: enter a number from 1 to 100.'; return; }
         if (!v && !sk) { L.querySelector('#pi-err').textContent = "Record the battery health % (or pick why it couldn't be read) before closing."; return; }
@@ -3850,7 +3889,7 @@ function payInvoiceSheet(inv, t, c, el, more = []){
       const noBH = more.find(x => closeT.includes(x.id) && needsBH(x) && !x.bh && !x.bhSkip);
       if (noBH) { L.querySelector('#pi-err').textContent = `Ticket #${noBH.number} is an iPhone: record its battery health on the ticket first, or uncheck "Close ticket #${noBH.number}".`; return; }
       btn.disabled = true;
-      try { const r = await Store.checkout(S.user, S.store, {invoiceId: inv.id, ticketId: inv.ticketId || null, customerId: inv.customerId || c?.id || null, payment: pay.value, resolve: !!t && resolve,
+      try { const r = await Store.checkout(S.user, S.store, {invoiceId: inv.id, ticketId: inv.ticketId || null, customerId: inv.customerId || c?.id || null, payment: sp ? sp[0].method : pay.value, ...(sp ? {splits: sp} : {}), ...(usesOther ? {payNote: onote} : {}), resolve: !!t && resolve,
           ...(more.length ? {closeTickets: closeT, otherTickets: more.map(x => x.id)} : {}),
           ...(tk.applied > 0 ? {credits: tk.alloc, cashBack: tk.left > 0 && TRp.cashBack} : {})});
         close(); await viewInvoice(el); receiptSheet(r, {c: c || {}, t, justPaid: true, cash, note: t ? (resolve ? 'ticket closed' : 'ticket stays open') : '', cashBack: r.cashBack || 0, creditLeft: tk.applied > 0 && !TRp.cashBack ? tk.left : 0});
