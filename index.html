@@ -166,7 +166,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794693488";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794693534";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -1927,9 +1927,9 @@ function customerSheet(c, after){
   sheet(`<div class="row" style="justify-content:space-between"><h3>${c?.id ? 'Edit customer' : 'New customer'}</h3><button data-close>Close</button></div>
     <div class="field"><label class="label" for="c-n">Full name</label><input id="c-n" value="${esc(c?.name || '')}" autocomplete="off"></div>
     <div class="grid g2"><div class="field"><label class="label" for="c-p">Mobile phone</label><input id="c-p" inputmode="tel" value="${esc(c?.phone || '')}" autocomplete="off"></div>
-    <div class="field"><label class="label" for="c-e">Email (optional)</label><input id="c-e" type="email" value="${esc(c?.email || '')}" autocomplete="off"></div></div>
+    <div class="field"><label class="label" for="c-e">Email${c?.id ? '' : ' (required)'}</label><input id="c-e" type="email" value="${esc(c?.email || '')}" autocomplete="off"></div></div>
     <div id="c-lead"></div>
-    <div class="field"><label class="label" for="c-h">How did they hear about us?${c?.id ? '' : ' (ask every new customer)'}</label><select id="c-h"><option value="">Pick one…</option>${HEARD.map(h => `<option ${c?.heardFrom === h ? 'selected' : ''}>${esc(h)}</option>`).join('')}${c?.heardFrom && !HEARD.includes(c.heardFrom) ? `<option selected>${esc(c.heardFrom)}</option>` : ''}</select></div>
+    <div class="field"><label class="label" for="c-h">How did they hear about us?${c?.id ? '' : ' (required: ask every new customer)'}</label><select id="c-h"><option value="">Pick one…</option>${HEARD.map(h => `<option ${c?.heardFrom === h ? 'selected' : ''}>${esc(h)}</option>`).join('')}${c?.heardFrom && !HEARD.includes(c.heardFrom) ? `<option selected>${esc(c.heardFrom)}</option>` : ''}</select></div>
     <div class="err" id="c-err" role="alert"></div><button class="primary" id="c-save">Save customer</button>`,
   (L, close) => {
     let leads = null, hits = [];
@@ -1951,7 +1951,10 @@ function customerSheet(c, after){
     L.querySelector('#c-save').onclick = async () => {
       const phone = L.querySelector('#c-p').value.replace(/\D/g, ''); const heard = L.querySelector('#c-h').value;
       if (phone && phone.length !== 10) { L.querySelector('#c-err').textContent = 'Phone number should be 10 digits.'; return; }
-      if (!c?.id && !heard) { L.querySelector('#c-err').textContent = 'Ask how they heard about us and pick one.'; return; }
+      const email = L.querySelector('#c-e').value.trim();
+      if (!c?.id && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) { L.querySelector('#c-err').textContent = email ? 'That email doesn\'t look right. Check it with the customer.' : 'Get the customer\'s email. It\'s required for new customers (receipts and warranty).'; L.querySelector('#c-e').focus(); return; }
+      if (c?.id && email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) { L.querySelector('#c-err').textContent = 'That email doesn\'t look right.'; return; }
+      if (!c?.id && !heard) { L.querySelector('#c-err').textContent = 'Ask how they heard about us and pick one.'; L.querySelector('#c-h').focus(); return; }
       try { const row = await Store.saveCustomer(S.user, S.store, {id: c?.id, name: L.querySelector('#c-n').value, phone, email: L.querySelector('#c-e').value, heardFrom: heard});
         close(); toast(row.leadsWon ? `Customer saved · previous lead marked Won` : 'Customer saved'); after && after(row); }
       catch (e) { L.querySelector('#c-err').textContent = e.message; }
