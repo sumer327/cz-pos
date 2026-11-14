@@ -166,7 +166,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794694839";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794696782";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -185,6 +185,12 @@ const STATUSES = [
 const STATUS_LABEL = Object.fromEntries(STATUSES);
 const CONDS = [['new','New'],['mint','Mint'],['used','Used'],['heavy','Heavy wear'],['glass','Glass/LCD broken'],['damaged','Damaged']];
 const IDLE_LOCK_MS = 30 * 60000;   /* lock after 30 minutes idle */
+/* the login is shared by every POS tab on this computer: whoever is logged in, at which store, and when they last did something.
+   Lock (or 30 minutes idle) in any tab locks them all. */
+const SESS_K = 'czpos-sess';
+const sessRead = () => { try { const s = JSON.parse(localStorage.getItem(SESS_K) || 'null'); return s && Date.now() - s.lastAct < IDLE_LOCK_MS ? s : null; } catch { return null; } };
+const sessWrite = () => { if (!S.user) return; try { localStorage.setItem(SESS_K, JSON.stringify({id: S.user.id, store: S.store, mode: Store.mode, pin: Store.pinFor ? Store.pinFor(S.user) || null : null, lastAct: S.lastAct})); } catch {} };
+const sessClear = () => { try { localStorage.removeItem(SESS_K); } catch {} };
 const COST_OPEN = true;   /* TEMPORARY (Nov 11): reps can enter device cost while the counted phones get filled in. Set false to lock again (and re-lock pos_update_device). */
 const GLASS = {regular: 29.99, privacy: 34.99, replace: 5};   /* tempered glass: any model; lifetime warranty = $5 replacement */
 /* Same statuses, issue types and priorities as Cellular Zone's RepairShopr account (checked Nov 9 2026) */
@@ -1265,8 +1271,19 @@ async function boot(){
   S.staff = await Store.employees();
   S.rqP = loadRepairPrices().then(r => S.rq = r);
   S.prices = await Store.prices();
-  renderLock();
+  const nav = parseHash(), s = sessRead();
+  const emp = s && s.mode === Store.mode && (S.staff || []).find(e => e.id === s.id && e.active !== false);
+  if (emp && (Store.mode !== 'live' || s.pin)) {
+    if (s.pin && Store.pinCache) Store.pinCache.set(emp.id, s.pin);
+    S.pendingNav = nav || {tab: 'tickets'}; return enterStore(emp, s.store, {resumed: true});
+  }
+  S.pendingNav = nav; renderLock(false);
 }
+/* another tab locked: lock this one too (without clearing again) */
+window.addEventListener('storage', e => { if (e.key === SESS_K && !e.newValue && S.user) { renderLock(false); toast('Locked'); } });
+/* a link pasted into the address bar of an open tab */
+window.addEventListener('hashchange', () => { const n = parseHash(); if (!n) return; if (!S.user) { S.pendingNav = n; return; }
+  const k = ROUTE_KEY[n.tab]; if (n.tab === S.tab && (!k || S[k] === n[k])) return; applyNav(n); renderShell(); });
 
 function renderSignIn(){
   $('#app').innerHTML = `<div class="lock panel stack">
@@ -1297,8 +1314,10 @@ function enterStore(emp, store, openP){
   S.store = store; ls.set('czpos-store', store);
   S.tf.store = 'mine'; S.rf.store = 'mine'; S.inv.store = 'mine'; S.cf.store = 'mine'; S.invStore = ''; S.sw.store = 'mine'; S.sw.tab = 'listed';
   S.user = emp; S.lastAct = Date.now();
+  if (S.pendingNav) { applyNav(S.pendingNav); S.pendingNav = null; openP = openP || {link: true}; }
   S.tab = openP ? (['clock','staff','hours','dashboard'].includes(S.tab) && !can(2) ? 'tickets' : (S.tab === 'clock' ? 'tickets' : S.tab)) : 'clock';
-  try { history.replaceState({pos: 0}, ''); history.pushState(navState(), ''); } catch {}
+  sessWrite();
+  try { history.replaceState({pos: 0}, ''); history.pushState(navState(), '', urlFor(S.tab, S)); } catch {}
   renderShell();
 }
 
@@ -1328,7 +1347,8 @@ document.addEventListener('keydown', e => {
   const b = pad.querySelector(`[data-k="${k}"]`); if (!b) return;
   e.preventDefault(); b.click(); b.classList.add('pressed'); setTimeout(() => b.classList.remove('pressed'), 120);
 });
-async function renderLock(){
+async function renderLock(clear = true){
+  if (clear) sessClear();
   S.user = null; $('#bar').innerHTML = ''; $('#layer').innerHTML = ''; helpUnmount();
   const open = S.store ? (await Store.punches(new Date(Date.now() - 2*86400000), new Date(Date.now() + 86400000))).filter(p => !p.t_out && p.store === S.store) : [];
   const demo = Store.mode === 'demo';
@@ -1369,8 +1389,10 @@ async function renderLock(){
 }
 
 /* auto-lock when idle */
-['click','keydown','input'].forEach(ev => document.addEventListener(ev, () => { S.lastAct = Date.now(); }, true));
-setInterval(() => { if (S.user && !RSI.running && Date.now() - S.lastAct > IDLE_LOCK_MS && !$('#layer').innerHTML) { renderLock(); toast('Locked after 30 minutes idle'); } }, 5000);
+let SESS_WROTE = 0;
+['click','keydown','input'].forEach(ev => document.addEventListener(ev, () => { S.lastAct = Date.now(); if (S.user && S.lastAct - SESS_WROTE > 15000) { SESS_WROTE = S.lastAct; sessWrite(); } }, true));
+setInterval(() => { if (!S.user) return; const s = sessRead(); if (s && s.lastAct > S.lastAct) S.lastAct = s.lastAct;
+  if (!RSI.running && Date.now() - S.lastAct > IDLE_LOCK_MS && !$('#layer').innerHTML) { renderLock(); toast('Locked after 30 minutes idle'); } }, 5000);
 
 /* POS help topics: used by the Help chat (offline answers + the AI's reference). Keep steps short, exact button names in **bold**. */
 const HELP_KB = [
@@ -1580,13 +1602,29 @@ const ALIAS = {bblog: 'buyback', invoice: 'invoices', ticket: 'tickets', newtick
 /* browser Back / Forward: every screen change is a history entry; Back closes an open popup first, and never leaves the POS */
 const NAV_KEYS = ['customerId', 'ticketId', 'deviceId', 'invoiceId', 'q'];
 const navState = () => ({pos: 1, tab: S.tab, ...Object.fromEntries(NAV_KEYS.filter(k => S[k] != null && S[k] !== '').map(k => [k, S[k]]))});
-function go(tab, extra = {}, fromHistory = false){ Object.assign(S, {tab}, extra);
-  if (!fromHistory) { try { const st = navState(), cur = history.state;
-    if (cur && cur.pos && cur.tab === 'clock') history.replaceState(st, '');   /* the clock-in screen isn't a place to go back to */
-    else if (!cur || !cur.pos || cur.tab !== st.tab || NAV_KEYS.some(k => cur[k] !== st[k])) history.pushState(st, ''); } catch {} }
+/* ---------- links and tabs ----------
+   Every ticket, invoice, customer and device has its own link (…/#ticket/<id>). Cmd/Ctrl-click opens it in a new tab,
+   and a new tab on this computer opens already logged in (same person, same store) until Lock or 30 minutes idle. */
+const ROUTE_KEY = {ticket: 'ticketId', invoice: 'invoiceId', customer: 'customerId', repair: 'deviceId', device: 'deviceId'};
+const urlFor = (tab, extra = {}) => { const k = ROUTE_KEY[tab]; const id = k && (extra[k] ?? (tab === S.tab ? S[k] : null));
+  return location.pathname + location.search + '#' + tab + (id ? '/' + encodeURIComponent(id) : ''); };
+const parseHash = () => { const [tab, id] = location.hash.replace(/^#/, '').split('/'); if (!tab) return null;
+  const nav = {tab}; const k = ROUTE_KEY[tab]; if (k && id) nav[k] = decodeURIComponent(id); return nav; };
+function applyNav(nav){ if (!nav) return; NAV_KEYS.forEach(k => { if (k !== 'q') S[k] = null; });
+  if (nav.tab === 'device') { S.tab = 'inventory'; S.openDevice = nav.deviceId; } else { S.tab = nav.tab; const k = ROUTE_KEY[nav.tab]; if (k) S[k] = nav[k]; } }
+const openTab = url => { const w = window.open(url, '_blank'); if (w) w.opener = null; };
+let MOD_CLICK = 0;
+document.addEventListener('click', e => { MOD_CLICK = (e.metaKey || e.ctrlKey) ? Date.now() : 0; }, true);
+function go(tab, extra = {}, fromHistory = false){
+  if (!fromHistory && S.user && MOD_CLICK && Date.now() - MOD_CLICK < 1000) { MOD_CLICK = 0; return openTab(urlFor(tab, extra)); }   /* Cmd/Ctrl-click: new tab */
+  if (tab === 'device') { S.openDevice = extra.deviceId; tab = 'inventory'; extra = {}; }
+  Object.assign(S, {tab}, extra);
+  if (!fromHistory) { try { const st = navState(), cur = history.state, url = urlFor(st.tab, st);
+    if (cur && cur.pos && cur.tab === 'clock') history.replaceState(st, '', url);   /* the clock-in screen isn't a place to go back to */
+    else if (!cur || !cur.pos || cur.tab !== st.tab || NAV_KEYS.some(k => cur[k] !== st[k])) history.pushState(st, '', url); else history.replaceState(st, '', url); } catch {} }
   renderShell(); window.scrollTo(0, 0); }
 window.addEventListener('popstate', e => {
-  const st = e.state, layer = $('#layer'), stay = () => { try { history.pushState(navState(), ''); } catch {} };
+  const st = e.state, layer = $('#layer'), stay = () => { try { history.pushState(navState(), '', urlFor(S.tab, S)); } catch {} };
   if (!S.user) return stay();                                       /* locked: nothing to go back to */
   if (layer && layer.innerHTML.trim()) { layer.innerHTML = ''; return stay(); }   /* Back closes the popup, page stays */
   const hb = $('#helpbox'); if (hb && !hb.hidden) { helpClose(); return stay(); }
@@ -1618,10 +1656,12 @@ async function renderShell(){
       <button class="ab clockin ${open ? 'on' : ''}" id="clockbtn">${open ? 'Clocked in ' + fmtTime(open.t_in) : 'Clock in'}</button>
       <span class="who">${esc(S.user.name)}</span>
       <button class="ab" id="themebtn" title="Switch light / dark">${isDark() ? '☀ Light mode' : '☾ Dark mode'}</button>
+      <button class="ab" id="tabbtn" title="Open this page in a new tab (or Cmd/Ctrl-click anything)">⧉ New tab</button>
       <button class="ab" id="lockbtn">Lock</button>
     </div></div></header>`;
   $('#app').innerHTML = `<main id="main"></main>`; helpMount();
   $('#lockbtn').onclick = () => renderLock();
+  $('#tabbtn').onclick = () => openTab(urlFor(S.tab, S));
   $('#themebtn').onclick = toggleTheme;
   $('#clockbtn').onclick = () => go('clock');
   document.querySelectorAll('[data-t]').forEach(b => b.onclick = () => go(b.dataset.t));
@@ -5241,7 +5281,9 @@ async function viewInventory(el){
   el.querySelectorAll('[data-sort]').forEach(b => b.onclick = () => { const k = b.dataset.sort; if (F.sort === k) F.dir = F.dir === 'desc' ? 'asc' : 'desc'; else { F.sort = k; F.dir = ['cost', 'price', 'swappa', 'profit'].includes(k) ? 'desc' : 'asc'; } viewInventory(el); });
   const qi = $('#iv-q'); qi.oninput = () => { F.q = qi.value; viewInventory(el).then(() => { const n = $('#iv-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); };
   $('#iv-st') && ($('#iv-st').onchange = e => { F.store = e.target.value; viewInventory(el); });
-  el.querySelectorAll('tr[data-id]').forEach(tr => { const go = () => deviceSheet(all.find(d => d.id === tr.dataset.id), () => viewInventory(el)); tr.onclick = go; tr.onkeydown = e => { if (e.key === 'Enter') go(); }; });
+  const openDev = id => { const d = all.find(x => x.id === id); if (!d) return; try { history.replaceState(history.state, '', urlFor('device', {deviceId: id})); } catch {} deviceSheet(d, () => viewInventory(el)); };
+  if (S.openDevice) { const id = S.openDevice; S.openDevice = null; openDev(id); }
+  el.querySelectorAll('tr[data-id]').forEach(tr => { const go = e => { if (e && (e.metaKey || e.ctrlKey)) return openTab(urlFor('device', {deviceId: tr.dataset.id})); openDev(tr.dataset.id); }; tr.onclick = go; tr.onkeydown = e => { if (e.key === 'Enter') go(); }; });
 }
 /* fix a device's details so the label prints right: model, storage, carrier, color, grade, battery, IMEI, buyback ID, who bought it, cost */
 function deviceEditSheet(d, after){
