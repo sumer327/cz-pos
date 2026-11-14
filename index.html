@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794638553";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794638657";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -3216,7 +3216,7 @@ async function viewInvoices(el){
     <div class="row" style="gap:8px"><input id="iv-q" value="${esc(S.invQ || '')}" placeholder="Invoice #, ticket #, customer name or phone" style="flex:1;min-width:220px" autocomplete="off">
       <div class="statusbar" role="group" aria-label="Dates">${[['today', 'Today'], ['week', '7 days'], ['month', '31 days'], ['all', 'All']].map(([k, l]) => `<button data-per="${k}" aria-pressed="${per === k}">${l}</button>`).join('')}</div></div>
     <div class="small muted">${rows.length} invoice${rows.length === 1 ? '' : 's'}${rows.length === 300 ? ' (newest 300)' : ''} · total <b class="num">${cents(tot)}</b></div>
-    <div class="tbl"><table><thead><tr><th>Invoice</th><th>Status</th><th>Date</th><th>Customer</th><th>Ticket</th><th>Items</th><th>Paid with</th><th class="r">Total</th>${can(2) ? '<th class="r">Gross profit</th>' : ''}<th>By</th><th></th></tr></thead><tbody>
+    <div class="tbl"><table><thead><tr><th>Invoice</th><th>Status</th><th>Date</th><th>Customer</th><th>Ticket</th><th>Items</th><th>Paid with</th><th class="r">Total</th><th class="r">Profit</th><th>By</th><th></th></tr></thead><tbody>
     ${rows.map(i => { const c = ref.cust[i.customerId], t = ref.tix[i.ticketId];
       return `<tr data-ivo="${i.id}" style="cursor:pointer"><td class="num"><a style="color:var(--accent);font-weight:700">#${i.number}</a></td>
         <td>${i.total < 0 ? '<span class="pill bad">Refund</span>' : i.paid === false ? '<span class="pill bad">Not paid</span>' : (i.refunded || []).length ? '<span class="pill warn">Refunded</span>' : '<span class="pill ok">Paid</span>'}</td>
@@ -3224,7 +3224,8 @@ async function viewInvoices(el){
         <td>${c ? `<a data-ivc="${c.id}" style="color:var(--accent);cursor:pointer">${esc(c.name)}</a><div class="small muted">${fmtPhone(c.phone)}</div>` : '<span class="muted">Walk-in</span>'}</td>
         <td>${t ? `<a data-ivt="${t.id}" style="color:var(--accent);cursor:pointer">#${t.number}</a>` : '<span class="muted">—</span>'}</td>
         <td class="small">${(i.lines || []).length ? i.lines.map(l => esc(l.desc)).join('<br>') : '<span class="muted">(from RepairShopr)</span>'}</td>
-        <td class="small">${esc(i.payment || '')}</td><td class="r num"><b>${cents(i.total)}</b></td>${can(2) ? `<td class="r num">${cents(i.total - (i.partsCost || 0))}</td>` : ''}
+        <td class="small">${esc(i.payment || '')}</td><td class="r num"><b>${cents(i.total)}</b></td>${(() => { if (i.paid === false || i.rsId && !i.by) return '<td class="r muted small">—</td>'; const pf = (i.subtotal ?? (i.total - (i.tax || 0))) - (+i.partsCost || 0);
+          return `<td class="r num" style="color:${pf >= 0 ? 'var(--ok)' : 'var(--bad)'}" title="Before tax: ${cents(i.subtotal ?? (i.total - (i.tax || 0)))} sale − ${cents(+i.partsCost || 0)} our cost">${cents(pf)}</td>`; })()}
         <td class="small">${esc(i.by ? staffName(i.by) : 'RepairShopr')}</td>
         <td class="r"><button data-ivr="${i.id}" style="min-height:32px;padding:2px 10px">Receipt</button>${i.total > 0 && !i.refundOf && i.paid !== false ? ` <button data-ivf="${i.id}" style="min-height:32px;padding:2px 10px">Refund</button>` : ''}</td></tr>`; }).join('') || `<tr><td colspan="11" class="muted">${q ? 'No invoice matches that.' : 'No invoices in this period.'}</td></tr>`}
     </tbody></table></div></div>`;
@@ -3684,7 +3685,8 @@ async function viewInvoice(el){
   const costKnown = L.map(lc);
   /* parts pulled on the ticket with no charge (warranty, rework, damaged during the repair): not billed, but they're a real cost of this job */
   const extraParts = t && L.some(l => l.chargeId) ? (t.partsUsed || []).filter(p => !p.chargeId) : [];
-  const costSum = Math.round((costKnown.reduce((a, v) => a + (v || 0), 0) + extraParts.reduce((a, p) => a + (+p.cost || 0), 0)) * 100) / 100;
+  const costLive = Math.round((costKnown.reduce((a, v) => a + (v || 0), 0) + extraParts.reduce((a, p) => a + (+p.cost || 0), 0)) * 100) / 100;
+  const costSum = !open && inv.paid !== false && inv.partsCost != null && !inv.rsId ? Math.round(Math.max(+inv.partsCost || 0, 0) * 100) / 100 || costLive : costLive;
   const refunds = inv.refundOf ? [] : (await Store.allInvoices(inv.store).catch(() => [])).filter(r => r.refundOf === inv.id);
   el.innerHTML = `
   <div class="crumb"><a id="iv-back">Invoices</a><span class="muted">›</span><b class="num">#${inv.number}</b>
@@ -3725,8 +3727,8 @@ async function viewInvoice(el){
         <div class="row" style="justify-content:space-between"><span class="muted">Subtotal</span><span class="num">${cents(inv.subtotal ?? inv.total)}</span></div>
         <div class="row" style="justify-content:space-between"><span class="muted">Sales tax 8.25%</span><span class="num">${cents(inv.tax || 0)}</span></div>
         <div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding-top:8px"><b>Total</b><b class="num" style="font-size:26px">${cents(inv.total)}</b></div>
-        ${L.length ? `<div class="row small" style="justify-content:space-between"><span class="muted">Our cost${costKnown.some((v, i) => v == null && !(L[i].price < 0 || ['Discount', 'Diagnostic credit'].includes(L[i].cat))) ? ' (some items have no cost)' : ''}</span><span class="num">${cents(costSum)}</span></div>
-          <div class="row small" style="justify-content:space-between"><span class="muted">Profit (before tax)</span><b class="num">${cents((inv.subtotal ?? inv.total) - costSum)}</b></div>` : ''}
+        ${L.length ? `<div class="row small" style="justify-content:space-between"><span class="muted">Our cost${!open && inv.paid !== false ? ' (saved when paid)' : costKnown.some((v, i) => v == null && !(L[i].price < 0 || ['Discount', 'Diagnostic credit'].includes(L[i].cat))) ? ' (some items have no cost)' : ''}</span><span class="num">${cents(costSum)}</span></div>
+          <div class="row small" style="justify-content:space-between"><b>Profit (before tax)</b><b class="num" style="font-size:18px;color:${(inv.subtotal ?? inv.total) - costSum >= 0 ? 'var(--ok)' : 'var(--bad)'}">${cents((inv.subtotal ?? inv.total) - costSum)}</b></div>` : ''}
         ${open ? `<div class="row" style="justify-content:space-between"><span>Balance due</span><b class="num" style="color:var(--bad);font-size:20px">${cents(inv.total)}</b></div>
           <div class="err" id="iv-err" role="alert"></div>
           <button class="primary" id="iv-pay" style="min-height:56px;font-size:17px" ${L.length ? '' : 'disabled'}>Take payment · ${cents(inv.total)}</button>
@@ -5056,14 +5058,15 @@ async function viewInventory(el){
       <div class="row" style="gap:6px;flex-wrap:wrap">${DEV_CATS.map(([k, l, f]) => { const n = catCount(f); return n || ['all', 'iphone-unl', 'samsung-unl', 'ipad', 'mac'].includes(k) || F.cat === k ? chipBtn('dcat', k, l, n, F.cat === k) : ''; }).join('')}</div>
       <div class="row" style="gap:6px;flex-wrap:wrap;align-items:center"><span class="label" style="margin-right:4px">Show</span>${DEV_STATUS.map(([k, l, f]) => chipBtn('dst', k, l, stCount(f), F.status === k)).join('')}</div>
     </div>
-    <div class="tbl"><table><thead><tr><th>Stock #</th><th>Device</th><th>Grade</th><th>Store</th><th>Status</th><th class="r">Cost</th><th class="r">Price</th><th class="r">Profit</th><th>Age</th></tr></thead><tbody>
-    ${rows.length ? rows.map(d => { const h = nextStatusHint(d); const sold = ['sold', 'atlas'].includes(d.status) && d.soldPrice; const ret = d.listPrice || d.swappa?.price || null; const profit = sold ? d.soldPrice - d.cost : ret && +d.cost ? ret - d.cost : null; return `<tr class="click" data-id="${d.id}" tabindex="0">
+    <div class="tbl"><table><thead><tr><th>Stock #</th><th>Device</th><th>Grade</th><th>Store</th><th>Status</th><th class="r">Cost</th><th class="r">Store price</th><th class="r">Swappa</th><th class="r">Profit</th><th>Age</th></tr></thead><tbody>
+    ${rows.length ? rows.map(d => { const h = nextStatusHint(d); const sold = ['sold', 'atlas'].includes(d.status) && d.soldPrice; const ret = retailPrice(d) || d.listPrice || null; const swp = d.swappa?.price && d.status !== 'sold' ? +d.swappa.price : d.status === 'sold' && d.channel === 'Swappa' ? null : d.swappa?.price ? +d.swappa.price : null; const profit = sold ? d.soldPrice - d.cost : ret && +d.cost ? ret - d.cost : null; return `<tr class="click" data-id="${d.id}" tabindex="0">
       <td class="num">${d.stockNo ?? '—'}</td><td><b>${esc(d.model)}</b> <span class="muted">${esc([d.storage, d.carrier].filter(Boolean).join(' · '))}</span>${/IMEI \+ cost needed/.test(d.notes || '') ? ' <span class="pill warn">IMEI + cost needed</span>' : ''}${d.example ? ' <span class="pill">example</span>' : ''}<div class="mono small muted">${esc(d.imei || '')}</div></td>
       <td>${esc((CONDS.find(c => c[0] === d.cond) || [,''])[1])}</td><td>${d.store}</td>
       <td><span class="pill ${d.status === 'sold' ? 'ok' : d.status === 'hot' ? 'acc' : ''}">${STATUS_LABEL[d.status]}</span>${d.transferId ? ' <span class="pill warn">In transit</span>' : ''}${h ? ` <span class="pill ${h[0]}">${h[1]}</span>` : ''}</td>
-      <td class="r num">${money(d.cost)}</td><td class="r num">${sold ? `${money(d.soldPrice)}<div class="small muted">sold</div>` : ret ? money(ret) : '<span class="muted">—</span>'}</td>
+      <td class="r num">${money(d.cost)}</td><td class="r num">${sold ? `${money(d.soldPrice)}<div class="small muted">sold${d.channel ? ' · ' + esc(d.channel) : ''}</div>` : ret ? `${money(ret)}${retailPrice(d) ? '<div class="small muted">price sheet</div>' : ''}` : '<span class="muted">—</span>'}</td>
+      <td class="r num">${swp ? `${money(swp)}<div class="small muted">${d.status === 'swappa' ? 'listed' : 'last listed'}${d.swappa?.code ? ' · ' + esc(d.swappa.code) : ''}</div>` : '<span class="muted">—</span>'}</td>
       <td class="r num" style="color:${profit == null ? 'inherit' : profit >= 0 ? 'var(--ok)' : 'var(--bad)'}">${profit == null ? '—' : money(profit)}${profit != null && !sold ? '<div class="small muted">if sold at price</div>' : ''}</td>
-      <td class="num small">${daysOld(d.createdAt)}d</td></tr>`; }).join('') : '<tr><td colspan="8" class="muted">Nothing matches. Devices appear here the moment a buyback is completed.</td></tr>'}
+      <td class="num small">${daysOld(d.createdAt)}d</td></tr>`; }).join('') : '<tr><td colspan="10" class="muted">Nothing matches. Devices appear here the moment a buyback is completed.</td></tr>'}
     </tbody></table></div></div>`;
   $('#iv-st') && ($('#iv-st').value = F.store);
   el.querySelectorAll('[data-dcat]').forEach(b => b.onclick = () => { F.cat = b.dataset.dcat; viewInventory(el); });
