@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794619416";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794637870";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -2538,6 +2538,26 @@ async function renderThread(box, store, c){
     }).join('') : '<span class="small muted">No calls or texts with this number yet.</span>';
   } catch (e) { box.className = 'small'; box.innerHTML = e.soft || /isn't connected/i.test(e.message) ? `<span class="muted">${esc(e.message)} Call and text history shows here once it is.</span>` : `<span style="color:var(--warn)">Couldn't load GoHighLevel: ${esc(e.message)}</span>`; }
 }
+/* open a conversation from the inbox: history from GoHighLevel and a box to text back from the store number */
+function convoSheet(g, cu){
+  const who = {name: cu?.name || g.name || '', phone: cu?.phone || g.phone}; const store = g.store || S.store;
+  sheet(`<div class="row" style="justify-content:space-between"><h3>${esc(who.name || fmtPhone(who.phone))}</h3><button data-close>Close</button></div>
+    <div class="small muted num">${fmtPhone(who.phone)} · ${STORES[store] || store}${cu ? '' : ' · not a customer yet'}</div>
+    <div id="cv-th" class="small muted" style="max-height:46vh;overflow:auto">Loading…</div>
+    <div class="field"><label class="label" for="cv-msg">Text back (from the ${esc(STORES[store] || '')} number)</label><textarea id="cv-msg" rows="3" placeholder="Type your reply"></textarea><div class="small muted" id="cv-n"></div></div>
+    <div class="err" id="cv-e" role="alert"></div>
+    <div class="row" style="gap:8px"><button class="primary" id="cv-go">Send text</button>${cu ? '<button id="cv-cu">Open customer</button>' : ''}</div>`, (L, close) => {
+    const th = L.querySelector('#cv-th'); renderThread(th, store, who).then(() => { th.scrollTop = 0; });
+    const m = L.querySelector('#cv-msg'); setTimeout(() => m.focus(), 50);
+    m.oninput = () => { L.querySelector('#cv-n').textContent = m.value.length ? `${m.value.length} characters${m.value.length > 160 ? ' · sends as ' + Math.ceil(m.value.length / 153) + ' texts' : ''}` : ''; };
+    L.querySelector('#cv-cu') && (L.querySelector('#cv-cu').onclick = () => { close(); go('customer', {customerId: cu.id}); });
+    L.querySelector('#cv-go').onclick = async e => { const msg = m.value.trim(); if (!msg) { L.querySelector('#cv-e').textContent = 'Type a message.'; return; }
+      e.target.disabled = true;
+      try { const r = await Store.ghlSend(S.user, store, {customer: who, ticketId: null, message: msg}); toast(r?.demo ? 'Demo: text logged, not actually sent' : 'Text sent'); m.value = ''; m.oninput(); await renderThread(th, store, who); }
+      catch (err) { L.querySelector('#cv-e').textContent = err.message; }
+      e.target.disabled = false; };
+  });
+}
 S.cf = {store: 'mine'};
 async function viewCalls(el){
   const [ev, tix, custs] = await Promise.all([Store.ghlEvents(), Store.tickets(), Store.customers()]);
@@ -2552,16 +2572,19 @@ async function viewCalls(el){
     <div class="statusbar" role="group" aria-label="Filter calls"><button data-cs="all" aria-pressed="${F === 'all'}">Everything (${inStore.length})</button><button data-cs="paid" aria-pressed="${F === 'paid'}">Paid calls (${nPaid})</button><button data-cs="organic" aria-pressed="${F === 'organic'}">Organic calls (${nOrg})</button><button data-cs="unknown" aria-pressed="${F === 'unknown'}">Source unknown (${nUnk})</button><button data-cs="texts" aria-pressed="${F === 'texts'}">Texts (${inStore.length - calls.length})</button></div>
     <div class="tbl"><table><thead><tr><th>When</th><th>Type</th><th>Source</th><th>Caller</th><th>Customer</th><th>Open tickets</th><th></th></tr></thead><tbody>
     ${rows.map(g => { const cu = g.customerId ? C[g.customerId] : null; const open = cu ? tix.filter(t => t.customerId === cu.id && t.status !== 'resolved') : [];
-      return `<tr><td class="small num" style="white-space:nowrap">${fmtTime(g.at)}<div class="muted">${ago(g.at)}</div></td>
+      return `<tr class="click" data-cv="${g.id}" title="Open the conversation and text back"><td class="small num" style="white-space:nowrap">${fmtTime(g.at)}<div class="muted">${ago(g.at)}</div></td>
       <td><span class="pill ${KIND_PILL[g.kind]}">${KIND[g.kind] || g.kind}${g.kind === 'call' && g.duration ? ' · ' + Math.max(1, Math.round(g.duration / 60)) + 'm' : ''}</span>${g.example ? ' <span class="pill">example</span>' : ''}${g.body ? `<div class="small" style="margin-top:4px">“${esc(g.body)}”</div>` : ''}</td>
       <td>${g.kind === 'sms' ? '<span class="muted small">—</span>' : g.source ? `<span class="pill ${g.paid ? 'warn' : 'ok'}">${esc(g.source)}</span>` : '<span class="pill">Unknown</span>'}</td>
       <td>${esc(g.name || 'Unknown')}<div class="small muted num">${fmtPhone(g.phone)} · ${g.store || ''}</div></td>
       <td>${cu ? `<a data-cu="${cu.id}" style="color:var(--accent);cursor:pointer">${esc(cu.name)}</a>` : '<span class="muted small">Not a customer yet</span>'}</td>
       <td>${open.map(t => `<a data-t="${t.id}" style="cursor:pointer;display:inline-block;margin:2px 4px 2px 0">#${t.number} ${stPill(t.status)}</a>`).join('') || '<span class="muted small">—</span>'}</td>
-      <td class="r"><button data-nt="${g.id}" style="min-height:34px;padding:4px 10px">${open.length ? 'New ticket' : 'Start ticket'}</button></td></tr>`; }).join('') || '<tr><td colspan="7" class="muted">Nothing here in the last 3 days.</td></tr>'}
+      <td class="r" style="white-space:nowrap"><button data-tx="${g.id}" style="min-height:34px;padding:4px 10px">${g.kind === 'sms' ? 'Reply' : 'Text'}</button> <button data-nt="${g.id}" style="min-height:34px;padding:4px 10px">${open.length ? 'New ticket' : 'Start ticket'}</button></td></tr>`; }).join('') || '<tr><td colspan="7" class="muted">Nothing here in the last 3 days.</td></tr>'}
     </tbody></table></div></div>`;
   $('#cf-store') && ($('#cf-store').value = S.cf.store, $('#cf-store').onchange = e => { S.cf.store = e.target.value; viewCalls(el); });
   el.querySelectorAll('[data-cs]').forEach(b => b.onclick = () => { S.cf.src = b.dataset.cs; viewCalls(el); });
+  const openCv = id => { const g = rows.find(x => String(x.id) === String(id)); if (g) convoSheet(g, g.customerId ? C[g.customerId] : null); };
+  el.querySelectorAll('[data-cv]').forEach(tr => tr.onclick = e => { if (e.target.closest('a,button,select')) return; openCv(tr.dataset.cv); });
+  el.querySelectorAll('[data-tx]').forEach(b => b.onclick = () => openCv(b.dataset.tx));
   el.querySelectorAll('[data-cu]').forEach(a => a.onclick = () => go('customer', {customerId: a.dataset.cu}));
   el.querySelectorAll('a[data-t]').forEach(a => a.onclick = () => go('ticket', {ticketId: a.dataset.t}));
   el.querySelectorAll('[data-nt]').forEach(b => b.onclick = () => { const g = rows.find(x => String(x.id) === b.dataset.nt);
@@ -3626,7 +3649,17 @@ async function viewInvoice(el){
   if (inv.ticketId) { await Store.loadTicket(inv.ticketId).catch(() => {}); t = (await Store.tickets()).find(x => x.id === inv.ticketId) || null; }
   if ((!c && inv.customerId) || (!t && inv.ticketId)) { const r = await Store.invoiceRefs(inv.customerId ? [inv.customerId] : [], inv.ticketId ? [inv.ticketId] : []).catch(() => ({cust: {}, tix: {}})); c = c || r.cust[inv.customerId] || null; t = t || r.tix[inv.ticketId] || null; }
   const open = inv.paid === false && !inv.rsId; const L = (inv.lines || []).map(l => ({...l, qty: +l.qty || 1}));
+  /* our cost per line (read only): phone from stock, inventory item, part on the ticket charge, or the cost typed on a manual item */
+  if (L.some(l => l.productId) && (!S.prods || Date.now() - (S.prodsAt || 0) > 120000)) { S.prods = await Store.products().catch(() => []); S.prodsAt = Date.now(); }
+  if (L.some(l => l.deviceId) && (!S.allDevs || Date.now() - (S.allDevsAt || 0) > 60000)) { S.allDevs = await Store.devices().catch(() => []); S.allDevsAt = Date.now(); }
   const lt = l => Math.round((+l.price || 0) * (+l.qty || 1) * 100) / 100;
+  const lc = l => { const q = +l.qty || 1;
+    if (l.price < 0 || ['Discount', 'Diagnostic credit'].includes(l.cat)) return null;
+    if (l.deviceId) { const d = (S.allDevs || []).find(x => x.id === l.deviceId); return d ? devCost(d) : null; }
+    if (l.productId) { const p = (S.prods || []).find(x => x.id === l.productId); return p && p.cost != null ? (+p.cost || 0) * q : null; }
+    if (l.chargeId) { const c = [t, ...(t ? [] : [])].filter(Boolean).flatMap(x => x.charges || []).find(x => x.id === l.chargeId); return c && c.partCost != null ? +c.partCost : null; }
+    return l.cost != null && l.cost !== '' ? (+l.cost || 0) * q : null; };
+  const costKnown = L.map(lc), costSum = Math.round(costKnown.reduce((a, v) => a + (v || 0), 0) * 100) / 100;
   const refunds = inv.refundOf ? [] : (await Store.allInvoices(inv.store).catch(() => [])).filter(r => r.refundOf === inv.id);
   el.innerHTML = `
   <div class="crumb"><a id="iv-back">Invoices</a><span class="muted">›</span><b class="num">#${inv.number}</b>
@@ -3638,11 +3671,12 @@ async function viewInvoice(el){
         <div class="row" style="justify-content:space-between"><h2>Invoice #${inv.number}</h2><span class="small muted">${STORES[inv.store] || inv.store} · ${fmtDate(inv.at)} ${fmtTime(inv.at)}${inv.by ? ' · ' + esc(staffName(inv.by)) : ''}</span></div>
         <dl class="kv"><dt>Customer</dt><dd>${c ? `<a id="iv-c" style="color:var(--accent);cursor:pointer">${esc(c.name)}</a> · <span class="num">${fmtPhone(c.phone)}</span>` : '<span class="muted">Walk-in</span>'}${open && !t ? ` <button id="iv-setc" style="min-height:30px;padding:2px 10px;margin-left:6px">${c ? 'Change' : 'Add customer'}</button>` : ''}</dd>
           ${t ? `<dt>Ticket</dt><dd><a id="iv-t" style="color:var(--accent);cursor:pointer">#${t.number}</a> · ${esc(t.device || '')} · ${esc(t.subject || '')}</dd>` : ''}</dl>
-        <div class="tbl"><table><thead><tr><th>Item</th><th class="r" style="width:70px">Qty</th><th class="r" style="width:110px">Price</th><th style="width:80px;text-align:center">Taxable</th><th class="r" style="width:100px">Total</th>${open ? '<th style="width:44px"></th>' : ''}</tr></thead><tbody>
+        <div class="tbl"><table><thead><tr><th>Item</th><th class="r" style="width:70px">Qty</th><th class="r" style="width:110px">Price</th><th class="r" style="width:90px">Our cost</th><th style="width:80px;text-align:center">Taxable</th><th class="r" style="width:100px">Total</th>${open ? '<th style="width:44px"></th>' : ''}</tr></thead><tbody>
         ${L.map((l, i) => { const neg = l.price < 0 || ['Discount', 'Diagnostic credit'].includes(l.cat); const dOpen = IV_OPEN.has(inv.id + ':' + i); const dn = discNote(l); const lockP = l.retail && !can(2);
           return open ? `<tr><td><input data-ld="${i}" value="${esc(l.desc)}" aria-label="Item" style="min-height:36px"><div class="small muted">${esc(l.cat || '')}${l.chargeId ? (l.ticketNo ? ' · ticket #' + l.ticketNo : ' · from the ticket') : ''}${l.glass ? ' · lifetime warranty' : ''}${l.retail ? ' · store price ' + cents(l.retail) : ''}</div>${dn ? `<div class="small" style="color:var(--ok)">${esc(dn)}</div>` : ''}</td>
             <td class="r"><input data-lq="${i}" value="${l.qty}" inputmode="numeric" aria-label="Qty" style="width:60px;min-height:36px;text-align:right" ${neg ? 'disabled' : ''}></td>
             <td class="r">${dn ? `<div class="small muted" style="white-space:nowrap">Regular</div>` : ''}<input data-lp="${i}" value="${(+(l.orig || l.price)).toFixed(2)}" inputmode="decimal" aria-label="${dn ? 'Regular price' : 'Price'}" style="width:100px;min-height:36px;text-align:right" ${l.cat === 'Diagnostic credit' || lockP ? 'disabled' : ''} ${lockP ? 'title="Store price from the retail price sheet. Only a manager can change it."' : ''}>${dn ? `<div class="small num" style="white-space:nowrap">now <b>${cents(l.price)}</b></div>` : ''}</td>
+            <td class="r small num muted" title="Our cost (set where the item comes from)">${costKnown[i] == null ? '—' : cents(costKnown[i])}</td>
             <td style="text-align:center"><input type="checkbox" data-lt="${i}" ${isTaxable(l) ? 'checked' : ''} aria-label="Taxable" style="width:22px;height:22px"></td>
             <td class="r num">${dn ? `<s class="muted small">${cents(+l.orig * l.qty)}</s><br>` : ''}${cents(lt(l))}</td><td class="r" style="white-space:nowrap">${neg || lockP ? '' : `<button data-dd="${i}" aria-label="Discount on ${esc(l.desc)}" aria-expanded="${dOpen}" title="Discount this item" style="min-height:32px;padding:2px 8px">${dOpen ? '▴' : '▾'}</button> `}<button data-lx="${i}" aria-label="Remove ${esc(l.desc)}" style="min-height:32px;padding:2px 8px">✕</button></td></tr>
             ${dOpen && !neg ? `<tr><td colspan="6" style="background:var(--soft,rgba(0,0,0,.03))"><div class="row" style="gap:10px;align-items:flex-end;flex-wrap:wrap">
@@ -3650,13 +3684,13 @@ async function viewInvoice(el){
               <div class="field" style="margin:0"><label class="label" for="dd-p${i}">Discount %</label><input id="dd-p${i}" data-ddp="${i}" inputmode="decimal" value="${l.discPct || ''}" placeholder="0" style="width:90px;min-height:36px"></div>
               ${dn ? `<button data-ddx="${i}" style="min-height:36px">Remove discount</button>` : ''}
               <span class="small muted" style="flex:1;min-width:180px">Regular price ${cents(+(l.orig || l.price))}. The receipt shows the regular price and the discount.</span></div></td></tr>` : ''}` 
-          : `<tr><td>${esc(l.desc)}<div class="small muted">${esc(l.cat || '')}</div>${dn ? `<div class="small" style="color:var(--ok)">${esc(dn)}</div>` : ''}</td><td class="r num">${l.qty}</td><td class="r num">${dn ? `<s class="muted small">${cents(l.orig)}</s><br>` : ''}${cents(l.price)}</td><td style="text-align:center">${isTaxable(l) ? '✓' : '<span class="muted">no</span>'}</td><td class="r num">${cents(lt(l))}</td></tr>`; }).join('')
-          || `<tr><td colspan="6" class="muted">${inv.rsId ? 'RepairShopr didn\'t send the line items for this invoice.' : 'No items yet. Scan or search below (type "UAG", "charger", "15 pro case"…).'}</td></tr>`}
+          : `<tr><td>${esc(l.desc)}<div class="small muted">${esc(l.cat || '')}</div>${dn ? `<div class="small" style="color:var(--ok)">${esc(dn)}</div>` : ''}</td><td class="r num">${l.qty}</td><td class="r num">${dn ? `<s class="muted small">${cents(l.orig)}</s><br>` : ''}${cents(l.price)}</td><td class="r small num muted">${costKnown[i] == null ? '—' : cents(costKnown[i])}</td><td style="text-align:center">${isTaxable(l) ? '✓' : '<span class="muted">no</span>'}</td><td class="r num">${cents(lt(l))}</td></tr>`; }).join('')
+          || `<tr><td colspan="7" class="muted">${inv.rsId ? 'RepairShopr didn\'t send the line items for this invoice.' : 'No items yet. Scan or search below (type "UAG", "charger", "15 pro case"…).'}</td></tr>`}
         </tbody></table></div>
         ${open ? `<div class="stack" style="gap:8px;border-top:1px solid var(--line);padding-top:10px">
           <div class="row" style="gap:6px"><input id="iv-add" placeholder="Add an item: scan or search (case, charger… or a phone: stock #, IMEI, BV70002, 16 pro max)" style="flex:1;min-width:220px" autocomplete="off"></div>
           <div id="iv-hits"></div>
-          <div class="row" style="gap:6px"><button data-ia="regular">+ Tempered glass…</button><button data-ia="privacy">+ Privacy glass…</button><button data-ia="custom">+ Custom item</button><button data-ia="discount">+ Discount</button><button data-ia="diag">+ Diagnostic credit</button><button data-ia="thanks">+ $10 Customer appreciation</button></div>
+          <div class="row" style="gap:6px"><button data-ia="regular">+ Tempered glass…</button><button data-ia="privacy">+ Privacy glass…</button><button data-ia="custom">+ Manual item</button><button data-ia="discount">+ Discount</button><button data-ia="diag">+ Diagnostic credit</button><button data-ia="thanks">+ $10 Customer appreciation</button></div>
         </div>` : ''}
       </div>
     </div>
@@ -3665,6 +3699,8 @@ async function viewInvoice(el){
         <div class="row" style="justify-content:space-between"><span class="muted">Subtotal</span><span class="num">${cents(inv.subtotal ?? inv.total)}</span></div>
         <div class="row" style="justify-content:space-between"><span class="muted">Sales tax 8.25%</span><span class="num">${cents(inv.tax || 0)}</span></div>
         <div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding-top:8px"><b>Total</b><b class="num" style="font-size:26px">${cents(inv.total)}</b></div>
+        ${L.length ? `<div class="row small" style="justify-content:space-between"><span class="muted">Our cost${costKnown.some((v, i) => v == null && !(L[i].price < 0 || ['Discount', 'Diagnostic credit'].includes(L[i].cat))) ? ' (some items have no cost)' : ''}</span><span class="num">${cents(costSum)}</span></div>
+          <div class="row small" style="justify-content:space-between"><span class="muted">Profit (before tax)</span><b class="num">${cents((inv.subtotal ?? inv.total) - costSum)}</b></div>` : ''}
         ${open ? `<div class="row" style="justify-content:space-between"><span>Balance due</span><b class="num" style="color:var(--bad);font-size:20px">${cents(inv.total)}</b></div>
           <div class="err" id="iv-err" role="alert"></div>
           <button class="primary" id="iv-pay" style="min-height:56px;font-size:17px" ${L.length ? '' : 'disabled'}>Take payment · ${cents(inv.total)}</button>
@@ -3753,16 +3789,21 @@ async function viewInvoice(el){
           L.push({desc: 'Diagnostic fee credit', cat: 'Diagnostic credit', price: -Math.round(v * 100) / 100, qty: 1, taxable: false}); save(L); };
         S2.querySelectorAll('[data-dg]').forEach(b => b.onclick = () => add(+b.dataset.dg));
         S2.querySelector('#dg-go').onclick = () => add(parseFloat(S2.querySelector('#dg-o').value)); }); }
-    if (k === 'custom') return sheet(`<div class="row" style="justify-content:space-between"><h3>Custom item</h3><button data-close>Close</button></div>
+    if (k === 'custom') return sheet(`<div class="row" style="justify-content:space-between"><h3>Manual item</h3><button data-close>Close</button></div>
+        <p class="small muted" style="margin:0">For anything not in inventory. Put what we paid for it in Our cost so the profit is right.</p>
         <div class="field"><label class="label" for="ci-d">Item</label><input id="ci-d" placeholder="Water damage cleaning"></div>
-        <div class="grid g2"><div class="field"><label class="label" for="ci-p">Price</label><input id="ci-p" inputmode="decimal" placeholder="0.00"></div><div class="field"><label class="label" for="ci-q">Qty</label><input id="ci-q" inputmode="numeric" value="1"></div></div>
+        <div class="grid g3"><div class="field"><label class="label" for="ci-p">Price (each)</label><input id="ci-p" inputmode="decimal" placeholder="0.00"></div><div class="field"><label class="label" for="ci-k">Our cost (each)</label><input id="ci-k" inputmode="decimal" placeholder="0.00"></div><div class="field"><label class="label" for="ci-q">Qty</label><input id="ci-q" inputmode="numeric" value="1"></div></div>
+        <div class="small muted" id="ci-x"></div>
         <div class="field"><label class="label" for="ci-c">Category</label><select id="ci-c">${LINE_CATS.map(x => `<option ${x === 'Other' ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
         <label class="row" style="gap:10px;cursor:pointer"><input type="checkbox" id="ci-t" checked style="width:22px;height:22px"><span>Taxable</span></label>
         <div class="err" id="ci-e" role="alert"></div><button class="primary" id="ci-go">Add to invoice</button>`,
       (S2, close) => { S2.querySelector('#ci-c').onchange = e => { S2.querySelector('#ci-t').checked = isTaxable({cat: e.target.value}); };
         S2.querySelector('#ci-go').onclick = () => { const d = S2.querySelector('#ci-d').value.trim(), pr = parseFloat(S2.querySelector('#ci-p').value);
           if (!d) { S2.querySelector('#ci-e').textContent = 'Name the item.'; return; } if (!(pr > 0)) { S2.querySelector('#ci-e').textContent = 'Enter a price above $0.'; return; }
-          const line = {desc: d, cat: S2.querySelector('#ci-c').value, price: pr, qty: Math.max(1, parseInt(S2.querySelector('#ci-q').value, 10) || 1), taxable: S2.querySelector('#ci-t').checked}; close(); L.push(line); save(L); }; });
+          const kc = S2.querySelector('#ci-k').value.trim(); if (kc === '' || !(+kc >= 0)) { S2.querySelector('#ci-e').textContent = 'Enter our cost ($0 if it cost us nothing).'; return; }
+          const line = {desc: d, cat: S2.querySelector('#ci-c').value, price: pr, cost: Math.round(+kc * 100) / 100, qty: Math.max(1, parseInt(S2.querySelector('#ci-q').value, 10) || 1), taxable: S2.querySelector('#ci-t').checked}; close(); L.push(line); save(L); };
+        const cx = () => { const pr = parseFloat(S2.querySelector('#ci-p').value), kc = parseFloat(S2.querySelector('#ci-k').value); S2.querySelector('#ci-x').textContent = pr > 0 && kc >= 0 ? `Profit ${cents(pr - kc)} each · ${Math.round((pr - kc) / pr * 100)}%` : ''; };
+        S2.querySelector('#ci-p').oninput = cx; S2.querySelector('#ci-k').oninput = cx; });
     const base = L.filter(l => l.price > 0).reduce((a, l) => a + lt(l), 0);
     sheet(`<div class="row" style="justify-content:space-between"><h3>Discount</h3><button data-close>Close</button></div>
       <div class="row" style="gap:6px"><button data-dk="amt" class="primary">$ off</button><button data-dk="pct">% off</button></div>
@@ -4251,6 +4292,7 @@ function rpLines(invs, dv, pr, tk){
     ls.forEach(l => {
       const q = +l.qty || 1, rev = (+l.price || 0) * q; let cost = 0;
       if (l.deviceId) { const d = dv[l.deviceId]; cost = d ? (+d.cost || 0) + (+d.partsCost || 0) : null; }
+      else if (!l.productId && !l.chargeId && l.cost != null && l.cost !== '') cost = (+l.cost || 0) * q;
       else if (/phone sale/i.test(l.cat || '')) cost = null;
       else if (l.productId) { const p = pr[l.productId]; cost = p ? (+p.cost || 0) * q : null; }
       else if (l.chargeId && t) { const c = (t.charges || []).find(x => x.id === l.chargeId); cost = c ? +c.partCost || 0 : 0; }
