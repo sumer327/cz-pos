@@ -166,7 +166,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794689311";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794692572";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -5076,7 +5076,14 @@ const shipBoxFor = d => ['ipad', 'mac'].includes(devKind(d || {})) ? 'medium' : 
 let PP_CACHE = null;
 async function paypalRecent(force){ if (!force && PP_CACHE && Date.now() - PP_CACHE.at < 120000) return PP_CACHE.list;
   const [em, api] = await Promise.all([Store.ppEmails().catch(() => []), Store.ship({action: 'paypal_recent', days: 10}).then(r => r.payments || []).catch(e => { if (!PP_CACHE) PP_CACHE = {err: e.message}; return []; })]);
-  const seen = new Set(em.map(p => p.id)); const list = [...em, ...api.filter(p => !seen.has(p.id))].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  /* the same payment shows up twice: once from PayPal's email and once from PayPal's lookup (with a different ID for the authorization vs. the payment).
+     Keep one row per buyer + amount + day; the email's row (it has the address) wins and remembers the other ID. */
+  const key = p => [(p.payer || p.email || '').trim().toLowerCase(), (+p.amount || 0).toFixed(2), String(new Date(p.at).toISOString()).slice(0, 10)].join('|');
+  const byKey = new Map();
+  for (const p of [...em, ...api]) { const k = key(p), have = byKey.get(k);
+    if (!have) byKey.set(k, {...p, ids: [p.id]});
+    else if (!have.ids.includes(p.id)) { have.ids.push(p.id); if (!have.to && p.to) have.to = p.to; if (!have.itemPrice && p.itemPrice) have.itemPrice = p.itemPrice; } }
+  const list = [...byKey.values()].sort((a, b) => String(b.at).localeCompare(String(a.at)));
   if (!list.length && PP_CACHE?.err) { const m = PP_CACHE.err; PP_CACHE = null; throw new Error(m); }
   PP_CACHE = {at: Date.now(), list}; return list; }
 /* the payment's total includes the buyer's sales tax: match on the item price when PayPal gives it */
@@ -5115,9 +5122,9 @@ function shipLabelSheet(x, d, after){
     const fill = () => L.querySelectorAll('[data-to]').forEach(i => { i.value = st.to[i.dataset.to] || ''; });
     const drawPP = list => { const sold = +d?.soldPrice || 0;
       const sorted = [...list].sort((a, b) => (ppHit(a, sold) ? 0 : 1) - (ppHit(b, sold) ? 0 : 1));
-      $l('#sh-pp').innerHTML = sorted.slice(0, 8).map(p => ppRow(p, ppHit(p, sold)).replace('<button ', `<button aria-pressed="${st.pay?.id === p.id}" `)).join('')
+      $l('#sh-pp').innerHTML = sorted.slice(0, 8).map(p => ppRow(p, ppHit(p, sold)).replace('<button ', `<button aria-pressed="${!!st.pay && (p.ids || [p.id]).includes(st.pay.id)}" `)).join('')
         || '<span class="muted small">No PayPal payments in the last 10 days. PayPal can take up to 3 hours to show a new one: type the address below and add tracking to PayPal later.</span>';
-      if (st.pay && !st.pay.amount) st.pay = list.find(y => y.id === st.pay.id) || st.pay;
+      if (st.pay && !st.pay.amount) st.pay = list.find(y => (y.ids || [y.id]).includes(st.pay.id)) || st.pay;
       L.querySelectorAll('[data-pp]').forEach(b => b.onclick = () => { const p = list.find(y => y.id === b.dataset.pp); st.pay = p; if (p.to) st.to = {...st.to, ...p.to, name: p.to.name || p.payer || st.to.name}; fill(); reset(); drawPP(list); }); };
     const loadPP = force => paypalRecent(force).then(drawPP).catch(e => { $l('#sh-pp').innerHTML = `<span class="small" style="color:var(--bad)">PayPal: ${esc(e.message)}</span> <span class="small muted">Type the address below.</span>`; });
     loadPP(false); $l('#sh-pprl').onclick = () => loadPP(true);
