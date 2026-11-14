@@ -194,7 +194,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794699204";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794700137";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -207,7 +207,7 @@ const STORES = {DZ:'Babcock', BV:'Bulverde', PT:'Potranco'};   /* RepairShopr lo
 const ROLES = {owner:'Owner', manager:'Manager', tech:'Tech', rep:'Sales rep'};
 const RANK = {rep:1, tech:1, manager:2, owner:3};
 const STATUSES = [
-  ['testing','Testing'],['repair','Needs repair'],['hot','Hot stock (in store)'],
+  ['testing','Pending (pick where it goes)'],['repair','Needs repair'],['hot','Hot stock (in store)'],
   ['tolist','Ready to list'],['swappa','Listed on Swappa'],['wholesale','Wholesale (going to Atlas)'],['atlas','Sent to Atlas'],['sold','Sold']
 ];
 const STATUS_LABEL = Object.fromEntries(STATUSES);
@@ -280,7 +280,7 @@ try { const th = localStorage.getItem('czpos-theme'); if (th === 'dark' || th ==
 const isDark = () => document.documentElement.dataset.theme ? document.documentElement.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
 function toggleTheme(){ const nx = isDark() ? 'light' : 'dark'; document.documentElement.dataset.theme = nx; try { localStorage.setItem('czpos-theme', nx); } catch {} const b = $('#themebtn'); if (b) b.textContent = nx === 'dark' ? '☀ Light mode' : '☾ Dark mode'; }
 /* carrier-locked / financed phones never get listed on Swappa: they go to wholesale (Atlas) */
-const isLockedCarrier = c => /locked|financed|blacklist/i.test(c || '');
+const isLockedCarrier = c => /financed|blacklist|(^|[^n])locked/i.test(c || '');   /* "Unlocked" is NOT locked */
 const CHECKS = [
   ['power','Powers on and boots', {fix: 'Diagnose (no power)'}], ['lock','iCloud / Google account removed', {req: true}], ['imei','IMEI blacklist check clean', {req: true}],
   ['display','Display: no lines, spots or burn-in', {fix: 'Screen'}], ['touch','Touch works across the whole screen', {fix: 'Screen'}],
@@ -1669,7 +1669,7 @@ const NAVG = [
   {k: 'dashboard', l: 'Dashboard'},
   {l: 'Counter', items: [['register','Register',0],['invoices','Invoices',0],['customers','Customers',0]]},
   {l: 'Repairs', badge: 'tickets', items: [['tickets','Tickets',0],['techboard','Tech board',0],['repairs','Repair stock',0],['parts','Parts',0],['quote','Quote',0]]},
-  {l: 'Devices', badge: 'swappa', items: [['buyback','Buyback',0],['inventory','Devices',0],['swappa','Swappa',0],['wholesale','Wholesale',0]]},
+  {l: 'Devices', badge: 'devices', items: [['buyback','Buyback',0],['inventory','Devices',0],['swappa','Swappa',0],['wholesale','Wholesale',0]]},
   {k: 'inbox', l: 'Inbox'},
   {l: 'More', items: MORE},
 ];
@@ -1692,10 +1692,11 @@ let BAR_CNT = {at: 0, store: null, v: null};
 async function barCounts(tok){
   try {
     if (!BAR_CNT.v || BAR_CNT.store !== S.store || Date.now() - BAR_CNT.at > 60000) {
-      const [tix, ships, leads] = await Promise.all([Store.tickets().catch(() => []), Store.ships().catch(() => []), Store.leads().catch(() => [])]);
+      const [tix, ships, leads, devs] = await Promise.all([Store.tickets().catch(() => []), Store.ships().catch(() => []), Store.leads().catch(() => []), Store.devices().catch(() => [])]);
       BAR_CNT = {at: Date.now(), store: S.store, v: {
         tickets: [tix.filter(t => t.store === S.store && t.status === 'reply').length, tix.filter(t => t.store === S.store && t.status === 'new').length],
         swappa: ships.filter(x => x.store === S.store && x.status !== 'shipped').length,
+        pending: devs.filter(d => d.store === S.store && d.status === 'testing').length,
         inbox: leads.filter(l => l.status === 'new' && (!l.store || l.store === S.store)).length}};
     }
     if (tok !== RENDER_NO) return;
@@ -1703,6 +1704,8 @@ async function barCounts(tok){
     const set = (k, n, cls, title) => document.querySelectorAll(`#bar [data-cnt="${k}"]`).forEach(c => { c.hidden = !n; c.textContent = n; c.className = 'cnt ' + cls; c.title = title; });
     set('tickets', rep + nw, rep ? 'hot' : 'go', [rep && `${rep} customer replied`, nw && `${nw} new, not started`].filter(Boolean).join(' · '));
     set('swappa', v.swappa, 'hot', `${v.swappa} Swappa sale${v.swappa === 1 ? '' : 's'} to ship`);
+    set('inventory', v.pending, 'go', `${v.pending} bought device${v.pending === 1 ? '' : 's'} pending: pick where ${v.pending === 1 ? 'it goes' : 'they go'}`);
+    set('devices', v.swappa + v.pending, v.swappa ? 'hot' : 'go', [v.swappa && `${v.swappa} Swappa to ship`, v.pending && `${v.pending} pending`].filter(Boolean).join(' · '));
     set('inbox', v.inbox, 'hot', `${v.inbox} new website lead${v.inbox === 1 ? '' : 's'}`);
   } catch (e) { console.warn('bar counts', e); }
 }
@@ -3564,7 +3567,7 @@ async function viewEod(el){
       S.eod.rma = String(done.bins?.rma?.counted ?? ''); S.eod.refurb = String(done.bins?.refurb?.counted ?? ''); S.eod.note = done.note || ''; S.eod.again = true; }
   }
   const E = S.eod, L = E.list;
-  const SECT = [['In the safe (for sale, to list, on Swappa, testing)', d => ['hot', 'tolist', 'testing', 'swappa'].includes(d.status)], ['Repair stock', d => d.status === 'repair'], ['Wholesale (waiting to ship)', d => d.status === 'wholesale']];
+  const SECT = [['In the safe (for sale, to list, on Swappa, pending)', d => ['hot', 'tolist', 'testing', 'swappa'].includes(d.status)], ['Repair stock', d => d.status === 'repair'], ['Wholesale (waiting to ship)', d => d.status === 'wholesale']];
   /* same order as the shelf / the Parts Inventory sheet */
   const shelf = n => /ipad/i.test(n) ? 'iPad' : /iphone/i.test(n) ? (/aq7/i.test(n) ? 'iPhone AQ7' : /incell/i.test(n) ? 'iPhone Incell' : /oled|xo7|x07/i.test(n) ? 'iPhone OLED (XO7)' : 'iPhone older + LCD') : /galaxy|^s\d|note|^a\d|samsung|^z /i.test(n) ? 'Samsung' : 'Other';
   const pg = []; L.parts.slice().sort((a, b) => (a.sort ?? 9999) - (b.sort ?? 9999) || a.name.localeCompare(b.name)).forEach(p => { const k = shelf(p.name); if (!pg.length || pg[pg.length - 1][0] !== k) pg.push([k, []]); pg[pg.length - 1][1].push(p); });
@@ -4872,8 +4875,9 @@ async function viewBuyback(el){
     const r = await Store.recordBuyback(S.user, S.store, {model: B.model, storage: B.storage, carrier: B.carrier, cond: B.cond, color: B.color.trim(), imei: B.imei.trim(),
       battery: B.battery === '' ? null : +B.battery, checklist: {...B.checks}, needs, paid, max, payout: B.payout, payoutTo: (B.payoutTo || '').trim(), notes: B.notes.trim(),
       seller: {...sl, phone: ph, email: (sl.email || '').trim().toLowerCase(), firstName: sl.firstName.trim(), lastName: sl.lastName.trim(), state: sl.state.toUpperCase()}}, override);
-    if (isLockedCarrier(B.carrier) && !['wholesale', 'repair'].includes(r.device.status)) { try { await Store.updateDevice(S.user, S.store, r.device.id, {status: 'wholesale'}); } catch {} }
-    S.bbDone = {deviceId: r.device.id, buybackId: r.buyback.id};
+    /* every buy starts as Pending in inventory until the rep (or a manager later) picks Inventory, Repair stock or Wholesale */
+    if (r.device.status !== 'testing') { try { await Store.updateDevice(S.user, S.store, r.device.id, {status: 'testing'}); } catch {} }
+    S.bbDone = {deviceId: r.device.id, buybackId: r.buyback.id}; BAR_CNT.at = 0;
     if (!S.visit || S.visit.phone !== ph) S.visit = {phone: ph, seller: {...sl, phone: ph}, payout: B.payout, payoutTo: B.payoutTo || '', items: []};
     S.visit.items.push({buybackId: r.buyback.id, deviceId: r.device.id}); S.sellers = null;
     S.bb = newBB(); window.scrollTo(0, 0); viewBuyback(el);
@@ -4884,13 +4888,15 @@ async function viewBuybackDone(el){
   const bb = await Store.buyback(S.bbDone.buybackId);
   const slack = bb && SAM_PAYS.includes(bb.payout) ? (S.bbDone.slack = S.bbDone.slack || Store.payoutAlert(bb.id)) : null;
   if (slack) slack.then(() => { const n = $('#bd-slack'); if (n) n.textContent = 'Sam got it on Slack.'; }).catch(e => { const n = $('#bd-slack'); if (n) n.innerHTML = `<b>Slack alert didn't go through</b> (${esc(e.message)}). Text Sam the buy ID, amount and where to send it.`; });
-  const where = dv.status === 'repair' ? `repair stock (needs ${dv.needs.join(', ')})` : STATUS_LABEL[dv.status];
+  const where = dv.status === 'repair' ? `repair stock (needs ${dv.needs.join(', ')})` : dv.status === 'testing' ? 'inventory as <b>Pending</b>' : esc(STATUS_LABEL[dv.status]);
+  const hot = HOT_STOCK.includes(dv.model.toUpperCase());
+  const sug = isLockedCarrier(dv.carrier) ? 'wholesale' : dv.needs?.length ? 'repair' : 'inv';
   el.innerHTML = `<div class="panel stack" style="max-width:640px">
     <span class="pill ok" style="align-self:flex-start">Buy complete</span>
     <h2>${esc(bb?.bbId || '')} · ${esc(dv.model)} ${esc(dv.storage)} · ${cents(dv.cost)}</h2>
     <div class="small muted">Stock #${dv.stockNo} · receipt #${bb?.receiptNo}</div>
     ${bb && SAM_PAYS.includes(bb.payout) ? `<div class="banner warn" id="bd-pay">Payout request: ${cents(bb.paid)} by ${esc(bb.payout)} to <b>${esc(bb.payoutTo || bb.seller?.payoutTo || '?')}</b>. <span id="bd-slack">Sending it to Sam on Slack…</span> Tell the seller it's on the way.</div>` : ''}
-    <p style="margin:0">Added to ${STORES[dv.store]} ${esc(where)}.</p>
+    <p style="margin:0">Added to ${STORES[dv.store]} ${where}.</p>
     ${bb?.payout === 'Trade-in credit' ? (bb.creditLeft > 0 ? `<div class="banner ok stack" style="gap:8px"><span><b>${cents(bb.creditLeft)} trade-in credit</b> is on file for ${esc([bb.seller?.firstName, bb.seller?.lastName].filter(Boolean).join(' ') || 'the seller')}. No cash leaves the buyback fund unless they take some back.</span>
       <div class="row" style="gap:8px"><button class="primary" id="d-trade">Use it now: ring up their purchase</button><button id="d-tcash">They want cash instead</button></div></div>`
       : `<div class="banner small">Trade-in credit used${bb.creditCash ? ` · ${cents(bb.creditCash)} given back in cash` : ''}.</div>`) : ''}
@@ -4898,10 +4904,11 @@ async function viewBuybackDone(el){
       <button class="primary" id="d-bos" style="min-height:52px;font-size:16px">1 · Print bill of sale for signature</button>
       <button id="d-label" style="min-height:52px;font-size:16px">2 · Print label</button>
       <span class="label" style="margin-top:6px">3 · Where does it go?</span>
+      ${dv.status === 'testing' ? `<div class="banner warn small" style="margin:0">Pending until you pick one. Busy? It's safe in inventory as Pending, and you or a manager can pick later from Devices.</div>` : ''}
       <div class="grid g3" style="gap:8px">
-        <button data-dest="${HOT_STOCK.includes(dv.model.toUpperCase()) ? 'hot' : 'tolist'}" aria-pressed="${['hot', 'tolist'].includes(dv.status)}">Inventory<span class="small muted" style="display:block">${HOT_STOCK.includes(dv.model.toUpperCase()) ? 'hot stock, sell in store' : 'ready to list on Swappa'}</span></button>
-        <button data-dest="repair" aria-pressed="${dv.status === 'repair'}">Repair stock<span class="small muted" style="display:block">needs work first</span></button>
-        <button data-dest="wholesale" aria-pressed="${dv.status === 'wholesale'}">Wholesale<span class="small muted" style="display:block">ship to Atlas</span></button>
+        <button data-dest="${hot ? 'hot' : 'tolist'}" aria-pressed="${['hot', 'tolist'].includes(dv.status)}">Inventory<span class="small muted" style="display:block">${hot ? 'hot stock, sell in store' : 'ready to list on Swappa'}${sug === 'inv' && dv.status === 'testing' ? ' · <b>suggested</b>' : ''}</span></button>
+        <button data-dest="repair" aria-pressed="${dv.status === 'repair'}">Repair stock<span class="small muted" style="display:block">needs work first${sug === 'repair' && dv.status === 'testing' ? ' · <b>suggested</b>' : ''}</span></button>
+        <button data-dest="wholesale" aria-pressed="${dv.status === 'wholesale'}">Wholesale<span class="small muted" style="display:block">ship to Atlas${sug === 'wholesale' && dv.status === 'testing' ? ' · <b>suggested</b> (carrier locked)' : ''}</span></button>
       </div>
       ${dv.status === 'repair' ? '<button id="d-rep">Open in repair stock</button>' : ''}
       ${S.visit?.items.length > 1 ? `<div class="banner acc stack" style="gap:8px"><span><b>${esc(S.visit.seller.firstName)}'s visit: ${S.visit.items.length} devices</b> · <span id="d-vtot"></span></span>
@@ -4912,7 +4919,7 @@ async function viewBuybackDone(el){
   if (S.visit?.items.length > 1) visitLoad().then(L => { const t = $('#d-vtot'); if (t) t.textContent = cents(L.reduce((a, x) => a + (+x.bb?.paid || 0), 0)) + ' total';
     $('#d-vbos').onclick = () => visitBosSheet(L); $('#d-vlbl').onclick = () => printLabels(L.map(x => x.dv).filter(Boolean)); });
   el.querySelectorAll('[data-dest]').forEach(b => b.onclick = async () => { if (b.getAttribute('aria-pressed') === 'true') return;
-    try { await Store.updateDevice(S.user, S.store, dv.id, {status: b.dataset.dest}); toast(b.dataset.dest === 'wholesale' ? `Added to ${STORES[dv.store]} wholesale` : `Moved to ${STATUS_LABEL[b.dataset.dest]}`); viewBuybackDone(el); } catch (e) { toast(e.message); } });
+    try { await Store.updateDevice(S.user, S.store, dv.id, {status: b.dataset.dest}); BAR_CNT.at = 0; toast(b.dataset.dest === 'wholesale' ? `Added to ${STORES[dv.store]} wholesale` : `Moved to ${STATUS_LABEL[b.dataset.dest]}`); viewBuybackDone(el); } catch (e) { toast(e.message); } });
   $('#d-bos').onclick = () => bosSheet(S.bbDone.buybackId, dv.id);
   $('#d-trade') && ($('#d-trade').onclick = () => { S.cart = []; S.cartPhone = (bb.seller?.phone || bb.phone || '').replace(/\D/g, ''); S.rgTrade = null; S.bbDone = null; go('register'); });
   $('#d-tcash') && ($('#d-tcash').onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Pay the trade-in in cash</h3><button data-close>Close</button></div>
@@ -5038,7 +5045,7 @@ function orderPartSheet(ctx, after){
 /* ---------------- DEVICE INVENTORY ---------------- */
 function nextStatusHint(d){
   const age = daysOld(d.createdAt);
-  if (d.status === 'testing' && age >= 3) return ['warn', `Testing ${age} days`];
+  if (d.status === 'testing' && age >= 1) return ['warn', `Pending ${age} day${age === 1 ? '' : 's'}: pick where it goes`];
   if (d.status === 'repair' && age >= 7) return ['bad', `Waiting on repair ${age} days`];
   if (d.status === 'tolist' && age >= 3) return ['warn', `Not listed after ${age} days`];
   if (d.status === 'swappa' && age >= 21) return ['warn', `Listed ${age} days`];
@@ -5317,7 +5324,7 @@ const DEV_CATS = [['all', 'All devices', () => true], ['iphone-unl', 'Unlocked i
   ['mac', 'MacBooks & iMacs', d => devKind(d) === 'mac'], ['watch', 'Apple Watch', d => devKind(d) === 'watch'], ['pixel', 'Pixels', d => devKind(d) === 'pixel'], ['console', 'Consoles', d => devKind(d) === 'console'], ['other', 'Other', d => devKind(d) === 'other']];
 const DEV_STATUS = [['active', 'In inventory (not sold)', d => !['sold', 'atlas'].includes(d.status)], ['sell', 'Ready to sell', d => ['hot', 'tolist', 'swappa'].includes(d.status)],
   ['hot', 'Hot stock', d => d.status === 'hot'], ['tolist', 'To list', d => d.status === 'tolist'], ['swappa', 'On Swappa', d => d.status === 'swappa'], ['repair', 'Repair stock', d => d.status === 'repair'],
-  ['testing', 'Testing', d => d.status === 'testing'], ['wholesale', 'Wholesale', d => d.status === 'wholesale'], ['sold', 'Sold', d => ['sold', 'atlas'].includes(d.status)], ['all', 'Everything', () => true]];
+  ['testing', 'Pending', d => d.status === 'testing'], ['wholesale', 'Wholesale', d => d.status === 'wholesale'], ['sold', 'Sold', d => ['sold', 'atlas'].includes(d.status)], ['all', 'Everything', () => true]];
 async function viewInventory(el){
   const F = S.inv; if (!DEV_STATUS.some(x => x[0] === F.status)) F.status = 'active'; if (!DEV_CATS.some(x => x[0] === F.cat)) F.cat = 'all';
   const all = await Store.devices();
