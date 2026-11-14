@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794617924";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794618203";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -3852,7 +3852,8 @@ async function cloudPrinters(force){
 const printKind = css => /72mm/.test(css) ? 'receipt' : /@page\{size:[\d.]+in [\d.]+in/.test(css) ? 'label' : 'paper';
 /* the DYMO driver's own name for each label roll (width × height in points) */
 const DYMO_PAPER = {'30252': 'w79h252', '30336': 'w72h154', '30334': '30334_2-1_4_in_x_1-1_4_in', '30330': 'w54h144'};
-const LABEL_STRETCH = {};   /* per store, once measured */
+const LABEL_STRETCH = {};
+const DYMO_NATIVE = {};   /* stores whose DYMO gets native commands */   /* per store, once measured */
 const PRINT_KIND = {label: 'DYMO label printer', receipt: 'Epson receipt printer', paper: 'Brother printer'};
 const H2C = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js', JSPDF = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
 const loadScript = (doc, src) => new Promise((ok, no) => { const s = doc.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => no(new Error("couldn't load the PDF maker")); doc.head.appendChild(s); });
@@ -3869,6 +3870,7 @@ async function htmlToPdf(body, css, kind, stretch = 1){
     let pdf;
     if (kind === 'label') {
       const m = css.match(/@page\{size:([\d.]+)in ([\d.]+)in/); const pw = +m[1], ph = +m[2];
+      f.style.width = pw + 'in';   /* capture exactly the label (html2canvas takes the whole window width for <body>) */
       const els = [...doc.querySelectorAll('.lb')]; const targets = els.length ? els : [doc.body];
       /* the DYMO's label stock runs portrait (1.1 in wide, 3.5 in long), so a wide label is turned 90° onto a portrait page */
       /* the Bulverde DYMO (via PrintNode) prints labels shortened lengthwise, so the label is sent stretched by `stretch` to come out right */
@@ -3915,6 +3917,41 @@ async function htmlToEscpos(body, css){
     return btoa(bin);
   } finally { f.remove(); }
 }
+/* Labels: the DYMO LabelWriter 450 gets its own native commands (a 300-dpi black-and-white picture of the label, one dot-row at a time
+   across the label, then "next label"), so the Mac's driver can't rescale it. */
+async function htmlToDymo(body, css, opt = {}){
+  const f = document.createElement('iframe'); f.setAttribute('aria-hidden', 'true');
+  f.style.cssText = 'position:fixed;left:-20000px;top:0;border:0;width:9in;height:20px;background:#fff';
+  document.body.appendChild(f);
+  try {
+    const doc = f.contentDocument; doc.open(); doc.write(`<!doctype html><html><head><meta charset="utf-8"><style>${css}html,body{background:#fff;color:#000}</style></head><body>${body}</body></html>`); doc.close();
+    await loadScript(doc, H2C); try { await doc.fonts.ready; } catch {}
+    const els = [...doc.querySelectorAll('.lb')]; const targets = els.length ? els : [doc.body];
+    const m = css.match(/@page\{size:([\d.]+)in ([\d.]+)in/); const LW = +m[1], LH = +m[2];   /* label length (along feed), height (across) in inches */
+    f.style.width = LW + 'in';
+    const across = Math.round(LH * 300), along = Math.round(LW * 300), bpl = Math.ceil(across / 8);
+    const tab = opt.tab ?? 0, flip = !!opt.flip;
+    const out = [0x1b, 0x2a];   /* ESC * restore defaults */
+    out.push(0x1b, 0x68);       /* ESC h: 300x300 text mode */
+    out.push(0x1b, 0x42, tab, 0x1b, 0x44, bpl);   /* dot tab, bytes per line */
+    out.push(0x1b, 0x4c, (along + 300) >> 8, (along + 300) & 255);   /* label length (with slack to find the gap) */
+    for (const el of targets) {
+      const r = el.getBoundingClientRect();
+      const c = await f.contentWindow.html2canvas(el, {scale: 300 / 96 * (LW * 96 / Math.max(1, r.width)), backgroundColor: '#ffffff', logging: false, windowHeight: Math.max(20, doc.documentElement.scrollHeight)});
+      const W = c.width, H = c.height, px = c.getContext('2d').getImageData(0, 0, W, H).data;
+      const dark = (x, y) => { if (x < 0 || y < 0 || x >= W || y >= H) return false; const i = (y * W + x) * 4; return px[i] * .3 + px[i + 1] * .59 + px[i + 2] * .11 < 150; };
+      for (let row = 0; row < along; row++) {   /* row = position along the label (its x in the picture) */
+        const x = Math.round(row * W / along); out.push(0x16);
+        for (let b = 0; b < bpl; b++) { let v = 0;
+          for (let bit = 0; bit < 8; bit++) { const dot = b * 8 + bit; if (dot >= across) continue;
+            const yy = Math.round((flip ? dot : across - 1 - dot) * H / across); if (dark(x, yy)) v |= 0x80 >> bit; }
+          out.push(v); } }
+      out.push(0x1b, 0x45);   /* ESC E: feed to the next label */
+    }
+    let bin = ''; for (let i = 0; i < out.length; i += 8192) bin += String.fromCharCode.apply(null, out.slice(i, i + 8192));
+    return btoa(bin);
+  } finally { f.remove(); }
+}
 function printLocal(title, body, css){
   const f = document.createElement('iframe');
   f.setAttribute('aria-hidden', 'true'); f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
@@ -3929,6 +3966,7 @@ async function printHTML(title, body, css, kind = printKind(css), extra = {}){
     toast(`Sending to the ${PRINT_KIND[kind]}…`);
     try { const {stretch, ...ex} = extra; const st = kind === 'label' ? (stretch ?? LABEL_STRETCH[S.store] ?? 1) : 1;
       const r = kind === 'receipt' ? await Store.cloudPrint({store: S.store, kind, title, raw: await htmlToEscpos(body, css)})
+        : kind === 'label' && (ex.native ?? DYMO_NATIVE[S.store]) ? await Store.cloudPrint({store: S.store, kind, title, raw: await htmlToDymo(body, css, ex)})
         : await Store.cloudPrint({store: S.store, kind, title, pdf: await htmlToPdf(body, css, kind, st), ...(kind === 'label' ? {paper: DYMO_PAPER[labelSize()]} : {}), ...ex});
       toast(`Printing on ${r.printer}${r.paper ? ' · ' + r.paper : ''} ✓`); return; }
     catch (e) { console.error(e); toast(`Couldn't send it (${e.message}). Opening the print window instead.`); }
@@ -3950,7 +3988,7 @@ async function printersSheet(){
         <button id="pr-re">Check again</button>`;
       box.querySelectorAll('[data-pt]').forEach(b => b.onclick = () => { const k = b.dataset.pt; const when = new Date().toLocaleString('en-US');
         if (k === 'label') { const sz = LABELS[labelSize()]; const lbl = t => `<div style="position:absolute;inset:0;border:3px solid #000"></div><div style="position:absolute;left:6px;top:4px;font:700 13px Arial">TOP LEFT</div><div style="position:absolute;right:6px;bottom:4px;font:700 13px Arial">BOTTOM RIGHT</div><div style="position:absolute;left:0;right:0;top:38%;text-align:center;font:700 16px Arial">${t}</div>`, lcss = `@page{size:${sz.w} ${sz.h};margin:0}*{box-sizing:border-box}html,body{margin:0}body{position:relative;width:${sz.w};height:${sz.h};overflow:hidden}`;
-          printHTML('Test label C', lbl('TEST C · stretch fit off'), lcss, 'label', {fit: false, stretch: 2.58}).then(() => printHTML('Test label D', lbl('TEST D · stretch fit on'), lcss, 'label', {fit: true, stretch: 2.58})); }
+          printHTML('Test label', lbl(`CELLULAR ZONE ${esc(S.store)} TEST`), lcss, 'label'); }
         else if (k === 'receipt') printHTML('Test receipt', `<div style="font:700 16px Arial;text-align:center">CELLULAR ZONE</div><div style="text-align:center;font:12px Arial">Test receipt · ${esc(STORES[S.store])}<br>${when}</div>`, '@page{size:72mm 297mm;margin:0}html,body{margin:0;width:72mm}body{padding:2mm 3mm;box-sizing:border-box}', 'receipt');
         else printHTML('Test page', `<h1 style="font:700 22px Arial">Cellular Zone · test page</h1><p style="font:14px Arial">${esc(STORES[S.store])} · ${when}. If this came out of the Brother, bills of sale will too.</p>`, '@page{size:letter;margin:.6in}', 'paper'); });
       box.querySelector('#pr-local') && (box.querySelector('#pr-local').onchange = e => ls.set('czpos-localprint', e.target.checked ? '1' : ''));
