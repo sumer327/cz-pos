@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794618203";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794618289";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -594,6 +594,7 @@ const DemoStore = {
         if ((p.qty[t.store] || 0) < 1) throw new Error(`No ${p.name} left at this store. Special order it, or add the charge without the part.`);
         p.qty[t.store] -= 1; Object.assign(c, {partId: p.id, partName: p.name, partCost: p.cost || 0}); t.partsUsed.push({partId: p.id, name: p.name, cost: p.cost || 0, at: now(), by: emp.id, chargeId: c.id});
         c._pn = ` · part pulled from stock: ${p.name} (${p.qty[t.store]} left)`; }
+      if (!c.partId && +add.cost > 0) c.partCost = Math.round(+add.cost * 100) / 100;
       const pn = (c._pn || '') + (add.refurb ? ' · original screen goes in the refurb bin' : ''); delete c._pn;
       if (add.refurb) { c.refurb = true; this.refurbAdd(d, emp, t.store, t.device || t.subject, `Ticket #${t.number}`, 'Original screen from the repair'); d.refurbLog[0].chargeId = c.id; }
       t.charges.push(c); t.comments.unshift({id: uid(), at: now(), who: emp.id, text: `Charge added: ${c.desc} ${cents(c.price)}${pn}`, pub: false, sys: true}); }
@@ -2433,13 +2434,20 @@ async function chargeSheet(t, c, after, opts = {}){
           add(gl ? {desc: p.name + ' (lifetime warranty)', cat: 'Tempered glass', price: GLASS[gl], productId: p.id, glass: gl} : {desc: p.name, cat: 'Accessory', price: p.price, productId: p.id}); S.chq = ''; body(); });
       } else {
         B.innerHTML = `<div class="field"><label class="label" for="cs-d">What is it</label><input id="cs-d" placeholder="Water damage cleaning"></div>
-          <div class="grid g2"><div class="field"><label class="label" for="cs-c">Category</label><select id="cs-c">${LINE_CATS.map(x => `<option>${x}</option>`).join('')}</select></div>
-          <div class="field"><label class="label" for="cs-p">Price</label><input id="cs-p" inputmode="decimal" placeholder="0.00"></div></div>
+          <div class="grid g3"><div class="field"><label class="label" for="cs-c">Category</label><select id="cs-c">${LINE_CATS.map(x => `<option>${x}</option>`).join('')}</select></div>
+          <div class="field"><label class="label" for="cs-p">Price</label><input id="cs-p" inputmode="decimal" placeholder="0.00"></div>
+          <div class="field"><label class="label" for="cs-cost">Our cost</label><input id="cs-cost" inputmode="decimal" placeholder="0.00"><div class="small muted" id="cs-cx"></div></div></div>
           <div class="field"><label class="label" for="cs-pt">Part from ${STORES[t.store]} stock (optional)</label><select id="cs-pt"><option value="">No part</option>${(() => { const fit = partsFor(parts, t.device, null, t.store); const rest = parts.filter(p => !fit.includes(p));
-            const o = p => `<option value="${p.id}" ${(p.qty?.[t.store] || 0) < 1 ? 'disabled' : ''}>${esc(p.name)} (${p.qty?.[t.store] || 0} at ${t.store})</option>`;
+            const o = p => `<option value="${p.id}" data-cost="${+p.cost || 0}" ${(p.qty?.[t.store] || 0) < 1 ? 'disabled' : ''}>${esc(p.name)} (${p.qty?.[t.store] || 0} at ${t.store}${+p.cost ? ' · cost ' + cents(p.cost) : ''})</option>`;
             return (fit.length ? `<optgroup label="Fits ${esc(t.device)}">${fit.map(o).join('')}</optgroup>` : '') + `<optgroup label="All parts">${rest.map(o).join('')}</optgroup>`; })()}</select></div>
           <button class="primary" id="cs-go" style="align-self:flex-start">Add charge</button>`;
-        L.querySelector('#cs-go').onclick = e => { const pid = L.querySelector('#cs-pt').value; add({desc: L.querySelector('#cs-d').value, cat: L.querySelector('#cs-c').value, price: parseFloat(L.querySelector('#cs-p').value), ...(pid ? {partId: pid} : {})}, e.target).then(() => { if (L.querySelector('#cs-d')) { L.querySelector('#cs-d').value = ''; L.querySelector('#cs-p').value = ''; L.querySelector('#cs-pt').value = ''; } }); };
+        const cx = () => { const pr = parseFloat(L.querySelector('#cs-p').value), co = parseFloat(L.querySelector('#cs-cost').value);
+          L.querySelector('#cs-cx').textContent = pr > 0 && co >= 0 && !isNaN(co) ? `Profit ${cents(pr - co)}${pr ? ' · ' + Math.round((pr - co) / pr * 100) + '%' : ''}` : ''; };
+        L.querySelector('#cs-pt').onchange = e => { const o = e.target.selectedOptions[0]; const pc = +(o?.dataset.cost || 0); const ci = L.querySelector('#cs-cost');
+          if (e.target.value) { ci.value = pc ? pc.toFixed(2) : ''; ci.disabled = true; ci.title = 'Cost of the part from stock'; } else { ci.disabled = false; ci.value = ''; ci.title = ''; } cx(); };
+        L.querySelector('#cs-p').oninput = cx; L.querySelector('#cs-cost').oninput = cx;
+        L.querySelector('#cs-go').onclick = e => { const pid = L.querySelector('#cs-pt').value; const co = parseFloat(L.querySelector('#cs-cost').value);
+          add({desc: L.querySelector('#cs-d').value, cat: L.querySelector('#cs-c').value, price: parseFloat(L.querySelector('#cs-p').value), ...(pid ? {partId: pid} : co > 0 ? {cost: Math.round(co * 100) / 100} : {})}, e.target).then(() => { if (L.querySelector('#cs-d')) { L.querySelector('#cs-d').value = ''; L.querySelector('#cs-p').value = ''; L.querySelector('#cs-pt').value = ''; } }); };
       }
     };
     const foot = (L, close) => { const due = (t.charges || []).filter(x => !x.invoiceId);
