@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794639980";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794678951";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -748,7 +748,7 @@ const DemoStore = {
     const t = inv.ticketId && d.tickets.find(x => x.id === inv.ticketId);
     if (t) (t.charges || []).filter(x => x.invoiceId === inv.id).forEach(x => { const l = lines.find(y => y.chargeId === x.id); if (!l) { delete x.invoiceId; delete x.invoiceNo; delete x.draft; } else Object.assign(x, {desc: l.desc, price: l.price * l.qty}); });
     this.save(d); return inv; },
-  async voidInvoice(emp, store, id){ const d = this.db(); const inv = d.invoices.find(i => i.id === id); if (!inv || inv.paid !== false) throw new Error('Only unpaid invoices can be deleted.');
+  async voidInvoice(emp, store, id){ const d = this.db(); if (!['owner', 'manager'].includes(emp.role)) throw new Error('Only a manager can delete an invoice.'); const inv = d.invoices.find(i => i.id === id); if (!inv || inv.paid !== false) throw new Error('Only unpaid invoices can be deleted.');
     const t = inv.ticketId && d.tickets.find(x => x.id === inv.ticketId);
     if (t) { (t.charges || []).filter(x => x.invoiceId === inv.id).forEach(x => { delete x.invoiceId; delete x.invoiceNo; delete x.draft; }); t.comments.unshift({id: uid(), at: now(), who: emp.id, text: `Invoice #${inv.number} deleted (it was never paid). Its charges are back on the ticket.`, pub: false, sys: true}); }
     d.invoices = d.invoices.filter(i => i.id !== id); this.save(d); return {ok: true, ticketId: inv.ticketId}; },
@@ -3732,8 +3732,8 @@ async function viewInvoice(el){
         ${open ? `<div class="row" style="justify-content:space-between"><span>Balance due</span><b class="num" style="color:var(--bad);font-size:20px">${cents(inv.total)}</b></div>
           <div class="err" id="iv-err" role="alert"></div>
           <button class="primary" id="iv-pay" style="min-height:56px;font-size:17px" ${L.length ? '' : 'disabled'}>Take payment · ${cents(inv.total)}</button>
-          <button id="iv-del" class="danger" style="align-self:flex-start">Delete this invoice</button>
-          <span class="small muted">Nothing is charged until you take payment. Deleting puts the ticket's charges back on the ticket.</span>`
+          ${can(2) ? `<button id="iv-del" class="danger" style="align-self:flex-start">Delete this invoice</button>
+          <span class="small muted">Nothing is charged until you take payment. Deleting puts the ticket's charges back on the ticket.</span>` : '<span class="small muted">Nothing is charged until you take payment. Need it deleted? Ask a manager.</span>'}`
         : inv.paid === false ? `<div class="banner warn small">This RepairShopr invoice isn't paid. Collect it from the ticket (Make invoice), then void it in RepairShopr.</div>`
         : `<div class="stack" style="gap:4px"><span class="label">Paid</span>${(inv.payments && inv.payments.length ? inv.payments : [{method: inv.payment, amount: inv.total}]).map(p => `<div class="row" style="justify-content:space-between"><span>${esc(p.method || '')}</span><span class="num">${cents(p.amount)}</span></div>`).join('')}
             ${refunds.map(r => `<div class="row" style="justify-content:space-between;color:var(--bad)"><a data-goinv="${r.id}" style="cursor:pointer">Refund #${r.number} · ${fmtDate(r.at)}</a><span class="num">${cents(r.total)}</span></div>`).join('')}
@@ -3847,9 +3847,9 @@ async function viewInvoice(el){
           const r = S2.querySelector('#dc-r').value.trim(); const v = parseFloat(S2.querySelector('#dc-v').value);
           close(); L.push({desc: 'Discount' + (kind === 'pct' ? ` (${v}%)` : '') + (r ? ' · ' + r : ''), cat: 'Discount', price: -a, qty: 1, taxable: true}); save(L); }; });
   });
-  $('#iv-del').onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Delete invoice #${inv.number}?</h3><button data-close>Keep it</button></div>
+  $('#iv-del') && ($('#iv-del').onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Delete invoice #${inv.number}?</h3><button data-close>Keep it</button></div>
       <p style="margin:0">It was never paid, so nothing is refunded. ${t ? 'The ticket\'s charges go back on the ticket as due.' : ''}</p><div class="err" id="vd-e" role="alert"></div><button class="danger" id="vd-go">Delete invoice</button>`,
-    (S2, close) => S2.querySelector('#vd-go').onclick = async () => { try { await Store.voidInvoice(S.user, S.store, inv.id); close(); toast(`Invoice #${inv.number} deleted`); t ? go('ticket', {ticketId: t.id}) : go('invoices'); } catch (e) { S2.querySelector('#vd-e').textContent = e.message; } });
+    (S2, close) => S2.querySelector('#vd-go').onclick = async () => { try { await Store.voidInvoice(S.user, S.store, inv.id); close(); toast(`Invoice #${inv.number} deleted`); t ? go('ticket', {ticketId: t.id}) : go('invoices'); } catch (e) { S2.querySelector('#vd-e').textContent = e.message; } }));
   $('#iv-pay').onclick = () => combineThenPay(inv, t, c, el);
 }
 /* Take payment: if this customer has other open invoices, or tickets with charges not invoiced yet (same store),
