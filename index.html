@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794678951";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794679984";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -986,6 +986,13 @@ const DemoStore = {
     this.log(d, emp.id, store, 'Swappa sale', `#${dv.stockNo} ${dv.model} ${cents(salePrice)}`); this.save(d); return dv; },
   async ships(){ return this.db().ships; },
   async swappaSkip(emp, store, id, reason){ const d = this.db(); const dv = d.devices.find(x => x.id === id); dv.swappa = Object.assign({}, dv.swappa || {}, reason ? {skip: true, skipReason: reason, skipAt: now(), skipBy: emp.id} : {skip: false, skipReason: null}); this.save(d); return dv; },
+  async ship(b){ await new Promise(r => setTimeout(r, 200));
+    if (b.action === 'paypal_recent') return {ok: true, payments: [{id: '9DEMO123', at: now(), amount: 900, payer: 'Jordan Demo', email: 'buyer@example.com', note: 'Swappa listing', to: {name: 'Jordan Demo', street1: '123 Main St', street2: '', city: 'Austin', state: 'TX', zip: '78701', country: 'US'}}]};
+    if (b.action === 'rates') return {ok: true, test: true, rates: b.box === 'small' || b.box === 'medium' ? [{id: 'r1', service: b.box === 'small' ? 'Priority Mail (Small Flat Rate Box)' : 'Priority Mail (Medium Flat Rate Box)', amount: b.box === 'small' ? 10.2 : 17.1, days: 2}] : [{id: 'r2', service: 'Ground Advantage', amount: 8.4, days: 4}, {id: 'r3', service: 'Priority Mail', amount: 11.9, days: 2}]};
+    if (b.action === 'buy') return {ok: true, test: true, tracking: '9400100000000000000000', labelUrl: '', shippoTx: 'demo', pdf: '', paypal: b.paypalTxn ? {ok: true} : null};
+    return {ok: true}; },
+  async shipLabel(emp, store, id, info){ const d = this.db(); const s = d.ships.find(x => x.id === id); Object.assign(s, {status: 'label', tracking: info.tracking, labelAt: now(), labelBy: emp.id, shipTo: info.shipTo, service: info.service, labelCost: info.cost, labelUrl: info.labelUrl, paypalTxn: info.paypalTxn || s.paypalTxn, paypalTrackedAt: info.paypalOk ? now() : null, paypalError: info.paypalOk ? null : info.paypalError || null, buyer: s.buyer || info.shipTo?.name || ''}); this.save(d); return s; },
+  async shipPaypal(emp, store, id, txn, ok, err){ const d = this.db(); const s = d.ships.find(x => x.id === id); Object.assign(s, {paypalTxn: txn || s.paypalTxn, paypalTrackedAt: ok ? now() : s.paypalTrackedAt, paypalError: ok ? null : err}); this.save(d); return s; },
   async updateShip(emp, store, id, patch){ const d = this.db(); const s = d.ships.find(x => x.id === id); Object.assign(s, patch, {[patch.status + 'At']: now()}); this.log(d, emp.id, store, 'Shipping', `${s.label}: ${patch.status}${patch.tracking ? ' · ' + patch.tracking : ''}`); this.save(d); return s; },
   async reset(){ ls.set(this.k, null); try { localStorage.removeItem(this.k); } catch {} delete mem[this.k]; await this.init(); }
 };
@@ -1178,6 +1185,9 @@ const LiveStore = {
   async swappaSold(emp, store, id, price, buyer){ return this.rpc('pos_swappa_sold', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_price: price, p_buyer: buyer || ''}); },
   async ships(){ const {data, error} = await this.sb.from('ships_v').select('*').order('at', {ascending: false}).limit(300); if (error) throw error; return data; },
   async swappaSkip(emp, store, id, reason){ return this.rpc('pos_swappa_skip', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_reason: reason || null}); },
+  async ship(body){ const {data, error} = await this.sb.functions.invoke('ship', {body}); if (error) { let m = error.message; try { m = (await error.context.json()).error || m; } catch {} throw new Error(m); } if (data?.error) throw new Error(data.error); return data; },
+  async shipLabel(emp, store, id, info){ return this.rpc('pos_ship_label', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_info: info}); },
+  async shipPaypal(emp, store, id, txn, ok, err){ return this.rpc('pos_ship_paypal', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_txn: txn || '', p_ok: !!ok, p_error: err || ''}); },
   async updateShip(emp, store, id, patch){ return this.rpc('pos_update_ship', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_status: patch.status, p_tracking: patch.tracking || ''}); },
   async signIn(email, password){ const {error} = await this.sb.auth.signInWithPassword({email, password}); if (error) throw error; }
 };
@@ -4985,10 +4995,11 @@ async function viewSwappa(el){
     </tbody></table></div>`;
   const SHIP = {pull: 'Pull and pack', label: 'Label printed', shipped: 'Shipped'};
   if (W.tab === 'ship') body = `
-    <p class="muted small" style="margin:0">Sold devices waiting to ship. Pull it, power it off, pack it, print the label from ShipStation, then enter the tracking number.</p>
+    <p class="muted small" style="margin:0">Sold devices waiting to ship. Pull it, power it off, pack it, then tap <b>Ship · print label</b>: pick the buyer's PayPal payment, pick the box, and the label prints. The tracking number goes on the PayPal payment by itself.</p>
     <div class="tbl"><table><thead><tr><th>Device</th><th>Store</th><th>Buyer</th><th>Sold</th><th>Step</th><th></th></tr></thead><tbody>
-    ${myShips.map(x => `<tr><td><b>${esc(x.label)}</b></td><td>${x.store}</td><td class="small">${esc(x.buyer || '—')}</td><td class="small">${ago(x.at)}</td><td><span class="pill ${x.status === 'pull' ? 'bad' : 'acc'}">${SHIP[x.status]}</span>${x.tracking ? `<div class="mono small">${esc(x.tracking)}</div>` : ''}</td>
-      <td class="r">${x.status === 'pull' ? `<button data-packed="${x.id}" ${btn}>Packed · add tracking</button>` : `<button class="primary" data-shipped="${x.id}" ${btn}>Shipped</button>`}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">Nothing waiting to ship.</td></tr>'}
+    ${myShips.map(x => `<tr><td><b>${esc(x.label)}</b></td><td>${x.store}</td><td class="small">${esc(x.buyer || '—')}</td><td class="small">${ago(x.at)}</td><td><span class="pill ${x.status === 'pull' ? 'bad' : 'acc'}">${SHIP[x.status]}</span>${x.tracking ? `<div class="mono small">${esc(x.tracking)}</div>` : ''}${x.tracking && (x.labelBy || x.paypalTxn) ? (x.paypalTrackedAt ? '<div class="small" style="color:var(--ok)">✓ on PayPal</div>' : `<div class="small" style="color:var(--bad)">Not on PayPal yet</div>`) : ''}</td>
+      <td class="r" style="white-space:nowrap">${x.status === 'pull' ? `<button class="primary" data-shiplbl="${x.id}" ${btn}>Ship · print label</button> <button data-packed="${x.id}" ${btn}>Have tracking already</button>`
+        : `${x.labelUrl ? `<a class="small" href="${esc(x.labelUrl)}" target="_blank" rel="noopener">Label PDF</a> ` : ''}${x.tracking && (x.labelBy || x.paypalTxn) && !x.paypalTrackedAt ? `<button data-pptrack="${x.id}" ${btn}>Send to PayPal</button> ` : ''}<button class="primary" data-shipped="${x.id}" ${btn}>Shipped</button>`}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">Nothing waiting to ship.</td></tr>'}
     </tbody></table></div>`;
   el.innerHTML = `<div class="stack">
     <div class="row" style="justify-content:space-between"><h2>Swappa listings</h2>${storeSel}</div>
@@ -5022,6 +5033,93 @@ async function viewSwappa(el){
   el.querySelectorAll('[data-packed]').forEach(b => b.onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Packed</h3><button data-close>Close</button></div><div class="field"><label class="label" for="pk-t">Tracking number from the label</label><input id="pk-t"></div><button class="primary" id="pk-go">Save</button>`,
     (L, close) => L.querySelector('#pk-go').onclick = async () => { const t = L.querySelector('#pk-t').value.trim(); if (!t) return; await Store.updateShip(S.user, S.store, b.dataset.packed, {status: 'label', tracking: t}); close(); again(); }));
   el.querySelectorAll('[data-shipped]').forEach(b => b.onclick = async () => { await Store.updateShip(S.user, S.store, b.dataset.shipped, {status: 'shipped'}); toast('Marked shipped'); again(); });
+  el.querySelectorAll('[data-shiplbl]').forEach(b => b.onclick = () => { const x = myShips.find(y => y.id === b.dataset.shiplbl); shipLabelSheet(x, all.find(d => d.id === x.deviceId), again); });
+  el.querySelectorAll('[data-pptrack]').forEach(b => b.onclick = () => { const x = myShips.find(y => y.id === b.dataset.pptrack); paypalPickSheet(x, all.find(d => d.id === x.deviceId), async pay => {
+    try { await Store.ship({action: 'paypal_track', paypalTxn: pay.id, tracking: x.tracking}); await Store.shipPaypal(S.user, S.store, x.id, pay.id, true); toast('Tracking added to the PayPal payment'); }
+    catch (e) { await Store.shipPaypal(S.user, S.store, x.id, pay.id, false, e.message).catch(() => {}); toast('PayPal: ' + e.message); } again(); }); });
+}
+/* ---------- Swappa shipping: label from the POS (Shippo) + tracking onto the buyer's PayPal payment ----------
+   SHIP_LIVE false = labels are test labels (free, not real) until we've checked one end to end. */
+const SHIP_LIVE = false;
+const shipBoxFor = d => ['ipad', 'mac'].includes(devKind(d || {})) ? 'medium' : 'small';
+let PP_CACHE = null;
+async function paypalRecent(force){ if (!force && PP_CACHE && Date.now() - PP_CACHE.at < 120000) return PP_CACHE.list;
+  const r = await Store.ship({action: 'paypal_recent', days: 10}); PP_CACHE = {at: Date.now(), list: r.payments || []}; return PP_CACHE.list; }
+const ppRow = (p, hit) => `<button data-pp="${esc(p.id)}" style="display:block;width:100%;text-align:left;${hit ? 'border-color:var(--accent);border-width:2px' : ''}">
+  <div class="row" style="justify-content:space-between"><b>${esc(p.payer || p.to?.name || p.email || 'PayPal payment')}</b><b class="num">${cents(p.amount)}</b></div>
+  <div class="small muted">${fmtDate(p.at)} · ${esc(p.to ? [p.to.city, p.to.state].filter(Boolean).join(', ') : 'no ship-to address')}${p.note ? ' · ' + esc(p.note.slice(0, 60)) : ''}${hit ? ' · <b style="color:var(--accent)">matches the sale price</b>' : ''}</div></button>`;
+/* pick the buyer's PayPal payment (for a label made elsewhere, or a retry) */
+function paypalPickSheet(x, d, onPick){
+  sheet(`<div class="row" style="justify-content:space-between"><h3>Which PayPal payment is ${esc(x.label)}?</h3><button data-close>Close</button></div>
+    <div id="pps" class="stack" style="gap:6px"><span class="muted small">Loading PayPal payments…</span></div><div class="err" id="pps-e" role="alert"></div>`,
+  async (L, close) => { try { const list = await paypalRecent(true); const sold = +d?.soldPrice || 0;
+      L.querySelector('#pps').innerHTML = list.map(p => ppRow(p, sold && Math.abs(p.amount - sold) < 1)).join('') || '<span class="muted small">No payments in the last 10 days. PayPal can take up to 3 hours to show a new one.</span>';
+      L.querySelectorAll('[data-pp]').forEach(b => b.onclick = () => { close(); onPick(list.find(p => p.id === b.dataset.pp)); });
+    } catch (e) { L.querySelector('#pps-e').textContent = e.message; } });
+}
+function shipLabelSheet(x, d, after){
+  const st = {to: {name: x.buyer || '', street1: '', street2: '', city: '', state: '', zip: ''}, pay: null, box: shipBoxFor(d), rates: null, rate: null, test: !SHIP_LIVE, notify: true, busy: false};
+  const f = (k, l, ph, w) => `<div class="field" ${w ? `style="grid-column:${w}"` : ''}><label class="label" for="sh-${k}">${l}</label><input id="sh-${k}" data-to="${k}" value="${esc(st.to[k] || '')}" placeholder="${ph || ''}" autocomplete="off"></div>`;
+  sheet(`<style>[data-box][aria-pressed=true],[data-rate][aria-pressed=true],[data-pp][aria-pressed=true]{border:2px solid var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent)}</style>
+    <div class="row" style="justify-content:space-between"><h3>Ship ${esc(x.label)}</h3><button data-close>Close</button></div>
+    <div class="stack" style="gap:6px"><div class="row" style="justify-content:space-between"><span class="label">1 · Buyer's PayPal payment</span><button class="small" id="sh-pprl">Refresh</button></div>
+      <div id="sh-pp" class="stack" style="gap:6px"><span class="muted small">Loading PayPal payments…</span></div></div>
+    <div class="stack" style="gap:6px"><span class="label">2 · Ship to</span>
+      <div class="grid g2">${f('name', 'Name', '', '1/-1')}${f('street1', 'Street', '', '1/-1')}${f('street2', 'Apt / suite', 'optional')}${f('city', 'City')}${f('state', 'State', 'TX')}${f('zip', 'ZIP')}</div></div>
+    <div class="stack" style="gap:6px"><span class="label">3 · Box</span>
+      <div class="row" style="gap:6px;flex-wrap:wrap">${[['small', 'Small Flat Rate', 'phones'], ['medium', 'Medium Flat Rate', 'tablets, some Macs'], ['custom', 'Custom box', 'measure it']].map(([k, l, h]) => `<button data-box="${k}" aria-pressed="${st.box === k}">${l}<span class="small muted" style="display:block">${h}</span></button>`).join('')}</div>
+      <div class="grid g3" id="sh-dims" hidden>${['length', 'width', 'height'].map(k => `<div class="field"><label class="label" for="sh-${k}">${k[0].toUpperCase() + k.slice(1)} (in)</label><input id="sh-${k}" inputmode="decimal"></div>`).join('')}<div class="field"><label class="label" for="sh-weight">Weight (lb)</label><input id="sh-weight" inputmode="decimal"></div></div></div>
+    ${can(2) ? `<label class="row small" style="gap:6px"><input type="checkbox" id="sh-test" ${st.test ? 'checked' : ''} style="width:auto;min-height:0"> Test label (free, not a real label)</label>` : (SHIP_LIVE ? '' : '<div class="banner warn small">Shipping from the POS is in testing: this makes a test label only.</div>')}
+    <label class="row small" style="gap:6px"><input type="checkbox" id="sh-notify" checked style="width:auto;min-height:0"> PayPal emails the buyer the tracking number</label>
+    <div id="sh-rates"></div><div class="err" id="sh-e" role="alert"></div>
+    <button class="primary" id="sh-go" style="min-height:52px">Get price</button>`,
+  (L, close) => { const $l = q => L.querySelector(q), err = m => { $l('#sh-e').textContent = m || ''; };
+    const reset = () => { st.rates = null; st.rate = null; $l('#sh-rates').innerHTML = ''; $l('#sh-go').textContent = 'Get price'; };
+    L.querySelectorAll('[data-to]').forEach(i => i.oninput = () => { st.to[i.dataset.to] = i.value.trim(); reset(); });
+    const fill = () => L.querySelectorAll('[data-to]').forEach(i => { i.value = st.to[i.dataset.to] || ''; });
+    const drawPP = list => { const sold = +d?.soldPrice || 0;
+      const sorted = [...list].sort((a, b) => (Math.abs(a.amount - sold) < 1 ? 0 : 1) - (Math.abs(b.amount - sold) < 1 ? 0 : 1));
+      $l('#sh-pp').innerHTML = sorted.slice(0, 8).map(p => ppRow(p, sold && Math.abs(p.amount - sold) < 1).replace('<button ', `<button aria-pressed="${st.pay?.id === p.id}" `)).join('')
+        || '<span class="muted small">No PayPal payments in the last 10 days. PayPal can take up to 3 hours to show a new one: type the address below and add tracking to PayPal later.</span>';
+      L.querySelectorAll('[data-pp]').forEach(b => b.onclick = () => { const p = list.find(y => y.id === b.dataset.pp); st.pay = p; if (p.to) st.to = {...st.to, ...p.to, name: p.to.name || p.payer || st.to.name}; fill(); reset(); drawPP(list); }); };
+    const loadPP = force => paypalRecent(force).then(drawPP).catch(e => { $l('#sh-pp').innerHTML = `<span class="small" style="color:var(--bad)">PayPal: ${esc(e.message)}</span> <span class="small muted">Type the address below.</span>`; });
+    loadPP(false); $l('#sh-pprl').onclick = () => loadPP(true);
+    const box = () => { L.querySelectorAll('[data-box]').forEach(b => b.setAttribute('aria-pressed', b.dataset.box === st.box)); $l('#sh-dims').hidden = st.box !== 'custom'; reset(); };
+    L.querySelectorAll('[data-box]').forEach(b => b.onclick = () => { st.box = b.dataset.box; box(); }); box();
+    ['length', 'width', 'height', 'weight'].forEach(k => $l('#sh-' + k).oninput = reset);
+    $l('#sh-test') && ($l('#sh-test').onchange = e => { st.test = e.target.checked; reset(); });
+    $l('#sh-notify').onchange = e => { st.notify = e.target.checked; };
+    const drawRates = () => { $l('#sh-rates').innerHTML = `<div class="stack" style="gap:6px"><span class="label">4 · Postage${st.test ? ' <span class="pill warn">TEST</span>' : ''}</span>${st.rates.map(r => `<button data-rate="${r.id}" aria-pressed="${st.rate === r.id}" style="text-align:left"><div class="row" style="justify-content:space-between"><span>${esc(r.service)}</span><b class="num">${cents(r.amount)}</b></div>${r.days ? `<div class="small muted">about ${r.days} day${r.days > 1 ? 's' : ''}</div>` : ''}</button>`).join('')}</div>`;
+      L.querySelectorAll('[data-rate]').forEach(b => b.onclick = () => { st.rate = b.dataset.rate; drawRates(); });
+      const r = st.rates.find(y => y.id === st.rate); $l('#sh-go').textContent = r ? `${st.test ? 'Make test label' : 'Buy label'} · ${cents(r.amount)} · print` : 'Pick the postage'; };
+    $l('#sh-go').onclick = async () => { if (st.busy) return; err();
+      const t = st.to; if (!t.name || !t.street1 || !t.city || !t.state || !t.zip) return err('Pick the PayPal payment, or type the full ship-to address.');
+      if (!/^\d{5}(-\d{4})?$/.test(t.zip)) return err('ZIP should be 5 numbers.');
+      const btn = $l('#sh-go'); st.busy = true; btn.disabled = true;
+      try {
+        if (!st.rates) { btn.textContent = 'Getting the price…';
+          const dims = st.box === 'custom' ? Object.fromEntries(['length', 'width', 'height', 'weight'].map(k => [k, parseFloat($l('#sh-' + k).value)])) : {};
+          const r = await Store.ship({action: 'rates', test: st.test, store: x.store, to: t, box: st.box, ...dims});
+          st.rates = r.rates; st.rate = r.rates[0]?.id; drawRates(); return; }
+        const rate = st.rates.find(y => y.id === st.rate); if (!rate) return err('Pick the postage.');
+        btn.textContent = st.test ? 'Making the test label…' : 'Buying the label…';
+        const r = await Store.ship({action: 'buy', test: st.test, rate: rate.id, paypalTxn: st.pay?.id || '', notify: st.notify});
+        const pp = r.paypal;
+        await Store.shipLabel(S.user, S.store, x.id, {tracking: r.tracking, shipTo: t, service: rate.service, cost: st.test ? 0 : rate.amount, labelUrl: r.labelUrl, shippoTx: r.shippoTx,
+          paypalTxn: st.pay?.id || '', paypalOk: !!pp?.ok, paypalError: pp && !pp.ok ? pp.error : (st.pay && st.test ? 'test label: not sent to PayPal' : '')});
+        let printed = false;
+        if (r.pdf) { try { await Store.cloudPrint({store: S.store, kind: 'paper', pdf: r.pdf, fit: false, title: 'Label ' + x.label}); printed = true; } catch (e) { toast('Printer: ' + e.message); } }
+        if (!printed && r.labelUrl) window.open(r.labelUrl, '_blank', 'noopener');
+        close();
+        sheet(`<div class="row" style="justify-content:space-between"><h3>${st.test ? 'Test label made' : 'Label bought'}</h3><button data-close>Done</button></div>
+          <div class="stack" style="gap:6px"><div>Tracking <b class="mono">${esc(r.tracking)}</b></div>
+          <div>${printed ? '✓ Sent to the printer' : r.labelUrl ? 'Opened the label PDF to print' : 'No label file (demo)'}${r.labelUrl ? ` · <a href="${esc(r.labelUrl)}" target="_blank" rel="noopener">Label PDF</a>` : ''}</div>
+          <div>${pp?.ok ? '<span style="color:var(--ok)">✓ Tracking added to the buyer\'s PayPal payment</span>' : st.test ? '<span class="muted">Test label: nothing sent to PayPal.</span>' : st.pay ? `<span style="color:var(--bad)">PayPal didn't take the tracking: ${esc(pp?.error || '')}</span>. Tap <b>Send to PayPal</b> on the row to try again.` : '<span style="color:var(--bad)">No PayPal payment picked.</span> Tap <b>Send to PayPal</b> on the row once the payment shows up.'}</div>
+          <div class="small muted">Tape the label on, hand it to USPS, then tap <b>Shipped</b>.</div></div>`, () => {});
+        after && after();
+      } catch (e) { err(e.message); if (st.rates) drawRates(); else btn.textContent = 'Get price'; }
+      finally { st.busy = false; btn.disabled = false; } };
+  });
 }
 
 S.sw = {store: 'mine', tab: 'listed', f: 'all'};
