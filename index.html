@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794681776";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794683037";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -4833,7 +4833,7 @@ async function viewRepair(el){
       ${d.status === 'repair' ? `<div class="panel stack"><h3>Repair finished?</h3>
         <div class="row" style="gap:10px;align-items:flex-end;flex-wrap:wrap"><div class="field" style="margin:0"><label class="label" for="r-bh">Battery health now</label><input id="r-bh" inputmode="numeric" placeholder="${d.battery ? d.battery + '%' : 'e.g. 100'}" style="width:120px"></div>
           <span class="small muted" style="flex:1;min-width:160px">Was ${d.battery ? d.battery + '%' : 'not recorded'} when we bought it. Parts so far: <b>${cents(d.partsCost || 0)}</b>, so all-in cost is <b>${cents((+d.cost || 0) + (+d.partsCost || 0))}</b>. Missing a part? Add it above first.</span></div>
-        <div class="row"><select id="r-next" aria-label="Move device to" style="flex:1;min-width:0"><option value="${HOT_STOCK.includes(d.model.toUpperCase()) ? 'hot' : 'tolist'}">${HOT_STOCK.includes(d.model.toUpperCase()) ? 'Hot stock (sell in store)' : 'Ready to list on Swappa'}</option><option value="hot">Hot stock (sell in store)</option><option value="tolist">Ready to list on Swappa</option><option value="atlas">Can't fix it: send to Atlas</option></select><button class="primary" id="r-done">Move it</button></div></div>` : ''}
+        <div class="row"><select id="r-next" aria-label="Move device to" style="flex:1;min-width:0"><option value="${HOT_STOCK.includes(d.model.toUpperCase()) ? 'hot' : 'tolist'}">${HOT_STOCK.includes(d.model.toUpperCase()) ? 'Hot stock (sell in store)' : 'Ready to list on Swappa'}</option><option value="hot">Hot stock (sell in store)</option><option value="tolist">Ready to list on Swappa</option><option value="wholesale">Can't fix it: wholesale (goes in the next Atlas box)</option></select><button class="primary" id="r-done">Move it</button></div></div>` : ''}
     </div>
     <div class="panel stack"><h3>Notes</h3>
       <textarea id="r-note" rows="3" placeholder="What you found, what you tried, what's next"></textarea><div class="row"><button class="primary" id="r-addnote">Add note</button></div>
@@ -4858,7 +4858,7 @@ async function viewRepair(el){
     if (!n) { toast('Name the part.'); return; } if (!(c > 0)) { toast('Enter what the part cost us.'); return; } ext({part: {name: n, cost: c}}, `Added ${cents(c)} to the cost`); });
   $('#r-done') && ($('#r-done').onclick = async () => { const st = $('#r-next').value; const bh = $('#r-bh').value.replace(/[%\s]/g, '');
     const swapped = (d.needs || []).some(n => /batt/i.test(n)) || (d.partsUsed || []).some(p => /batt/i.test(p.name));
-    if (st !== 'atlas' && swapped && !bh) { toast('The battery was replaced: enter the battery health now (usually 100).'); $('#r-bh').focus(); return; }
+    if (!['atlas', 'wholesale'].includes(st) && swapped && !bh) { toast('The battery was replaced: enter the battery health now (usually 100).'); $('#r-bh').focus(); return; }
     if (bh) { const b = parseInt(bh, 10); if (!(b >= 1 && b <= 100)) { toast('Battery health is a number from 1 to 100.'); return; }
       try { await Store.deviceExtra(S.user, S.store, d.id, {battery: b}); } catch (e) { toast(e.message); return; } }
     up({status: st}, `Repair finished → ${STATUS_LABEL[st]}`, `#${d.stockNo} moved to ${STATUS_LABEL[st]}${bh ? ' · battery ' + parseInt(bh, 10) + '%' : ''} · reprint the label`).then(() => go(st === 'atlas' ? 'inventory' : 'repairs')); });
@@ -5257,7 +5257,7 @@ function deviceSheet(d, after){
     ${d.notes ? `<p class="small muted">${esc(d.notes)}</p>` : ''}
     <div class="grid g2"><div class="field"><label class="label" for="d-imei">IMEI / serial</label><input id="d-imei" value="${esc(d.imei || '')}" inputmode="numeric" autocomplete="off" placeholder="Dial *#06# or check Settings"></div>
       ${can(2) || COST_OPEN ? `<div class="field"><label class="label" for="d-cost">Our cost</label><input id="d-cost" inputmode="decimal" value="${+d.cost ? d.cost : ''}" placeholder="What we paid"></div>` : ''}</div>
-    <div class="field"><label class="label" for="d-s">Move to</label><select id="d-s">${STATUSES.map(([k, l]) => `<option value="${k}" ${d.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    <div class="field"><label class="label" for="d-s">Move to</label><select id="d-s">${STATUSES.filter(([k]) => k !== 'atlas' || d.status === 'atlas').map(([k, l]) => `<option value="${k}" ${d.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
     <div class="field" id="d-ret-f"><label class="label" for="d-ret">Retail price (in store, before tax)</label><input id="d-ret" inputmode="decimal" value="${d.listPrice ?? ''}" placeholder="What it sells for"></div>
     <div class="field" id="d-list-f"><label class="label" for="d-list">Swappa list price</label><input id="d-list" inputmode="decimal" value="${d.swappa?.price ?? d.listPrice ?? ''}"></div>
     <div class="grid g2" id="d-sold-f">
