@@ -98,21 +98,49 @@ tr.click{cursor:pointer}tr.click:hover td{background:var(--soft)}
 /* RepairShopr-style app bar: dark strip, module links left, search + New + clock + user right */
 .appbar{background:var(--bar);color:var(--bar-ink);position:sticky;top:env(safe-area-inset-top,0px);z-index:20}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bar)}
-.appbar .in{max-width:1280px;margin:0 auto;display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding-block:6px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
-.appbar .logo{font-weight:600;letter-spacing:-.01em;margin-right:10px;white-space:nowrap}
-.appbar nav{display:flex;flex-wrap:wrap;gap:2px;flex:1;min-width:0}
-.appbar nav button{white-space:nowrap}
-@media (max-width:760px){.appbar nav{order:3;flex:1 0 100%;flex-wrap:nowrap;overflow-x:auto}.appbar .right{flex:1;justify-content:flex-end}.appbar input{width:140px}}
+.appbar .in{max-width:1280px;margin:0 auto;display:flex;align-items:center;gap:10px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.appbar .r1{padding-block:8px}
+.appbar .r2{padding-block:2px 0;border-top:1px solid rgba(255,255,255,.07)}
+.appbar .logo{font-weight:700;letter-spacing:-.01em;white-space:nowrap;font-size:15px}
+.appbar .dim{color:var(--bar-dim);font-weight:400}
+.appbar .dd-wrap{position:relative}
+.appbar .chip{background:var(--bar-hi);color:#fff;border:0;border-radius:999px;min-height:34px;padding:4px 13px;font-weight:600;font-size:14px;white-space:nowrap}
+.appbar .chip:hover{filter:brightness(1.15)}
+.appbar .gs{flex:1;max-width:560px;margin:0 auto;display:flex;align-items:center;gap:8px;background:var(--bar-hi);border-radius:8px;padding:0 10px;min-height:38px;cursor:text}
+.appbar .gs:focus-within{box-shadow:0 0 0 2px var(--bar-acc)}
+.appbar .gs input{flex:1;min-width:0;width:auto;max-width:none;background:transparent;border:0;outline:0;box-shadow:none;color:#fff;padding:6px 0;min-height:36px}
+.appbar kbd{background:rgba(255,255,255,.12);color:var(--bar-dim);border-radius:4px;padding:0 6px;font:12px ui-monospace,monospace}
+.appbar nav{display:flex;align-items:center;gap:2px;flex:1;min-width:0;flex-wrap:wrap}
+.appbar nav .tab{white-space:nowrap;border-radius:7px 7px 0 0;min-height:40px;padding:6px 12px 8px}
+.appbar nav .tab .star{color:#f2c94c;font-size:12px;margin-right:4px}
+.appbar .sep{width:1px;height:22px;background:rgba(255,255,255,.15);margin:0 6px}
+.appbar .cnt{display:inline-block;border-radius:999px;font-size:11px;font-weight:700;padding:0 6px;line-height:17px;margin-left:6px;color:#fff;background:#5b6370}
+.appbar .cnt[hidden]{display:none}
+.appbar .cnt.hot{background:#e5484d}.appbar .cnt.go{background:#d98a1c}
 .appbar nav button,.appbar .ab{background:transparent;color:var(--bar-ink);border:0;border-radius:6px;min-height:38px;padding:6px 9px;font-size:14px}
 .appbar nav button:hover,.appbar .ab:hover{background:var(--bar-hi)}
-.appbar nav button[aria-current="page"]{background:var(--bar-hi);color:#fff;box-shadow:inset 0 -2px 0 var(--bar-acc)}
-.appbar .right{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-.appbar input{background:var(--bar-hi);border:0;color:#fff;min-height:36px;width:180px;max-width:46vw;padding:6px 10px}
-.appbar input::placeholder{color:var(--bar-dim)}
-.appbar .new{background:var(--bar-acc);color:#fff;font-weight:600}
-.appbar .clockin{border:1px solid var(--bar-dim)}
-.appbar .clockin.on{border-color:#3fb878;color:#7ee2a8}
-.appbar .who{color:var(--bar-dim);font-size:13px}
+.appbar nav .tab[aria-current="page"]{background:var(--bar-hi);color:#fff;box-shadow:inset 0 -3px 0 var(--bar-acc)}
+.appbar .new{background:var(--bar-acc);color:#fff;font-weight:600;white-space:nowrap}
+.appbar .new:hover{background:var(--bar-acc)!important;filter:brightness(1.1)}
+.appbar .bell{position:relative;font-size:17px;width:40px;padding:0}
+.appbar .bdg{position:absolute;top:1px;right:0;background:#e5484d;color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:0 5px;line-height:16px}
+.appbar .me{display:flex;align-items:center;gap:8px;background:var(--bar-hi);color:var(--bar-ink);border:0;border-radius:999px;padding:3px 10px 3px 3px;min-height:38px;text-align:left}
+.appbar .me:hover{filter:brightness(1.15)}
+.appbar .av{width:30px;height:30px;border-radius:50%;background:#5b6370;color:#fff;display:grid;place-items:center;font-weight:700;flex:none}
+.appbar .av.on{background:#3fb878;color:#0d2a1a}
+.appbar .me .t{line-height:1.15;font-size:14px;font-weight:600;white-space:nowrap}
+.appbar .me small{display:block;font-size:11px;font-weight:500;color:var(--bar-dim)}
+.appbar .me small.on{color:#7ee2a8}
+.appbar .menu hr{border:0;border-top:1px solid var(--line);margin:4px 0}
+.appbar .mi{display:flex;align-items:center}
+.appbar .mi > button:first-child{flex:1;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.appbar .menu .mi > button[aria-current="page"]{background:var(--soft);font-weight:700}
+.appbar .menu .pinb{width:36px!important;flex:none;text-align:center!important;color:var(--muted,#8a93a0)!important;font-size:16px!important;padding:0!important}
+.appbar .menu .pinb.on{color:#d9a400!important}
+.appbar .pinhint{padding:6px 12px 2px;border-top:1px solid var(--line);margin-top:4px}
+@media (max-width:900px){.appbar .me .t{display:none}.appbar .me{padding:3px}.appbar .me > .dim{display:none}}
+@media (max-width:760px){.appbar .r1{flex-wrap:wrap}.appbar .gs{order:9;flex:1 0 100%;max-width:none}.appbar .logo{flex:1}}
+@media (max-width:480px){.appbar .logo{font-size:0}.appbar .logo .pill{font-size:12px}}
 .menu{position:absolute;right:0;top:calc(100% + 4px);background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:10px;min-width:200px;padding:6px;z-index:30;display:flex;flex-direction:column}
 .menu button{border:0;text-align:left;min-height:40px}
 .menu button:hover{background:var(--soft)}
@@ -166,7 +194,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794696782";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794699204";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -1399,7 +1427,7 @@ const HELP_KB = [
  {t: 'Log in, clock in and lock the screen', k: 'login log in pin clock in clock out lock screen sign in start shift', s: [
   'Type your own 4-digit PIN on the lock screen. Never use someone else\'s.',
   'Tap **Clock in at [store]**. You can\'t buy devices until you\'re clocked in.',
-  'Stepping away? Tap **Lock** (top right). It also locks itself after 30 minutes idle.',
+  'Stepping away? Tap your name (top right), then **Lock**. It also locks itself after 30 minutes idle.',
   'End of shift: tap the green **Clocked in** button at the top, then **Clock out**.']},
  {t: 'Find a customer, ticket or phone', k: 'search find look up customer phone number name ticket number imei stock number barcode scan', s: [
   'Use the search box at the top of every screen.',
@@ -1636,39 +1664,94 @@ const myNotes = list => list.filter(n => (!n.store || n.store === S.store) && (!
 /* every page change gets a number; a page that finishes loading after you've already moved on is dropped quietly
    (that was the random "Cannot set properties of null" banner: the old page woke up and looked for buttons that were gone) */
 let RENDER_NO = 0;
+/* ---------- top bar: grouped sections, per-person pins, live counts ---------- */
+const NAVG = [
+  {k: 'dashboard', l: 'Dashboard'},
+  {l: 'Counter', items: [['register','Register',0],['invoices','Invoices',0],['customers','Customers',0]]},
+  {l: 'Repairs', badge: 'tickets', items: [['tickets','Tickets',0],['techboard','Tech board',0],['repairs','Repair stock',0],['parts','Parts',0],['quote','Quote',0]]},
+  {l: 'Devices', badge: 'swappa', items: [['buyback','Buyback',0],['inventory','Devices',0],['swappa','Swappa',0],['wholesale','Wholesale',0]]},
+  {k: 'inbox', l: 'Inbox'},
+  {l: 'More', items: MORE},
+];
+const PAGES = Object.fromEntries([...NAVG.flatMap(g => g.items || [[g.k, g.l, 0]]), ...MORE].map(([k, l, r]) => [k, [l, r]]));
+let BAR_MENUS = [];
+document.addEventListener('click', () => BAR_MENUS.forEach(([, m]) => { const x = $(m); if (x) x.hidden = true; }));
+const pinsKey = () => 'czpos-pins-' + S.user.id;
+const pinsGet = () => { const p = ls.get(pinsKey(), null); return Array.isArray(p) ? p : (S.user.role === 'tech' ? ['techboard', 'parts'] : ['register', 'buyback']); };
+const pinsSet = p => ls.set(pinsKey(), p);
+/* press / anywhere (not while typing) to jump to search */
+document.addEventListener('keydown', e => {
+  if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey || !S.user) return;
+  const t = e.target; if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
+  if ($('#layer') && $('#layer').innerHTML.trim()) return;
+  const g = $('#gsearch'); if (g) { e.preventDefault(); g.focus(); g.select(); }
+});
+/* the red/orange numbers: tickets that need someone (new or customer replied), Swappa sales not shipped yet, new website leads.
+   Loaded after the bar is drawn so the page never waits on them; refreshed at most once a minute. */
+let BAR_CNT = {at: 0, store: null, v: null};
+async function barCounts(tok){
+  try {
+    if (!BAR_CNT.v || BAR_CNT.store !== S.store || Date.now() - BAR_CNT.at > 60000) {
+      const [tix, ships, leads] = await Promise.all([Store.tickets().catch(() => []), Store.ships().catch(() => []), Store.leads().catch(() => [])]);
+      BAR_CNT = {at: Date.now(), store: S.store, v: {
+        tickets: [tix.filter(t => t.store === S.store && t.status === 'reply').length, tix.filter(t => t.store === S.store && t.status === 'new').length],
+        swappa: ships.filter(x => x.store === S.store && x.status !== 'shipped').length,
+        inbox: leads.filter(l => l.status === 'new' && (!l.store || l.store === S.store)).length}};
+    }
+    if (tok !== RENDER_NO) return;
+    const v = BAR_CNT.v, [rep, nw] = v.tickets;
+    const set = (k, n, cls, title) => document.querySelectorAll(`#bar [data-cnt="${k}"]`).forEach(c => { c.hidden = !n; c.textContent = n; c.className = 'cnt ' + cls; c.title = title; });
+    set('tickets', rep + nw, rep ? 'hot' : 'go', [rep && `${rep} customer replied`, nw && `${nw} new, not started`].filter(Boolean).join(' · '));
+    set('swappa', v.swappa, 'hot', `${v.swappa} Swappa sale${v.swappa === 1 ? '' : 's'} to ship`);
+    set('inbox', v.inbox, 'hot', `${v.inbox} new website lead${v.inbox === 1 ? '' : 's'}`);
+  } catch (e) { console.warn('bar counts', e); }
+}
 async function renderShell(){
   const tok = ++RENDER_NO;
   const [open, notes] = await Promise.all([Store.openPunch(S.user.id), Store.notes().catch(() => [])]);
   if (tok !== RENDER_NO || !S.user) return;
   const mine = myNotes(notes); const unread = mine.filter(n => !n.readBy.includes(S.user.id));
-  const cur = ALIAS[S.tab] || S.tab; const moreOn = MORE.some(m => m[0] === cur);
-  $('#bar').innerHTML = `<header class="appbar"><div class="in">
-    <span class="logo">Cellular Zone <span style="color:var(--bar-dim);font-weight:400">· ${S.store}</span>${Store.mode === 'demo' ? ' <span class="pill warn" style="margin-left:4px">Demo</span>' : ''}</span>
-    <nav aria-label="Sections">${NAV.filter(t => can(t[2])).map(([k, l]) => `<button data-t="${k}" ${cur === k ? 'aria-current="page"' : ''}>${l}</button>`).join('')}
-      <span style="position:relative"><button id="morebtn" aria-haspopup="true" ${moreOn ? 'aria-current="page"' : ''}>${moreOn ? MORE.find(m => m[0] === cur)[1] : 'More'} ▾</button>
-      <div class="menu" id="moremenu" hidden style="left:0;right:auto">${MORE.filter(t => can(t[2])).map(([k, l]) => `<button data-t="${k}">${l}</button>`).join('')}</div></span></nav>
-    <div class="right">
-      <input id="gsearch" type="search" placeholder="Search name, phone, ticket #, IMEI, stock #" aria-label="Search" autocomplete="off">
-      <div style="position:relative"><button class="ab new" id="newbtn" aria-haspopup="true">+ New</button><div class="menu" id="newmenu" hidden>
-        <button data-n="ticket">New ticket</button><button data-n="customer">New customer</button><button data-n="buyback">Buy a device</button><button data-n="sale">Quick sale</button><button data-n="transfer">Transfer to another store</button></div></div>
-      <div style="position:relative"><button class="ab" id="bellbtn" aria-label="Alerts, ${unread.length} unread" aria-haspopup="true">Alerts${unread.length ? ` <span class="pill bad" style="font-size:11px;padding:1px 6px">${unread.length}</span>` : ''}</button>
-        <div class="menu" id="bellmenu" hidden style="min-width:320px;max-width:min(420px,90vw);max-height:60vh;overflow:auto">${mine.slice(0, 25).map(n => `<button data-note="${n.id}" style="white-space:normal;line-height:1.35;${n.readBy.includes(S.user.id) ? 'opacity:.6' : 'font-weight:500'}"><span class="small muted">${ago(n.at)}</span><br>${esc(n.text)}</button>`).join('') || '<span class="small muted" style="padding:10px">No alerts.</span>'}</div></div>
-      <button class="ab clockin ${open ? 'on' : ''}" id="clockbtn">${open ? 'Clocked in ' + fmtTime(open.t_in) : 'Clock in'}</button>
-      <span class="who">${esc(S.user.name)}</span>
-      <button class="ab" id="themebtn" title="Switch light / dark">${isDark() ? '☀ Light mode' : '☾ Dark mode'}</button>
-      <button class="ab" id="tabbtn" title="Open this page in a new tab (or Cmd/Ctrl-click anything)">⧉ New tab</button>
-      <button class="ab" id="lockbtn">Lock</button>
-    </div></div></header>`;
+  const cur = ALIAS[S.tab] || S.tab;
+  const pins = pinsGet().filter(k => PAGES[k] && can(PAGES[k][1]));
+  const grpOn = g => g.k ? cur === g.k : g.items.some(i => i[0] === cur);
+  const item = ([k, l]) => `<div class="mi"><button data-t="${k}" ${cur === k ? 'aria-current="page"' : ''}>${l}<span class="cnt" data-cnt="${k}" hidden></span></button><button class="pinb ${pins.includes(k) ? 'on' : ''}" data-pin="${k}" title="${pins.includes(k) ? 'Unpin from the bar' : 'Pin to the bar'}" aria-label="${pins.includes(k) ? 'Unpin' : 'Pin'} ${l}">${pins.includes(k) ? '★' : '☆'}</button></div>`;
+  const first = S.user.name.split(' ')[0];
+  $('#bar').innerHTML = `<header class="appbar">
+   <div class="in r1">
+    <span class="logo">Cellular Zone${Store.mode === 'demo' ? ' <span class="pill warn" style="margin-left:4px">Demo</span>' : ''}</span>
+    <div class="dd-wrap"><button class="chip" id="storebtn" aria-haspopup="true" title="Switch store">${STORES[S.store]} <span class="dim">▾</span></button>
+      <div class="menu" id="storemenu" hidden style="left:0;right:auto">${Object.entries(STORES).map(([k, v]) => `<button data-store="${k}" ${k === S.store ? 'aria-current="true"' : ''}>${k === S.store ? '✓ ' : ''}${v} <span class="muted small">· ${k}</span></button>`).join('')}</div></div>
+    <label class="gs"><span aria-hidden="true">🔍</span><input id="gsearch" type="search" placeholder="Search customers, tickets, IMEI, stock #…" aria-label="Search" autocomplete="off"><kbd title="Press / to search">/</kbd></label>
+    <div class="dd-wrap"><button class="ab new" id="newbtn" aria-haspopup="true">+ New ▾</button><div class="menu" id="newmenu" hidden>
+      <button data-n="ticket">New ticket</button><button data-n="customer">New customer</button><button data-n="buyback">Buy a device</button><button data-n="sale">Quick sale</button><button data-n="transfer">Transfer to another store</button></div></div>
+    <div class="dd-wrap"><button class="ab bell" id="bellbtn" aria-label="Alerts, ${unread.length} unread" aria-haspopup="true" title="Alerts">🔔${unread.length ? `<span class="bdg">${unread.length}</span>` : ''}</button>
+      <div class="menu" id="bellmenu" hidden style="min-width:320px;max-width:min(420px,90vw);max-height:60vh;overflow:auto">${mine.slice(0, 25).map(n => `<button data-note="${n.id}" style="white-space:normal;line-height:1.35;${n.readBy.includes(S.user.id) ? 'opacity:.6' : 'font-weight:500'}"><span class="small muted">${ago(n.at)}</span><br>${esc(n.text)}</button>`).join('') || '<span class="small muted" style="padding:10px">No alerts.</span>'}</div></div>
+    <div class="dd-wrap"><button class="me" id="mebtn" aria-haspopup="true"><span class="av ${open ? 'on' : ''}">${esc(first[0] || '?')}</span><span class="t">${esc(first)}<small class="${open ? 'on' : ''}">${open ? '● Clocked in ' + fmtTime(open.t_in) : 'Not clocked in'}</small></span><span class="dim">▾</span></button>
+      <div class="menu" id="memenu" hidden style="min-width:230px">
+        <button data-me="clock">${open ? '🕒 Clock out' : '🕒 Clock in'}</button>${can(2) ? '<button data-me="hours">🗓 Timesheets</button>' : ''}<hr>
+        <button data-me="theme">${isDark() ? '☀ Light mode' : '☾ Dark mode'}</button><button data-me="tab">⧉ Open in new tab</button><hr>
+        <button data-me="lock">🔒 Lock</button></div></div>
+   </div>
+   <div class="in r2"><nav aria-label="Sections">
+    ${pins.length ? pins.map(k => `<button class="tab" data-t="${k}" ${cur === k ? 'aria-current="page"' : ''}><span class="star">★</span>${PAGES[k][0]}<span class="cnt" data-cnt="${k}" hidden></span></button>`).join('') + '<span class="sep"></span>' : ''}
+    ${NAVG.map((g, i) => g.k ? `<button class="tab" data-t="${g.k}" ${grpOn(g) ? 'aria-current="page"' : ''}>${g.l}<span class="cnt" data-cnt="${g.k}" hidden></span></button>`
+      : (() => { const its = g.items.filter(t => can(t[2])); if (!its.length) return ''; const on = grpOn(g);
+        return `<div class="dd-wrap"><button class="tab" id="g${i}btn" aria-haspopup="true" ${on ? 'aria-current="page"' : ''}>${g.l}<span class="cnt" data-cnt="${g.badge || ''}" hidden></span> <span class="dim">▾</span></button>
+          <div class="menu gmenu" id="g${i}menu" hidden style="left:0;right:auto">${its.map(item).join('')}${g.l !== 'More' ? '<div class="small muted pinhint">☆ pins a page to the bar</div>' : ''}</div></div>`; })()).join('')}
+   </nav></div></header>`;
   $('#app').innerHTML = `<main id="main"></main>`; helpMount();
-  $('#lockbtn').onclick = () => renderLock();
-  $('#tabbtn').onclick = () => openTab(urlFor(S.tab, S));
-  $('#themebtn').onclick = toggleTheme;
-  $('#clockbtn').onclick = () => go('clock');
-  document.querySelectorAll('[data-t]').forEach(b => b.onclick = () => go(b.dataset.t));
-  const menus = [['#newbtn', '#newmenu'], ['#morebtn', '#moremenu'], ['#bellbtn', '#bellmenu']];
+  document.querySelectorAll('#bar [data-t]').forEach(b => b.onclick = () => go(b.dataset.t));
+  const menus = [['#storebtn', '#storemenu'], ['#newbtn', '#newmenu'], ['#bellbtn', '#bellmenu'], ['#mebtn', '#memenu'], ...NAVG.map((g, i) => [`#g${i}btn`, `#g${i}menu`])].filter(([b]) => $(b));
+  BAR_MENUS = menus;
   menus.forEach(([b, m]) => $(b).onclick = e => { e.stopPropagation(); menus.forEach(([, o]) => { if (o !== m) $(o).hidden = true; }); $(m).hidden = !$(m).hidden;
     if (m === '#bellmenu' && !$(m).hidden && unread.length) Store.readNotes(S.user, unread.map(n => n.id)).catch(() => {}); });
-  document.addEventListener('click', () => menus.forEach(([, m]) => { const x = $(m); if (x) x.hidden = true; }));
+  $('#bar').querySelectorAll('[data-pin]').forEach(b => b.onclick = e => { e.stopPropagation(); const k = b.dataset.pin; let p = pinsGet();
+    if (p.includes(k)) p = p.filter(x => x !== k); else { if (p.length >= 5) { toast('You can pin up to 5 pages. Unpin one first.'); return; } p.push(k); }
+    pinsSet(p); renderShell(); });
+  $('#storemenu').querySelectorAll('[data-store]').forEach(b => b.onclick = () => { const k = b.dataset.store; if (k === S.store) return;
+    const keep = S.tab; enterStore(S.user, k, {switched: true}); if (S.tab !== keep) go(keep); toast(`Now working at ${STORES[k]}`); });
+  $('#memenu').querySelectorAll('[data-me]').forEach(b => b.onclick = () => { const k = b.dataset.me;
+    if (k === 'clock') go('clock'); else if (k === 'hours') go('hours'); else if (k === 'theme') { toggleTheme(); b.textContent = isDark() ? '☀ Light mode' : '☾ Dark mode'; } else if (k === 'tab') openTab(urlFor(S.tab, S)); else if (k === 'lock') renderLock(); });
   const menu = $('#newmenu');
   $('#bellmenu').querySelectorAll('[data-note]').forEach(b => b.onclick = () => { const n = mine.find(x => x.id === b.dataset.note); if (n?.link) { if (n.link.sub) S.sw.tab = n.link.sub; go(n.link.tab); } });
   menu.querySelectorAll('[data-n]').forEach(b => b.onclick = () => {
@@ -1681,7 +1764,8 @@ async function renderShell(){
     else go('register');
   });
   const gs = $('#gsearch');
-  gs.onkeydown = e => { if (e.key === 'Enter' && gs.value.trim()) go('search', {q: gs.value.trim()}); };
+  gs.onkeydown = e => { if (e.key === 'Enter' && gs.value.trim()) go('search', {q: gs.value.trim()}); if (e.key === 'Escape') gs.blur(); };
+  barCounts(tok);
   const views = {clock: viewClock, buyback: viewBuyback, inventory: viewInventory, parts: viewParts, quote: viewQuote, swappa: viewSwappa, wholesale: viewWholesale, dashboard: viewDashboard,
     hours: viewHours, staff: viewStaff, tickets: viewTickets, ticket: viewTicket, newticket: viewNewTicket, customers: viewCustomers,
     customer: viewCustomer, search: viewSearch, invoices: viewInvoices, invoice: viewInvoice, eod: viewEod, techboard: viewTechboard, calls: viewInbox, inbox: viewInbox, repairs: viewRepairs, repair: viewRepair,
