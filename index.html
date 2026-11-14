@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794617643";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794617697";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -216,7 +216,7 @@ const invTotals = inv => { const sub = Math.round(inv.lines.reduce((a, l) => a +
   return Object.assign(inv, {subtotal: sub, tax, total: Math.round((sub + tax) * 100) / 100}); };
 const taxOf = lines => Math.max(0, Math.round(lines.filter(isTaxable).reduce((a, l) => a + (+l.price || 0) * (l.qty || 1), 0) * TAX_RATE * 100) / 100);
 const taxRow = (sub, tax) => `<div class="row small" style="justify-content:space-between"><span class="muted">Subtotal ${cents(sub)} · Sales tax 8.25% ${cents(tax)}</span>${tax === 0 && sub > 0 ? '<span class="muted">labor only, no tax</span>' : ''}</div>`;
-const PAYMENTS = ['Cash','Square (card)'];   // we only take cash or card (card runs on the Square iPad)
+const PAYMENTS = ['Cash','Square (card)','Other'];   // cash or card (card runs on the Square iPad); Other = no money taken (e.g. store credit for a device we damaged)
 const DRAWER_KEEP = 100;   /* at close, the cash taken in that day goes into the buyback fund, but the drawer never drops under $100 */
 const DENOMS = [['b100', 100, '$100 bills'], ['b50', 50, '$50 bills'], ['b20', 20, '$20 bills'], ['b10', 10, '$10 bills'], ['b5', 5, '$5 bills'], ['b1', 1, '$1 bills'],
   ['c25', 0.25, 'Quarters'], ['c10', 0.10, 'Dimes'], ['c5', 0.05, 'Nickels'], ['c1', 0.01, 'Pennies']];
