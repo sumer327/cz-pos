@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794615640";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794616036";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -3928,6 +3928,7 @@ async function printersSheet(){
         <div class="tbl"><table><tbody>${Object.entries(PRINT_KIND).map(([k, n]) => `<tr><td><b>${n}</b><div class="small muted">${k === 'label' ? 'device, RMA and refurb labels' : k === 'receipt' ? 'receipts and drop-off tickets' : 'bills of sale, reports, packing lists'}</div></td>
           <td class="small">${mine[k] ? esc(mine[k]) : '<span class="muted">not found</span>'}</td><td class="r">${mine[k] ? `<button data-pt="${k}" style="min-height:34px">Test print</button>` : ''}</td></tr>`).join('')}</tbody></table></div>
         ${!on && PN.list.length ? `<p class="small muted" style="margin:0">PrintNode sees: ${esc([...new Set(PN.list.map(p => p.computer))].join(', '))}. Rename the ${STORES[S.store]} front computer in PrintNode so its name has "${S.store}" or "${STORES[S.store]}" in it.</p>` : ''}
+        ${PN.list.length ? `<details class="small"><summary style="cursor:pointer">Printer details (for setup help)</summary><div class="stack" style="gap:6px;margin-top:6px">${PN.list.map(p => `<div><b>${esc(p.name)}</b> · ${esc(p.computer)} · ${esc(p.state || '')}${p.description ? ' · ' + esc(p.description) : ''}<div class="muted">${esc((p.papers || []).join(' | ') || 'no paper sizes reported')}</div></div>`).join('')}</div></details>` : ''}
         <label class="row small" style="gap:8px"><input type="checkbox" id="pr-local" style="width:auto;min-height:auto" ${ls.get('czpos-localprint', '') ? 'checked' : ''}> Always use the normal print window on this computer</label>
         <button id="pr-re">Check again</button>`;
       box.querySelectorAll('[data-pt]').forEach(b => b.onclick = () => { const k = b.dataset.pt; const when = new Date().toLocaleString('en-US');
