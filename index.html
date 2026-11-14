@@ -194,7 +194,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794700137";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794700706";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -518,6 +518,14 @@ const DemoStore = {
     if (o.forType === 'device') { const dv = d.devices.find(x => x.id === o.forId); if (dv) { dv.log.unshift({at: now(), who: emp.id, text: 'Part requested: ' + row.name}); if (['diag','parts'].includes(dv.repairStatus) || !dv.repairStatus) dv.repairStatus = 'parts'; } }
     if (o.forType === 'ticket') { const t = d.tickets.find(x => x.id === o.forId); if (t) { t.comments.unshift({id: uid(), at: now(), who: emp.id, text: 'Part requested: ' + row.name, pub: false, sys: true}); if (t.status !== 'parts') t.status = 'parts'; t.updatedAt = now(); } }
     this.log(d, emp.id, store, 'Part requested', `${row.name} for ${row.forLabel || 'stock'}`); this.save(d); return row;
+  },
+  async cancelPartOrder(emp, store, id){
+    const d = this.db(); const o = d.partOrders.find(x => x.id === id); if (!o) throw new Error('Order not found.');
+    if (o.status !== 'needed') throw new Error("Josh already ordered this part on Sentrix, so it can't be changed here. Tell Josh.");
+    d.partOrders = d.partOrders.filter(x => x.id !== id);
+    if (o.forType === 'device') { const dv = d.devices.find(x => x.id === o.forId); if (dv) dv.log.unshift({at: now(), who: emp.id, text: 'Part request removed: ' + o.name}); }
+    if (o.forType === 'ticket') { const t = d.tickets.find(x => x.id === o.forId); if (t) { t.comments.unshift({id: uid(), at: now(), who: emp.id, text: 'Part request removed: ' + o.name, pub: false, sys: true}); t.updatedAt = now(); } }
+    this.log(d, emp.id, o.store, 'Part request removed', `${o.name} for ${o.forLabel || 'stock'}`); this.save(d); return {ok: true};
   },
   async updatePartOrder(emp, store, id, status, ref){
     const d = this.db(); const o = d.partOrders.find(x => x.id === id);
@@ -1077,6 +1085,7 @@ const LiveStore = {
   async deviceUsePart(emp, store, id, partId){ return this.rpc('pos_device_part', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_part: partId}); },
   async partOrders(){ const {data, error} = await this.sb.from('part_orders_v').select('*').order('createdAt', {ascending: false}).limit(500); if (error) throw error; return data; },
   async orderPart(emp, store, o){ return this.rpc('pos_order_part', {p_pin: this.pinFor(emp), p_store: store, p_o: o}); },
+  async cancelPartOrder(emp, store, id){ return this.rpc('pos_part_order_cancel', {p_pin: this.pinFor(emp), p_store: store, p_id: id}); },
   async updatePartOrder(emp, store, id, status, ref){ return this.rpc('pos_part_order_status', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_status: status, p_ref: ref || null}); },
   async updateDevice(emp, store, id, patch){ return this.rpc('pos_update_device', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_patch: patch}); },
   async parts(){ const {data, error} = await this.sb.from('parts').select('*').order('name'); if (error) throw error; return data; },
@@ -1928,7 +1937,7 @@ async function viewTicket(el){
         ${t.status !== 'resolved' ? `<div class="row"><button id="t-order">+ Special order a part</button></div>
           <details><summary class="small muted" style="cursor:pointer">Pull a part without a charge (warranty, rework, or a part damaged during the repair)</summary>
           <div class="row" style="margin-top:8px"><select id="t-part" aria-label="Part to use" style="flex:1;min-width:0"><option value="">Pick a part…</option>${parts.map(p => `<option value="${p.id}" ${(p.qty[t.store] || 0) < 1 ? 'disabled' : ''}>${esc(p.name)} (${p.qty[t.store] || 0} at ${t.store})</option>`).join('')}</select><button id="t-usepart">Use part</button></div></details>` : ''}
-        ${myOrders.length ? `<div class="stack" style="gap:6px"><span class="label">Special orders</span>${myOrders.map(o => `<div class="row" style="justify-content:space-between;gap:8px"><span>${esc(o.name)}${o.cost ? ` <span class="small muted">· ${cents(o.cost)}</span>` : ''}${o.rush ? ' <span class="pill bad">rush</span>' : ''}</span><span class="pill ${o.status === 'received' ? 'ok' : o.status === 'ordered' ? 'acc' : 'warn'}">${PO_ST[o.status]}${o.ref ? ' · ' + esc(o.ref) : ''}</span></div>`).join('')}</div>` : ''}
+        ${myOrders.length ? `<div class="stack" style="gap:6px"><span class="label">Special orders</span>${myOrders.map(o => `<div class="row" style="justify-content:space-between;gap:8px"><span>${esc(o.name)}${o.cost ? ` <span class="small muted">· ${cents(o.cost)}</span>` : ''}${o.rush ? ' <span class="pill bad">rush</span>' : ''}</span><span class="row" style="gap:6px"><span class="pill ${o.status === 'received' ? 'ok' : o.status === 'ordered' ? 'acc' : 'warn'}">${PO_ST[o.status]}${o.ref ? ' · ' + esc(o.ref) : ''}</span>${poEditBtns(o)}</span></div>`).join('')}</div>` : ''}
       </div>
     </div>
     <div class="stack">
@@ -2013,6 +2022,7 @@ async function viewTicket(el){
   $('#t-addnote').onclick = async () => { const v = $('#t-note').value.trim(); if (!v) { toast('Type the note first.'); return; } await Store.addComment(S.user, S.store, t.id, v, false); viewTicket(el); };
   renderThread($('#t-ghl'), t.store, c);
   $('#t-order') && ($('#t-order').onclick = () => specialOrderSheet({forType: 'ticket', forId: t.id, forLabel: `Ticket #${t.number} ${t.subject}`, store: t.store, device: t.device}, () => viewTicket(el)));
+  wirePoEdit(el, myOrders, {forType: 'ticket', forId: t.id, forLabel: `Ticket #${t.number} ${t.subject}`, store: t.store, device: t.device}, () => viewTicket(el));
   /* a part broken during the repair (e.g. OLED cracked taking it off for a back glass): who, what happened, and its cost goes against this ticket's profit */
   el.querySelectorAll('[data-dmg]').forEach(b => b.onclick = () => { const i = +b.dataset.dmg, pu = t.partsUsed[i];
     sheet(`<div class="row" style="justify-content:space-between"><h3>Damaged part · #${t.number}</h3><button data-close>Close</button></div>
@@ -4986,7 +4996,7 @@ async function viewRepair(el){
       <div class="panel stack">
         <h3>Parts</h3>
         ${d.partsUsed?.length ? `<div class="tbl"><table><tbody>${d.partsUsed.map(p => `<tr><td>${esc(p.name)}<div class="small muted">${p.outside ? 'outside part' : 'from stock'} · ${esc(staffName(p.by))}</div></td><td class="r num">${cents(p.cost)}</td><td class="r"><button data-prm="${esc(p.at)}" aria-label="Take ${esc(p.name)} off" title="Logged by mistake? Take it off${p.partId ? ' (goes back on the shelf)' : ''}" style="min-height:30px;padding:2px 8px">✕</button></td></tr>`).join('')}<tr><td><b>Parts total</b></td><td class="r num"><b>${cents(d.partsCost || 0)}</b></td><td></td></tr></tbody></table></div>` : '<span class="small muted">No parts logged yet.</span>'}
-        ${po.length ? `<div class="tbl"><table><tbody>${po.map(o => `<tr><td>${esc(o.name)} ×${o.qty}</td><td><span class="pill ${o.status === 'received' ? 'ok' : o.status === 'ordered' ? 'acc' : 'bad'}">${PO_ST[o.status]}</span>${o.ref ? ` <span class="small muted">${esc(o.ref)}</span>` : ''}</td></tr>`).join('')}</tbody></table></div>` : ''}
+        ${po.length ? `<div class="tbl"><table><tbody>${po.map(o => `<tr><td>${esc(o.name)} ×${o.qty}</td><td><span class="pill ${o.status === 'received' ? 'ok' : o.status === 'ordered' ? 'acc' : 'bad'}">${PO_ST[o.status]}</span>${o.ref ? ` <span class="small muted">${esc(o.ref)}</span>` : ''}</td><td class="r">${poEditBtns(o)}</td></tr>`).join('')}</tbody></table></div>` : ''}
         ${d.status === 'repair' ? `<div class="row"><select id="r-part" aria-label="Part from stock" style="flex:1;min-width:0"><option value="">Use a part from ${d.store} stock…</option>${parts.map(p => `<option value="${p.id}" ${(p.qty[d.store] || 0) < 1 ? 'disabled' : ''}>${esc(p.name)} (${p.qty[d.store] || 0} left · ${cents(p.cost)})</option>`).join('')}</select><button id="r-use">Use part</button></div>
         <div class="row" style="gap:6px"><input id="r-xn" placeholder="Part not in stock (e.g. Battery from Sentrix)" style="flex:2;min-width:160px"><input id="r-xc" inputmode="decimal" placeholder="Cost $" style="flex:1;min-width:80px;max-width:110px"><button id="r-xadd">Add cost</button></div>
         <button id="r-order">+ Order a part for this device</button>` : ''}
@@ -5013,6 +5023,7 @@ async function viewRepair(el){
   $('#r-addnote').onclick = () => { const v = $('#r-note').value.trim(); if (!v) { toast('Type the note first.'); return; } up({}, v, 'Note added'); };
   $('#r-use') && ($('#r-use').onclick = async () => { const p = $('#r-part').value; if (!p) { toast('Pick a part first.'); return; } try { await Store.deviceUsePart(S.user, S.store, d.id, p); toast('Part logged'); viewRepair(el); } catch (e) { toast(e.message); } });
   $('#r-order') && ($('#r-order').onclick = () => specialOrderSheet({forType: 'device', forId: d.id, forLabel: `Stock #${d.stockNo} ${d.model}`, store: d.store, device: d.model, part: (d.needs || [])[0] || ''}, () => viewRepair(el)));
+  wirePoEdit(el, po, {forType: 'device', forId: d.id, forLabel: `Stock #${d.stockNo} ${d.model}`, store: d.store, device: d.model}, () => viewRepair(el));
   const ext = async (x, msg) => { try { await Store.deviceExtra(S.user, S.store, d.id, x); toast(msg); viewRepair(el); return true; } catch (e) { toast(e.message); return false; } };
   el.querySelectorAll('[data-prm]').forEach(b => b.onclick = () => ext({removeAt: b.dataset.prm}, 'Part taken off'));
   $('#r-xadd') && ($('#r-xadd').onclick = () => { const n = $('#r-xn').value.trim(), c = parseFloat($('#r-xc').value.replace(/[$,]/g, ''));
@@ -5688,9 +5699,19 @@ function lookupTable(l, set, cat, action){
       <td class="r num"><b>${cents(priceFor(o.cost, o.quality, cat, set))}</b></td><td class="r">${action(o, i)}</td></tr>`).join('')}
     </tbody></table></div><span class="small muted">Customer price = Sentrix cost + ${cents(set.labor[cat])} labor, rounded up to $x9.99 (Genuine OEM = cost + ${cents(set.oemAdd)}). Quote the cheapest in-stock option first.</span></div>`;
 }
+/* Change / Remove on a special order that Josh hasn't ordered yet (status "needed") */
+const poEditBtns = o => o.status === 'needed' ? ` <button data-pochg="${o.id}" style="min-height:30px;padding:2px 10px">Change</button><button data-porm="${o.id}" style="min-height:30px;padding:2px 10px">Remove</button>` : '';
+function wirePoEdit(root, orders, ctx, redraw){
+  root.querySelectorAll('[data-porm]').forEach(b => b.onclick = async () => { const o = orders.find(x => x.id === b.dataset.porm); if (!o) return;
+    if (!confirm(`Remove the special order for ${o.name}?`)) return;
+    try { await Store.cancelPartOrder(S.user, o.store, o.id); toast('Special order removed'); redraw(); } catch (e) { toast(e.message); } });
+  root.querySelectorAll('[data-pochg]').forEach(b => b.onclick = () => { const o = orders.find(x => x.id === b.dataset.pochg); if (!o) return;
+    specialOrderSheet({...ctx, part: '', replaceId: o.id, replaceName: o.name}, redraw); });
+}
 async function specialOrderSheet(ctx, after){
   const set = await Store.settings(); const cat = laborCat(ctx.device || '');
-  sheet(`<div class="row" style="justify-content:space-between"><h3>Special order a part</h3><button data-close>Close</button></div>
+  sheet(`<div class="row" style="justify-content:space-between"><h3>${ctx.replaceId ? 'Change special order' : 'Special order a part'}</h3><button data-close>Close</button></div>
+    ${ctx.replaceName ? `<div class="banner warn small" style="margin:0">Replacing <b>${esc(ctx.replaceName)}</b>. Pick the right part below; the wrong one comes off the order list.</div>` : ''}
     ${ctx.forLabel ? `<div class="small muted">For ${esc(ctx.forLabel)} · ${STORES[ctx.store]}</div>` : ''}
     <div class="grid g2"><div class="field"><label class="label" for="so-d">Device</label><input id="so-d" value="${esc(ctx.device || '')}"></div>
       <div class="field"><label class="label" for="so-p">Part needed</label><input id="so-p" value="${esc(ctx.part || '')}" placeholder="Inner screen, charging port, back glass (blue)…"></div></div>
@@ -5704,7 +5725,8 @@ async function specialOrderSheet(ctx, after){
     const order = async o => { const rush = L.querySelector('#so-rush').checked; try {
       await Store.orderPart(S.user, ctx.store, {name: o.name, quality: o.quality || '', productId: o.productId || '', cost: o.cost || null, url: o.url || '', qty: 1, rush,
         forType: ctx.forType, forId: ctx.forId || null, forLabel: ctx.forLabel || ''});
-      close(); toast(rush ? 'Rush order sent. Josh has been alerted.' : 'On the next Sentrix order (Mon/Thu). The ticket shows when it arrives.'); after && after();
+      if (ctx.replaceId) { try { await Store.cancelPartOrder(S.user, ctx.store, ctx.replaceId); } catch (e) { toast('New part ordered, but the old one could not be removed: ' + e.message); } }
+      close(); toast(ctx.replaceId ? 'Special order changed.' : rush ? 'Rush order sent. Josh has been alerted.' : 'On the next Sentrix order (Mon/Thu). The ticket shows when it arrives.'); after && after();
     } catch (e) { L.querySelector('#so-err').textContent = e.message; } };
     L.querySelector('#so-find').onclick = () => runLookup(L.querySelector('#so-res'), {device: L.querySelector('#so-d').value, part: L.querySelector('#so-p').value, ticketId: ctx.forType === 'ticket' ? ctx.forId : null},
       l => { const box = L.querySelector('#so-res'); box.innerHTML = lookupTable(l, set, laborCat(l.device), (o, i) => `<button data-pick="${i}" style="min-height:34px;padding:4px 10px">Order this</button>`);
