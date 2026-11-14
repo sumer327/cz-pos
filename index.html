@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794598902";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794614951";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -1097,6 +1097,8 @@ const LiveStore = {
   async glassWarranties(phone){ const {data, error} = await this.sb.from('glass_warranties_v').select('*').eq('phone', phone).order('soldAt', {ascending: false}); if (error) throw error; return data; },
   async callSources(){ const {data, error} = await this.sb.from('call_sources').select('*').order('label'); if (error) return []; return data; },
   async rsSync(){ const {data} = await this.sb.from('rs_sync').select('*').eq('id', 1).maybeSingle(); return data || null; },
+  async printers(){ const {data, error} = await this.sb.functions.invoke('print', {body: {action: 'printers'}}); if (error) { let m = error.message; try { m = (await error.context.json()).error || m; } catch {} throw new Error(m); } return data; },
+  async cloudPrint(b){ const {data, error} = await this.sb.functions.invoke('print', {body: {action: 'print', ...b}}); if (error) { let m = error.message; try { m = (await error.context.json()).error || m; } catch {} throw new Error(m); } if (!data?.ok) throw new Error(data?.error || 'not sent'); return data; },
   async askHelp(body){ const {data, error} = await this.sb.functions.invoke('pos-help', {body}); if (error || !data?.answer) throw new Error(data?.error || error?.message || 'no answer'); return data.answer; },
   async rsPull(t){ const {data, error} = await this.sb.functions.invoke('rs-sync', {body: {rsTicket: t.rsId}}); if (error || !data?.ok) throw new Error(data?.error || error?.message || 'RepairShopr did not answer');
     this.cT.delete(t.id); await this.loadTicket(t.id); return data; },
@@ -3802,7 +3804,7 @@ async function viewClock(el){
       <h2>${open ? `Clocked in at ${STORES[open.store]} since ${fmtTime(open.t_in)}` : `You're not clocked in`}</h2>
       ${open && open.store !== S.store ? `<div class="banner warn small">You're clocked in at ${STORES[open.store]}, not here. Clock out, then clock in at ${STORES[S.store]}.</div>` : ''}
       <button class="${open ? 'danger' : 'primary'}" id="clk" style="min-height:64px;font-size:18px">${open ? 'Clock out' : `Clock in at ${STORES[S.store]}`}</button>${open ? '' : `<button class="small" id="clk-sw" style="align-self:center">Not at ${STORES[S.store]}? Pick another store</button>`}
-      <button class="small" id="clk-pin" style="align-self:center">Change my PIN</button>
+      <div class="row" style="justify-content:center;gap:8px"><button class="small" id="clk-pin">Change my PIN</button><button class="small" id="clk-prn">Printers</button></div>
       <p class="muted small">Clock-ins only work from a store computer. Forgot to clock in or out? Ask a manager to fix your hours on the Timesheets tab.</p>
     </div>
     <div class="panel stack">
@@ -3813,6 +3815,7 @@ async function viewClock(el){
     </div></div>`;
   $('#clk-sw') && ($('#clk-sw').onclick = () => { const u = S.user; renderPickStore(u, null); });
   $('#clk-pin').onclick = () => newPinSheet(S.user, null, false);
+  $('#clk-prn').onclick = () => printersSheet();
   $('#clk').onclick = async () => { const inNow = await Store.clock(S.user, open ? open.store : S.store); toast(inNow ? `Clocked in at ${STORES[S.store]}` : 'Clocked out'); if (!inNow) return renderLock(); go('tickets'); };
 }
 
@@ -3824,13 +3827,89 @@ const LABELS = {
   '30330': {name: 'DYMO 30330 Return address · 2 × ¾ in', w: '2in', h: '0.75in', pad: '.06in .18in .04in .1in'}
 };
 const labelSize = () => LABELS[ls.get('czpos-label', '30252')] ? ls.get('czpos-label', '30252') : '30252';
-function printHTML(title, body, css){
+/* Printing. With PrintNode set up at a store (the front Mac runs the PrintNode app), every print turns into a PDF and goes straight
+   to the right printer there, from any computer: labels → DYMO, receipts → Epson, bills of sale / reports → Brother.
+   Anywhere else (or if that fails) it opens the normal print window like before. */
+const PN = {map: null, at: 0, list: []};
+async function cloudPrinters(force){
+  if (Store.mode !== 'live' || !Store.printers) return null;
+  if (!force && PN.map && Date.now() - PN.at < 300000) return PN.map;
+  try { const r = await Store.printers(); PN.map = r.map || {}; PN.list = r.printers || []; PN.err = ''; } catch (e) { PN.map = {}; PN.list = []; PN.err = e.message; }
+  PN.at = Date.now(); return PN.map;
+}
+const printKind = css => /72mm/.test(css) ? 'receipt' : /@page\{size:[\d.]+in [\d.]+in/.test(css) ? 'label' : 'paper';
+const PRINT_KIND = {label: 'DYMO label printer', receipt: 'Epson receipt printer', paper: 'Brother printer'};
+const H2C = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js', JSPDF = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+const loadScript = (doc, src) => new Promise((ok, no) => { const s = doc.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => no(new Error("couldn't load the PDF maker")); doc.head.appendChild(s); });
+async function htmlToPdf(body, css, kind){
+  const f = document.createElement('iframe'); f.setAttribute('aria-hidden', 'true');
+  f.style.cssText = 'position:fixed;left:-20000px;top:0;border:0;width:9in;height:20px;background:#fff';
+  document.body.appendChild(f);
+  try {
+    const doc = f.contentDocument; doc.open(); doc.write(`<!doctype html><html><head><meta charset="utf-8"><style>${css}html,body{background:#fff}</style></head><body>${body}</body></html>`); doc.close();
+    await loadScript(doc, H2C); await loadScript(doc, JSPDF); try { await doc.fonts.ready; } catch {}
+    const w = f.contentWindow, {jsPDF} = w.jspdf;
+    const snap = (el, scale = 3) => w.html2canvas(el, {scale, backgroundColor: '#ffffff', logging: false, windowHeight: Math.max(20, doc.documentElement.scrollHeight)});
+    const jpg = c => c.toDataURL('image/jpeg', .9);
+    let pdf;
+    if (kind === 'label') {
+      const m = css.match(/@page\{size:([\d.]+)in ([\d.]+)in/); const pw = +m[1], ph = +m[2], o = pw > ph ? 'landscape' : 'portrait';
+      const els = [...doc.querySelectorAll('.lb')]; const targets = els.length ? els : [doc.body];
+      pdf = new jsPDF({orientation: o, unit: 'in', format: [pw, ph]});
+      for (let i = 0; i < targets.length; i++) { if (i) pdf.addPage([pw, ph], o); const c = await snap(targets[i]); pdf.addImage(jpg(c), 'JPEG', 0, 0, pw, ph); }
+    } else if (kind === 'receipt') {
+      const pw = 72 / 25.4; f.style.width = '72mm'; const c = await snap(doc.body, 2.2); const ph = Math.max(pw * 1.05, c.height / c.width * pw);   /* keep it portrait so the receipt printer doesn't rotate it */
+      pdf = new jsPDF({orientation: pw > ph ? 'landscape' : 'portrait', unit: 'in', format: [pw, ph]}); pdf.addImage(jpg(c), 'JPEG', 0, 0, pw, ph);
+    } else {
+      const mm = css.match(/@page\{[^}]*margin:\s*([\d.]+)(in|mm)/); const mg = mm ? (mm[2] === 'mm' ? +mm[1] / 25.4 : +mm[1]) : .5;
+      const cw = 8.5 - 2 * mg, chh = 11 - 2 * mg; f.style.width = cw + 'in'; doc.body.style.margin = '0';
+      const c = await snap(doc.body, 2.5); const ppi = c.width / cw, sliceH = Math.floor(chh * ppi);
+      pdf = new jsPDF({orientation: 'portrait', unit: 'in', format: 'letter'});
+      for (let y = 0, n = 0; y < c.height; y += sliceH, n++) { if (n) pdf.addPage('letter', 'portrait');
+        const s = document.createElement('canvas'); s.width = c.width; s.height = Math.min(sliceH, c.height - y); const g = s.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, s.width, s.height); g.drawImage(c, 0, -y);
+        pdf.addImage(s.toDataURL('image/jpeg', .92), 'JPEG', mg, mg, cw, s.height / ppi); }
+    }
+    return pdf.output('datauristring').split(',')[1];
+  } finally { f.remove(); }
+}
+function printLocal(title, body, css){
   const f = document.createElement('iframe');
   f.setAttribute('aria-hidden', 'true'); f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
   document.body.appendChild(f);
   const doc = f.contentDocument; doc.open();
   doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>${css}</style></head><body>${body}</body></html>`); doc.close();
   setTimeout(() => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch {} setTimeout(() => f.remove(), 60000); }, 350);
+}
+async function printHTML(title, body, css, kind = printKind(css)){
+  const map = ls.get('czpos-localprint', '') ? null : await cloudPrinters();
+  if (map && map[S.store]?.[kind]) {
+    toast(`Sending to the ${PRINT_KIND[kind]}…`);
+    try { const pdf = await htmlToPdf(body, css, kind); const r = await Store.cloudPrint({store: S.store, kind, title, pdf});
+      toast(`Printing on ${r.printer} ✓`); return; }
+    catch (e) { console.error(e); toast(`Couldn't send it (${e.message}). Opening the print window instead.`); }
+  }
+  printLocal(title, body, css);
+}
+/* Clock page → Printers: what this store prints to, and a test for each printer */
+async function printersSheet(){
+  sheet(`<div class="row" style="justify-content:space-between"><h3>Printers · ${STORES[S.store]}</h3><button data-close>Close</button></div><div id="pr-b" class="stack"><p class="muted">Checking…</p></div>`, async L => {
+    const draw = async force => { const box = L.querySelector('#pr-b'); const map = await cloudPrinters(force); const mine = map?.[S.store] || {};
+      const on = Object.values(mine).some(Boolean);
+      box.innerHTML = Store.mode !== 'live' ? '<p class="muted">Printing from any computer works on the store version only.</p>' : `
+        <p class="small muted" style="margin:0">${on ? `Prints from any computer go straight to the printers on the ${STORES[S.store]} front computer (PrintNode).` : `This store isn't set up for printing from any computer yet, so prints open the normal print window.${PN.err ? ` <span style="color:var(--bad)">${esc(PN.err)}</span>` : ''}`}</p>
+        <div class="tbl"><table><tbody>${Object.entries(PRINT_KIND).map(([k, n]) => `<tr><td><b>${n}</b><div class="small muted">${k === 'label' ? 'device, RMA and refurb labels' : k === 'receipt' ? 'receipts and drop-off tickets' : 'bills of sale, reports, packing lists'}</div></td>
+          <td class="small">${mine[k] ? esc(mine[k]) : '<span class="muted">not found</span>'}</td><td class="r">${mine[k] ? `<button data-pt="${k}" style="min-height:34px">Test print</button>` : ''}</td></tr>`).join('')}</tbody></table></div>
+        ${!on && PN.list.length ? `<p class="small muted" style="margin:0">PrintNode sees: ${esc([...new Set(PN.list.map(p => p.computer))].join(', '))}. Rename the ${STORES[S.store]} front computer in PrintNode so its name has "${S.store}" or "${STORES[S.store]}" in it.</p>` : ''}
+        <label class="row small" style="gap:8px"><input type="checkbox" id="pr-local" style="width:auto;min-height:auto" ${ls.get('czpos-localprint', '') ? 'checked' : ''}> Always use the normal print window on this computer</label>
+        <button id="pr-re">Check again</button>`;
+      box.querySelectorAll('[data-pt]').forEach(b => b.onclick = () => { const k = b.dataset.pt; const when = new Date().toLocaleString('en-US');
+        if (k === 'label') { const sz = LABELS[labelSize()]; printHTML('Test label', `<div style="font:700 14px Arial">CELLULAR ZONE TEST</div><div style="font:10px Arial">${esc(STORES[S.store])} · ${when}</div>`, `@page{size:${sz.w} ${sz.h};margin:0}html,body{margin:0}body{width:${sz.w};height:${sz.h};padding:${sz.pad};box-sizing:border-box}`, 'label'); }
+        else if (k === 'receipt') printHTML('Test receipt', `<div style="font:700 16px Arial;text-align:center">CELLULAR ZONE</div><div style="text-align:center;font:12px Arial">Test receipt · ${esc(STORES[S.store])}<br>${when}</div>`, '@page{size:72mm 297mm;margin:0}html,body{margin:0;width:72mm}body{padding:2mm 3mm;box-sizing:border-box}', 'receipt');
+        else printHTML('Test page', `<h1 style="font:700 22px Arial">Cellular Zone · test page</h1><p style="font:14px Arial">${esc(STORES[S.store])} · ${when}. If this came out of the Brother, bills of sale will too.</p>`, '@page{size:letter;margin:.6in}', 'paper'); });
+      box.querySelector('#pr-local') && (box.querySelector('#pr-local').onchange = e => ls.set('czpos-localprint', e.target.checked ? '1' : ''));
+      box.querySelector('#pr-re') && (box.querySelector('#pr-re').onclick = () => draw(true)); };
+    draw(true);
+  });
 }
 function barcodeSVG(text, h = 34){
   try { if (!window.JsBarcode) throw 0; const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); JsBarcode(svg, String(text), {format: 'CODE128', displayValue: false, height: h, margin: 0, width: 1.6}); return svg.outerHTML; }
@@ -3864,7 +3943,7 @@ function labelSheet(dv){
   sheet(`<div class="row" style="justify-content:space-between"><h3>Label for #${dv.stockNo}</h3><button data-close>Close</button></div>
     <div class="field"><label class="label" for="lb-size">Label roll in this store's DYMO</label><select id="lb-size">${Object.entries(LABELS).map(([k, v]) => `<option value="${k}" ${labelSize() === k ? 'selected' : ''}>${v.name}</option>`).join('')}</select></div>
     <div id="lb-prev" style="overflow:hidden"></div>
-    <p class="small muted" style="margin:0">Pick the DYMO printer in the print window the first time. Chrome remembers it after that. Scanning this barcode into the search box opens the device.</p>
+    <p class="small muted" style="margin:0">At stores set up for it, this prints straight to the DYMO. Otherwise pick the DYMO in the print window. Scanning this barcode into the search box opens the device.</p>
     <button class="primary" id="lb-print">Print label</button>`,
   (L, close) => { render(L);
     L.querySelector('#lb-size').onchange = e => { ls.set('czpos-label', e.target.value); render(L); };
