@@ -166,7 +166,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794694324";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794694839";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -5077,8 +5077,9 @@ async function viewSwappa(el){
   el.querySelectorAll('[data-shipped]').forEach(b => b.onclick = async () => { await Store.updateShip(S.user, S.store, b.dataset.shipped, {status: 'shipped'}); toast('Marked shipped'); again(); });
   el.querySelectorAll('[data-shiplbl]').forEach(b => b.onclick = () => { const x = myShips.find(y => y.id === b.dataset.shiplbl); shipLabelSheet(x, all.find(d => d.id === x.deviceId), again); });
   el.querySelectorAll('[data-pptrack]').forEach(b => b.onclick = () => { const x = myShips.find(y => y.id === b.dataset.pptrack); paypalPickSheet(x, all.find(d => d.id === x.deviceId), async pay => {
-    try { await Store.ship({action: 'paypal_track', paypalTxn: pay.id, tracking: x.tracking}); await Store.shipPaypal(S.user, S.store, x.id, pay.id, true); toast('Tracking added to the PayPal payment'); }
-    catch (e) { await Store.shipPaypal(S.user, S.store, x.id, pay.id, false, e.message).catch(() => {}); toast('PayPal: ' + e.message); } again(); }); });
+    const pid = ppIds(pay);
+    try { const r = await Store.ship({action: 'paypal_track', paypalTxn: pid[0], paypalAlt: pid.slice(1), tracking: x.tracking}); await Store.shipPaypal(S.user, S.store, x.id, r.txn || pid[0], true); toast('Tracking added to the PayPal payment'); }
+    catch (e) { await Store.shipPaypal(S.user, S.store, x.id, pid[0], false, e.message).catch(() => {}); toast('PayPal: ' + e.message); } again(); }); });
 }
 /* ---------- Swappa shipping: label from the POS (Shippo) + tracking onto the buyer's PayPal payment ----------
    SHIP_LIVE false = labels are test labels (free, not real) until we've checked one end to end. */
@@ -5091,13 +5092,16 @@ async function paypalRecent(force){ if (!force && PP_CACHE && Date.now() - PP_CA
      Keep one row per buyer + amount + day; the email's row (it has the address) wins and remembers the other ID. */
   const key = p => [(p.payer || p.email || '').trim().toLowerCase(), (+p.amount || 0).toFixed(2), String(new Date(p.at).toISOString()).slice(0, 10)].join('|');
   const byKey = new Map();
-  for (const p of [...em, ...api]) { const k = key(p), have = byKey.get(k);
-    if (!have) byKey.set(k, {...p, ids: [p.id]});
-    else if (!have.ids.includes(p.id)) { have.ids.push(p.id); if (!have.to && p.to) have.to = p.to; if (!have.itemPrice && p.itemPrice) have.itemPrice = p.itemPrice; } }
+  /* PayPal only takes tracking on the seller's transaction ID, which comes from PayPal's lookup (the email's ID is the buyer's): sellerId */
+  for (const p of [...em.map(x => ({...x, src: 'email'})), ...api.map(x => ({...x, src: 'api'}))]) { const k = key(p), have = byKey.get(k);
+    if (!have) byKey.set(k, {...p, ids: [p.id], ...(p.src === 'api' ? {sellerId: p.id} : {})});
+    else { if (!have.ids.includes(p.id)) have.ids.push(p.id); if (p.src === 'api' && !have.sellerId) have.sellerId = p.id;
+      if (!have.to && p.to) have.to = p.to; if (!have.itemPrice && p.itemPrice) have.itemPrice = p.itemPrice; } }
   const list = [...byKey.values()].sort((a, b) => String(b.at).localeCompare(String(a.at)));
   if (!list.length && PP_CACHE?.err) { const m = PP_CACHE.err; PP_CACHE = null; throw new Error(m); }
   PP_CACHE = {at: Date.now(), list}; return list; }
 /* the payment's total includes the buyer's sales tax: match on the item price when PayPal gives it */
+const ppIds = p => { if (!p) return []; const all = [p.sellerId, p.id, ...(p.ids || [])].filter(Boolean); return [...new Set(all)]; };
 const ppHit = (p, sold) => !!sold && [p.itemPrice, p.amount].some(v => v && Math.abs(v - sold) < 1);
 const ppRow = (p, hit) => `<button data-pp="${esc(p.id)}" style="display:block;width:100%;text-align:left;${hit ? 'border-color:var(--accent);border-width:2px' : ''}">
   <div class="row" style="justify-content:space-between"><b>${esc(p.payer || p.to?.name || p.email || 'PayPal payment')}</b><b class="num">${cents(p.amount)}</b></div>${p.itemPrice && Math.abs(p.itemPrice - p.amount) > 0.01 ? `<div class="small muted" style="text-align:right">item ${cents(p.itemPrice)} + tax</div>` : ''}
@@ -5158,10 +5162,10 @@ function shipLabelSheet(x, d, after){
           st.rates = r.rates; st.rate = r.rates[0]?.id; drawRates(); return; }
         const rate = st.rates.find(y => y.id === st.rate); if (!rate) return err('Pick the postage.');
         btn.textContent = st.test ? 'Making the test label…' : 'Buying the label…';
-        const r = await Store.ship({action: 'buy', test: st.test, rate: rate.id, paypalTxn: st.pay?.id || '', notify: st.notify});
+        const pid = ppIds(st.pay); const r = await Store.ship({action: 'buy', test: st.test, rate: rate.id, paypalTxn: pid[0] || '', paypalAlt: pid.slice(1), notify: st.notify});
         const pp = r.paypal;
         await Store.shipLabel(S.user, S.store, x.id, {tracking: r.tracking, shipTo: t, service: rate.service, cost: st.test ? 0 : rate.amount, labelUrl: r.labelUrl, shippoTx: r.shippoTx,
-          paypalTxn: st.pay?.id || '', paypalOk: !!pp?.ok, paypalError: pp && !pp.ok ? pp.error : (st.pay && st.test ? 'test label: not sent to PayPal' : '')});
+          paypalTxn: (pp?.ok && pp.txn) || pid[0] || '', paypalOk: !!pp?.ok, paypalError: pp && !pp.ok ? pp.error : (st.pay && st.test ? 'test label: not sent to PayPal' : '')});
         let printed = false;
         if (r.pdf) { try { await Store.cloudPrint({store: S.store, kind: 'ship', pdf: r.pdf, fit: true, title: 'Label ' + x.label}); printed = 'the shipping label printer'; }
           catch (e) { if (/No shipping label printer/i.test(e.message)) { try { await Store.cloudPrint({store: S.store, kind: 'paper', pdf: r.pdf, fit: false, title: 'Label ' + x.label}); printed = 'the Brother'; } catch (e2) { toast('Printer: ' + e2.message); } } else toast('Printer: ' + e.message); } }
