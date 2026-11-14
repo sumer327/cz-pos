@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794679984";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794681412";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -213,6 +213,7 @@ function setLineDisc(l, amt, pct){
   l.orig = base; l.price = Math.round((base - d) * 100) / 100; if (pct > 0) l.discPct = pct; else delete l.discPct;
 }
 const IV_OPEN = new Set();
+const IV_UNLOCK = new Map();   // invoice line → manager who OK'd changing a price-sheet phone's price
 const isTaxable = l => typeof l.taxable === 'boolean' ? l.taxable : !['Diagnostic', 'Diagnostic credit', 'Water damage treatment'].includes(l.cat) && !/water damage/i.test(l.desc || '');
 const invTotals = inv => { const sub = Math.round(inv.lines.reduce((a, l) => a + (+l.price || 0) * (+l.qty || 1), 0) * 100) / 100; const tax = taxOf(inv.lines);
   return Object.assign(inv, {subtotal: sub, tax, total: Math.round((sub + tax) * 100) / 100}); };
@@ -2950,7 +2951,7 @@ async function viewRegister(el){
   el.querySelectorAll('[data-rmc]').forEach(b => b.onclick = () => { S.cart.splice(+b.dataset.rmc, 1); viewRegister(el); });
   $('#rg-refund').onclick = () => refundFind(() => { S.prods = null; S.rgDevs = null; viewRegister(el); });
   el.querySelectorAll('[data-edp]').forEach(b => b.onclick = () => { const l = S.cart[+b.dataset.edp];
-    if (l.retail && !can(2)) { toast('Phone prices come from the retail price sheet. Ask a manager to change it.'); return; }
+    if (l.retail && !can(2) && !l.priceOkBy) { askPin('Manager PIN to change this phone\'s price', 2).then(m => { if (!m) return; l.priceOkBy = m.id; b.click(); }); return; }
     sheet(`<div class="row" style="justify-content:space-between"><h3>Change price</h3><button data-close>Close</button></div><p class="small muted" style="margin:0">${esc(l.desc)}</p>
       <div class="field"><label class="label" for="ep-p">Price (before tax)</label><input id="ep-p" inputmode="decimal" value="${l.price}"></div><div class="err" id="ep-e" role="alert"></div><button class="primary" id="ep-go">Save</button>`, (L, close) => {
       const go = () => { const v = parseFloat(String(L.querySelector('#ep-p').value).replace(/[$,]/g, '')); if (!(v > 0)) { L.querySelector('#ep-e').textContent = 'Enter a price above $0.'; return; }
@@ -3709,10 +3710,10 @@ async function viewInvoice(el){
         <dl class="kv"><dt>Customer</dt><dd>${c ? `<a id="iv-c" style="color:var(--accent);cursor:pointer">${esc(c.name)}</a> · <span class="num">${fmtPhone(c.phone)}</span>` : '<span class="muted">Walk-in</span>'}${open && !t ? ` <button id="iv-setc" style="min-height:30px;padding:2px 10px;margin-left:6px">${c ? 'Change' : 'Add customer'}</button>` : ''}</dd>
           ${t ? `<dt>Ticket</dt><dd><a id="iv-t" style="color:var(--accent);cursor:pointer">#${t.number}</a> · ${esc(t.device || '')} · ${esc(t.subject || '')}</dd>` : ''}</dl>
         <div class="tbl"><table><thead><tr><th>Item</th><th class="r" style="width:70px">Qty</th><th class="r" style="width:110px">Price</th><th class="r" style="width:90px">Our cost</th><th style="width:80px;text-align:center">Taxable</th><th class="r" style="width:100px">Total</th>${open ? '<th style="width:44px"></th>' : ''}</tr></thead><tbody>
-        ${L.map((l, i) => { const neg = l.price < 0 || ['Discount', 'Diagnostic credit'].includes(l.cat); const dOpen = IV_OPEN.has(inv.id + ':' + i); const dn = discNote(l); const lockP = l.retail && !can(2);
+        ${L.map((l, i) => { const neg = l.price < 0 || ['Discount', 'Diagnostic credit'].includes(l.cat); const dOpen = IV_OPEN.has(inv.id + ':' + i); const dn = discNote(l); const lockP = l.retail && !can(2) && !IV_UNLOCK.has(inv.id + ':' + i);
           return open ? `<tr><td><input data-ld="${i}" value="${esc(l.desc)}" aria-label="Item" style="min-height:36px"><div class="small muted">${esc(l.cat || '')}${l.chargeId ? (l.ticketNo ? ' · ticket #' + l.ticketNo : ' · from the ticket') : ''}${l.glass ? ' · lifetime warranty' : ''}${l.retail ? ' · store price ' + cents(l.retail) : ''}</div>${dn ? `<div class="small" style="color:var(--ok)">${esc(dn)}</div>` : ''}</td>
             <td class="r"><input data-lq="${i}" value="${l.qty}" inputmode="numeric" aria-label="Qty" style="width:60px;min-height:36px;text-align:right" ${neg ? 'disabled' : ''}></td>
-            <td class="r">${dn ? `<div class="small muted" style="white-space:nowrap">Regular</div>` : ''}<input data-lp="${i}" value="${(+(l.orig || l.price)).toFixed(2)}" inputmode="decimal" aria-label="${dn ? 'Regular price' : 'Price'}" style="width:100px;min-height:36px;text-align:right" ${l.cat === 'Diagnostic credit' || lockP ? 'disabled' : ''} ${lockP ? 'title="Store price from the retail price sheet. Only a manager can change it."' : ''}>${dn ? `<div class="small num" style="white-space:nowrap">now <b>${cents(l.price)}</b></div>` : ''}</td>
+            <td class="r">${dn ? `<div class="small muted" style="white-space:nowrap">Regular</div>` : ''}<input data-lp="${i}" value="${(+(l.orig || l.price)).toFixed(2)}" inputmode="decimal" aria-label="${dn ? 'Regular price' : 'Price'}" style="width:100px;min-height:36px;text-align:right" ${l.cat === 'Diagnostic credit' || lockP ? 'disabled' : ''} ${lockP ? 'title="Store price from the retail price sheet. Only a manager can change it."' : ''}>${lockP ? `<div><button data-unl="${i}" class="small" style="min-height:28px;padding:2px 8px;margin-top:4px">Manager: change price</button></div>` : ''}${dn ? `<div class="small num" style="white-space:nowrap">now <b>${cents(l.price)}</b></div>` : ''}</td>
             <td class="r small num muted" title="Our cost (set where the item comes from)">${costKnown[i] == null ? '—' : cents(costKnown[i])}</td>
             <td style="text-align:center"><input type="checkbox" data-lt="${i}" ${isTaxable(l) ? 'checked' : ''} aria-label="Taxable" style="width:22px;height:22px"></td>
             <td class="r num">${dn ? `<s class="muted small">${cents(+l.orig * l.qty)}</s><br>` : ''}${cents(lt(l))}</td><td class="r" style="white-space:nowrap">${neg || lockP ? '' : `<button data-dd="${i}" aria-label="Discount on ${esc(l.desc)}" aria-expanded="${dOpen}" title="Discount this item" style="min-height:32px;padding:2px 8px">${dOpen ? '▴' : '▾'}</button> `}<button data-lx="${i}" aria-label="Remove ${esc(l.desc)}" style="min-height:32px;padding:2px 8px">✕</button></td></tr>
@@ -3776,6 +3777,9 @@ async function viewInvoice(el){
     else if (+l.orig) { const off = +l.orig - +l.price; l.orig = v || 0; l.price = v || 0; try { setLineDisc(l, off, l.discPct); } catch (e) { err(e.message); toast(e.message); return; } }
     else l.price = v || 0; save(L); });
   // ▾ on a line: discount just that item ($ or %), like RepairShopr
+  el.querySelectorAll('[data-unl]').forEach(b => b.onclick = async () => { const i = +b.dataset.unl;
+    const m = await askPin('Manager PIN to change this phone\'s price', 2); if (!m) return;
+    IV_UNLOCK.set(inv.id + ':' + i, m.id); L[i].priceOkBy = m.id; save(L); toast(`${m.name.split(' ')[0]} OK'd a price change. Change the price or use the discount.`); viewInvoice(el); });
   el.querySelectorAll('[data-dd]').forEach(b => b.onclick = () => { const k = inv.id + ':' + b.dataset.dd; IV_OPEN.has(k) ? IV_OPEN.delete(k) : IV_OPEN.add(k); viewInvoice(el); });
   const lineDisc = (i, amt, pct) => { try { setLineDisc(L[i], amt, pct); } catch (e) { err(e.message); toast(e.message); return; } save(L); };
   el.querySelectorAll('[data-dda]').forEach(x => x.onchange = () => lineDisc(+x.dataset.dda, parseFloat(String(x.value).replace(/[$,]/g, '')) || 0, 0));
