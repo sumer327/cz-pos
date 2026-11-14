@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794637870";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794637993";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -1725,6 +1725,7 @@ async function viewTicket(el){
           <dt>Passcode</dt><dd class="mono">${t.passcode === 'None' ? '<span class="muted">No passcode</span>' : t.passcode ? `<span id="pc">${isPattern(t.passcode) ? 'Pattern ••••' : '••••'}</span> <button id="pc-show" style="min-height:30px;padding:2px 8px">Show</button>` : '<span class="muted">Not given</span>'}
             <button id="pc-edit" style="min-height:30px;padding:2px 8px;margin-left:4px">${t.passcode ? 'Change' : 'Add'}</button></dd>
           <dt>Estimate</dt><dd class="num">${cents(t.estimate)}</dd>
+          <dt>Pickup time</dt><dd>${dueText(t) ? `<b${t.waiting || (t.dueAt && new Date(t.dueAt) < new Date() && t.status !== 'resolved') ? ' style="color:var(--bad)"' : ''}>${esc(dueText(t))}</b> ` : '<span class="muted">Not set</span> '}${t.status !== 'resolved' ? `<button id="t-due" style="min-height:32px;padding:2px 10px">${dueText(t) ? 'Change' : 'Set'}</button>` : ''}</dd>
           <dt>Battery health</dt><dd>${t.bh ? `<b>BH ${t.bh}%</b>` : t.bhSkip ? `<span class="muted">Couldn't read: ${esc(t.bhSkip)}</span>` : needsBH(t) ? '<span class="pill bad">Needed before resolving</span>' : '<span class="muted">—</span>'}
             ${t.status !== 'resolved' ? '<button id="t-bh" style="min-height:30px;padding:2px 8px;margin-left:6px">Record</button>' : ''}</dd>
           <dt>Store</dt><dd>${STORES[t.store]}</dd>
@@ -1803,6 +1804,7 @@ async function viewTicket(el){
   el.querySelectorAll('[data-rfl]').forEach(b => b.onclick = () => { const x = ch.find(y => y.id === b.dataset.rfl); binLabelSheet('REFURB', {name: 'Original screen · ' + t.device, device: x.desc, ticket: t.number, store: t.store, by: x.by, at: x.at}); });
   $('#t-tech').onchange = e => up({techId: e.target.value || null});
   $('#t-pri').onchange = e => up({priority: +e.target.value});
+  $('#t-due') && ($('#t-due').onclick = () => pickupSheet(t, () => viewTicket(el)));
   $('#t-ready') && ($('#t-ready').onclick = async () => { await Store.updateTicket(S.user, S.store, t.id, {status: 'customer'}); S.prefillSms = readyMsg; toast('Waiting on Customer · pickup text ready to send'); viewTicket(el); });
   $('#t-pay') && ($('#t-pay').onclick = () => {
     if (rsUnpaid.length) return moveRs(true);
@@ -3567,21 +3569,27 @@ async function viewTechboard(el){
   el.querySelectorAll('[data-dt]').forEach(s => s.onchange = async () => { try { await Store.deviceTech(S.user, S.store, s.dataset.dt, s.value || null); toast('Tech assigned'); re(); } catch (e) { toast(e.message); } });
   el.querySelectorAll('[data-pc]').forEach(b => b.onclick = () => { const t = all.find(x => x.id === b.dataset.pc);
     sheet(`<div class="row" style="justify-content:space-between"><h3>Passcode · #${t.number}</h3><button data-close>Close</button></div>${isPattern(t.passcode) ? `<div class="row" style="gap:14px;align-items:center">${patSVG(patSeq(t.passcode), 168)}<b style="font-size:20px">${patSeq(t.passcode).join(' → ')}</b></div>` : `<div class="num" style="font-size:32px;font-weight:800">${esc(t.passcode)}</div>`}`); });
-  el.querySelectorAll('[data-due]').forEach(b => b.onclick = () => { const t = all.find(x => x.id === b.dataset.due);
-    const at = (h, m) => { const d = new Date(); d.setHours(h, m, 0, 0); return d; };
-    const opts = [['wait', 'Customer is waiting now'], ['30', 'In 30 minutes'], ['60', 'In 1 hour'], ['2h', 'In 2 hours'], ['close', 'Today before close'], ['tom', 'Tomorrow'], ['clear', 'No pickup time']];
-    sheet(`<div class="row" style="justify-content:space-between"><h3>When is the customer coming back? · #${t.number}</h3><button data-close>Close</button></div>
-      <div class="grid g2">${opts.map(([k, l]) => `<button data-o="${k}" style="min-height:48px">${l}</button>`).join('')}</div>
-      <div class="field"><label class="label" for="du-x">Or pick a day and time</label><input id="du-x" type="datetime-local"></div><button id="du-go">Save that time</button>
-      <span class="small muted">Waiting customers jump to the top of the lineup. You can still move cards with ↑ ↓.</span>`,
-    (S2, close) => { const set = async (d, w) => { try { await Store.ticketDue(S.user, S.store, t.id, d ? d.toISOString() : null, !!w); close(); re(); } catch (e) { toast(e.message); } };
-      S2.querySelectorAll('[data-o]').forEach(x => x.onclick = () => { const k = x.dataset.o, n = Date.now();
-        if (k === 'wait') return set(new Date(), true); if (k === 'clear') return set(null, false);
-        if (k === '30') return set(new Date(n + 30 * 60000)); if (k === '60') return set(new Date(n + 3600000)); if (k === '2h') return set(new Date(n + 7200000));
-        if (k === 'close') return set(at(new Date().getDay() === 0 ? 18 : 20, 0)); const d = at(12, 0); d.setDate(d.getDate() + 1); return set(d); });
-      S2.querySelector('#du-go').onclick = () => { const v = S2.querySelector('#du-x').value; if (v) set(new Date(v)); }; }); });
+  el.querySelectorAll('[data-due]').forEach(b => b.onclick = () => pickupSheet(all.find(x => x.id === b.dataset.due), re));
 }
 
+/* when the customer is coming back (tech board and ticket page) */
+const dueText = t => t.waiting ? 'Customer is waiting now' : t.dueAt ? new Date(t.dueAt).toLocaleString('en-US', {weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}) : '';
+function pickupSheet(t, after){
+  const at = (h, m) => { const d = new Date(); d.setHours(h, m, 0, 0); return d; };
+  const opts = [['wait', 'Customer is waiting now'], ['30', 'In 30 minutes'], ['60', 'In 1 hour'], ['2h', 'In 2 hours'], ['close', 'Today before close'], ['tom', 'Tomorrow'], ['clear', 'No pickup time']];
+  const pad = n => String(n).padStart(2, '0'); const cur = t.dueAt ? new Date(t.dueAt) : null;
+  sheet(`<div class="row" style="justify-content:space-between"><h3>When is the customer coming back? · #${t.number}</h3><button data-close>Close</button></div>
+    ${dueText(t) ? `<div class="small">Now: <b>${esc(dueText(t))}</b></div>` : ''}
+    <div class="grid g2">${opts.map(([k, l]) => `<button data-o="${k}" style="min-height:48px">${l}</button>`).join('')}</div>
+    <div class="field"><label class="label" for="du-x">Or pick a day and time</label><input id="du-x" type="datetime-local" value="${cur ? `${cur.getFullYear()}-${pad(cur.getMonth() + 1)}-${pad(cur.getDate())}T${pad(cur.getHours())}:${pad(cur.getMinutes())}` : ''}"></div><button id="du-go">Save that time</button>
+    <span class="small muted">Shows on the ticket and the tech board. Waiting customers jump to the top of the lineup.</span>`,
+  (S2, close) => { const set = async (d, w) => { try { await Store.ticketDue(S.user, S.store, t.id, d ? d.toISOString() : null, !!w); Object.assign(t, {dueAt: d ? d.toISOString() : null, waiting: !!w}); close(); toast(d ? 'Pickup time saved' : 'Pickup time cleared'); after && after(); } catch (e) { toast(e.message); } };
+    S2.querySelectorAll('[data-o]').forEach(x => x.onclick = () => { const k = x.dataset.o, n = Date.now();
+      if (k === 'wait') return set(new Date(), true); if (k === 'clear') return set(null, false);
+      if (k === '30') return set(new Date(n + 30 * 60000)); if (k === '60') return set(new Date(n + 3600000)); if (k === '2h') return set(new Date(n + 7200000));
+      if (k === 'close') return set(at(new Date().getDay() === 0 ? 18 : 20, 0)); const d = at(12, 0); d.setDate(d.getDate() + 1); return set(d); });
+    S2.querySelector('#du-go').onclick = () => { const v = S2.querySelector('#du-x').value; if (v) set(new Date(v)); else toast('Pick a day and time first.'); }; });
+}
 /* ---------- tempered glass: pick the model so that model's glass comes out of inventory ---------- */
 const isGlassProd = p => /tempered|glass protector|screen protector/i.test(p.name || '') && !/lens|camera/i.test(p.name || '');
 function glassFits(name, device){
