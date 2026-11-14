@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794617333";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794617643";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -3909,12 +3909,12 @@ function printLocal(title, body, css){
   doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>${css}</style></head><body>${body}</body></html>`); doc.close();
   setTimeout(() => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch {} setTimeout(() => f.remove(), 60000); }, 350);
 }
-async function printHTML(title, body, css, kind = printKind(css)){
+async function printHTML(title, body, css, kind = printKind(css), extra = {}){
   const map = ls.get('czpos-localprint', '') ? null : await cloudPrinters();
   if (map && map[S.store]?.[kind]) {
     toast(`Sending to the ${PRINT_KIND[kind]}…`);
     try { const r = kind === 'receipt' ? await Store.cloudPrint({store: S.store, kind, title, raw: await htmlToEscpos(body, css)})
-        : await Store.cloudPrint({store: S.store, kind, title, pdf: await htmlToPdf(body, css, kind), ...(kind === 'label' ? {paper: DYMO_PAPER[labelSize()]} : {})});
+        : await Store.cloudPrint({store: S.store, kind, title, pdf: await htmlToPdf(body, css, kind), ...(kind === 'label' ? {paper: DYMO_PAPER[labelSize()]} : {}), ...extra});
       toast(`Printing on ${r.printer}${r.paper ? ' · ' + r.paper : ''} ✓`); return; }
     catch (e) { console.error(e); toast(`Couldn't send it (${e.message}). Opening the print window instead.`); }
   }
@@ -3934,7 +3934,8 @@ async function printersSheet(){
         <label class="row small" style="gap:8px"><input type="checkbox" id="pr-local" style="width:auto;min-height:auto" ${ls.get('czpos-localprint', '') ? 'checked' : ''}> Always use the normal print window on this computer</label>
         <button id="pr-re">Check again</button>`;
       box.querySelectorAll('[data-pt]').forEach(b => b.onclick = () => { const k = b.dataset.pt; const when = new Date().toLocaleString('en-US');
-        if (k === 'label') { const sz = LABELS[labelSize()]; printHTML('Test label', `<div style="position:absolute;inset:0;border:3px solid #000"></div><div style="position:absolute;left:6px;top:4px;font:700 13px Arial">TOP LEFT</div><div style="position:absolute;right:6px;bottom:4px;font:700 13px Arial">BOTTOM RIGHT</div><div style="position:absolute;left:0;right:0;top:38%;text-align:center;font:700 16px Arial">CELLULAR ZONE ${esc(S.store)} TEST</div>`, `@page{size:${sz.w} ${sz.h};margin:0}*{box-sizing:border-box}html,body{margin:0}body{position:relative;width:${sz.w};height:${sz.h};overflow:hidden}`, 'label'); }
+        if (k === 'label') { const sz = LABELS[labelSize()]; const lbl = t => `<div style="position:absolute;inset:0;border:3px solid #000"></div><div style="position:absolute;left:6px;top:4px;font:700 13px Arial">TOP LEFT</div><div style="position:absolute;right:6px;bottom:4px;font:700 13px Arial">BOTTOM RIGHT</div><div style="position:absolute;left:0;right:0;top:38%;text-align:center;font:700 16px Arial">${t}</div>`, lcss = `@page{size:${sz.w} ${sz.h};margin:0}*{box-sizing:border-box}html,body{margin:0}body{position:relative;width:${sz.w};height:${sz.h};overflow:hidden}`;
+          printHTML('Test label A', lbl('TEST A · fit on'), lcss, 'label', {fit: true}).then(() => printHTML('Test label B', lbl('TEST B · fit off'), lcss, 'label', {fit: false})); }
         else if (k === 'receipt') printHTML('Test receipt', `<div style="font:700 16px Arial;text-align:center">CELLULAR ZONE</div><div style="text-align:center;font:12px Arial">Test receipt · ${esc(STORES[S.store])}<br>${when}</div>`, '@page{size:72mm 297mm;margin:0}html,body{margin:0;width:72mm}body{padding:2mm 3mm;box-sizing:border-box}', 'receipt');
         else printHTML('Test page', `<h1 style="font:700 22px Arial">Cellular Zone · test page</h1><p style="font:14px Arial">${esc(STORES[S.store])} · ${when}. If this came out of the Brother, bills of sale will too.</p>`, '@page{size:letter;margin:.6in}', 'paper'); });
       box.querySelector('#pr-local') && (box.querySelector('#pr-local').onchange = e => ls.set('czpos-localprint', e.target.checked ? '1' : ''));
