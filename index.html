@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794614951";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794615465";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -3872,6 +3872,29 @@ async function htmlToPdf(body, css, kind){
     return pdf.output('datauristring').split(',')[1];
   } finally { f.remove(); }
 }
+/* Receipts: the Epson is a thermal receipt printer, so it gets native ESC/POS commands (a black-and-white picture of the receipt
+   at the printer's own 180 dpi, then a cut) instead of a PDF page. Fast, exact width, no blank paper. */
+async function htmlToEscpos(body, css){
+  const f = document.createElement('iframe'); f.setAttribute('aria-hidden', 'true');
+  f.style.cssText = 'position:fixed;left:-20000px;top:0;border:0;width:72mm;height:20px;background:#fff';
+  document.body.appendChild(f);
+  try {
+    const doc = f.contentDocument; doc.open(); doc.write(`<!doctype html><html><head><meta charset="utf-8"><style>${css}html,body{background:#fff;color:#000}</style></head><body>${body}</body></html>`); doc.close();
+    await loadScript(doc, H2C); try { await doc.fonts.ready; } catch {}
+    const DOTS = 512; const cssW = doc.body.getBoundingClientRect().width || 272;
+    const c = await f.contentWindow.html2canvas(doc.body, {scale: DOTS / cssW, backgroundColor: '#ffffff', logging: false, windowHeight: Math.max(20, doc.documentElement.scrollHeight)});
+    const W = DOTS, H = c.height, px = c.getContext('2d').getImageData(0, 0, Math.min(W, c.width), H).data, cw = Math.min(W, c.width), bw = W / 8;
+    const out = [0x1b, 0x40];   /* ESC @ reset */
+    for (let y0 = 0; y0 < H; y0 += 240) { const h = Math.min(240, H - y0);
+      out.push(0x1d, 0x76, 0x30, 0x00, bw & 255, bw >> 8, h & 255, h >> 8);   /* GS v 0: raster band */
+      for (let y = y0; y < y0 + h; y++) for (let xb = 0; xb < bw; xb++) { let v = 0;
+        for (let bit = 0; bit < 8; bit++) { const x = xb * 8 + bit; if (x < cw) { const i = (y * cw + x) * 4; if (px[i] * .3 + px[i + 1] * .59 + px[i + 2] * .11 < 150) v |= 0x80 >> bit; } }
+        out.push(v); } }
+    out.push(0x1b, 0x64, 4, 0x1d, 0x56, 0x42, 0x00);   /* feed 4 lines, partial cut */
+    let bin = ''; for (let i = 0; i < out.length; i += 8192) bin += String.fromCharCode.apply(null, out.slice(i, i + 8192));
+    return btoa(bin);
+  } finally { f.remove(); }
+}
 function printLocal(title, body, css){
   const f = document.createElement('iframe');
   f.setAttribute('aria-hidden', 'true'); f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
@@ -3884,7 +3907,8 @@ async function printHTML(title, body, css, kind = printKind(css)){
   const map = ls.get('czpos-localprint', '') ? null : await cloudPrinters();
   if (map && map[S.store]?.[kind]) {
     toast(`Sending to the ${PRINT_KIND[kind]}…`);
-    try { const pdf = await htmlToPdf(body, css, kind); const r = await Store.cloudPrint({store: S.store, kind, title, pdf});
+    try { const r = kind === 'receipt' ? await Store.cloudPrint({store: S.store, kind, title, raw: await htmlToEscpos(body, css)})
+        : await Store.cloudPrint({store: S.store, kind, title, pdf: await htmlToPdf(body, css, kind)});
       toast(`Printing on ${r.printer} ✓`); return; }
     catch (e) { console.error(e); toast(`Couldn't send it (${e.message}). Opening the print window instead.`); }
   }
