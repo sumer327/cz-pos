@@ -166,7 +166,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794689126";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794689311";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -4053,7 +4053,7 @@ const printKind = css => /72mm/.test(css) ? 'receipt' : /@page\{size:[\d.]+in [\
 const DYMO_PAPER = {'30252': 'w79h252', '30336': 'w72h154', '30334': '30334_2-1_4_in_x_1-1_4_in', '30330': 'w54h144'};
 const LABEL_STRETCH = {};
 const DYMO_NATIVE = {};   /* stores whose DYMO gets native commands */   /* per store, once measured */
-const PRINT_KIND = {label: 'DYMO label printer', receipt: 'Epson receipt printer', paper: 'Brother printer'};
+const PRINT_KIND = {label: 'DYMO label printer', receipt: 'Epson receipt printer', paper: 'Brother printer', ship: 'Shipping label printer (4×6)'};
 const H2C = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js', JSPDF = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
 const loadScript = (doc, src) => new Promise((ok, no) => { const s = doc.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => no(new Error("couldn't load the PDF maker")); doc.head.appendChild(s); });
 async function htmlToPdf(body, css, kind, stretch = 1){
@@ -4081,6 +4081,9 @@ async function htmlToPdf(body, css, kind, stretch = 1){
     } else if (kind === 'receipt') {
       const pw = 72 / 25.4; f.style.width = '72mm'; const c = await snap(doc.body, 2.2); const ph = Math.max(pw * 1.05, c.height / c.width * pw);   /* keep it portrait so the receipt printer doesn't rotate it */
       pdf = new jsPDF({orientation: pw > ph ? 'landscape' : 'portrait', unit: 'in', format: [pw, ph]}); pdf.addImage(jpg(c), 'JPEG', 0, 0, pw, ph);
+    } else if (kind === 'ship') {   /* 4 x 6 shipping label */
+      f.style.width = '4in'; doc.body.style.margin = '0'; const c = await snap(doc.body, 3);
+      pdf = new jsPDF({orientation: 'portrait', unit: 'in', format: [4, 6]}); pdf.addImage(jpg(c), 'JPEG', 0, 0, 4, 6);
     } else {
       const mm = css.match(/@page\{[^}]*margin:\s*([\d.]+)(in|mm)/); const mg = mm ? (mm[2] === 'mm' ? +mm[1] / 25.4 : +mm[1]) : .5;
       const cw = 8.5 - 2 * mg, chh = 11 - 2 * mg; f.style.width = cw + 'in'; doc.body.style.margin = '0';
@@ -4179,7 +4182,7 @@ async function printersSheet(){
       const on = Object.values(mine).some(Boolean);
       box.innerHTML = Store.mode !== 'live' ? '<p class="muted">Printing from any computer works on the store version only.</p>' : `
         <p class="small muted" style="margin:0">${on ? `Prints from any computer go straight to the printers on the ${STORES[S.store]} front computer (PrintNode).` : `This store isn't set up for printing from any computer yet, so prints open the normal print window.${PN.err ? ` <span style="color:var(--bad)">${esc(PN.err)}</span>` : ''}`}</p>
-        <div class="tbl"><table><tbody>${Object.entries(PRINT_KIND).map(([k, n]) => `<tr><td><b>${n}</b><div class="small muted">${k === 'label' ? 'device, RMA and refurb labels' : k === 'receipt' ? 'receipts and drop-off tickets' : 'bills of sale, reports, packing lists'}</div></td>
+        <div class="tbl"><table><tbody>${Object.entries(PRINT_KIND).map(([k, n]) => `<tr><td><b>${n}</b><div class="small muted">${k === 'label' ? 'device, RMA and refurb labels' : k === 'receipt' ? 'receipts and drop-off tickets' : k === 'ship' ? 'Swappa shipping labels (falls back to the Brother)' : 'bills of sale, reports, packing lists'}</div></td>
           <td class="small">${mine[k] ? esc(mine[k]) : '<span class="muted">not found</span>'}</td><td class="r">${mine[k] ? `<button data-pt="${k}" style="min-height:34px">Test print</button>` : ''}</td></tr>`).join('')}</tbody></table></div>
         ${!on && PN.list.length ? `<p class="small muted" style="margin:0">PrintNode sees: ${esc([...new Set(PN.list.map(p => p.computer))].join(', '))}. Rename the ${STORES[S.store]} front computer in PrintNode so its name has "${S.store}" or "${STORES[S.store]}" in it.</p>` : ''}
         ${PN.list.length ? `<details class="small"><summary style="cursor:pointer">Printer details (for setup help)</summary><div class="stack" style="gap:6px;margin-top:6px">${PN.list.map(p => `<div><b>${esc(p.name)}</b> · ${esc(p.computer)} · ${esc(p.state || '')}${p.description ? ' · ' + esc(p.description) : ''}<div class="muted">${esc((p.papers || []).join(' | ') || 'no paper sizes reported')}</div></div>`).join('')}</div></details>` : ''}
@@ -4189,6 +4192,7 @@ async function printersSheet(){
         if (k === 'label') { const sz = LABELS[labelSize()]; const lbl = t => `<div style="position:absolute;inset:0;border:3px solid #000"></div><div style="position:absolute;left:6px;top:4px;font:700 13px Arial">TOP LEFT</div><div style="position:absolute;right:6px;bottom:4px;font:700 13px Arial">BOTTOM RIGHT</div><div style="position:absolute;left:0;right:0;top:38%;text-align:center;font:700 16px Arial">${t}</div>`, lcss = `@page{size:${sz.w} ${sz.h};margin:0}*{box-sizing:border-box}html,body{margin:0}body{position:relative;width:${sz.w};height:${sz.h};overflow:hidden}`;
           printHTML('Test label', lbl(`CELLULAR ZONE ${esc(S.store)} TEST`), lcss, 'label'); }
         else if (k === 'receipt') printHTML('Test receipt', `<div style="font:700 16px Arial;text-align:center">CELLULAR ZONE</div><div style="text-align:center;font:12px Arial">Test receipt · ${esc(STORES[S.store])}<br>${when}</div>`, '@page{size:72mm 297mm;margin:0}html,body{margin:0;width:72mm}body{padding:2mm 3mm;box-sizing:border-box}', 'receipt');
+        else if (k === 'ship') printHTML('Test shipping label', `<div style="border:4px solid #000;height:100%;box-sizing:border-box;padding:.25in;font:700 22px Arial"><div>CELLULAR ZONE</div><div style="font:400 15px Arial;margin-top:8px">Shipping label printer test · ${esc(STORES[S.store])}<br>${when}</div><div style="margin-top:1.4in;font:700 15px Arial">If this fills the 4×6 label edge to edge, Swappa labels will print right.</div><div style="position:absolute;right:.3in;bottom:.3in;font:700 13px Arial">BOTTOM RIGHT</div></div>`, '@page{size:4in 6in;margin:0}html,body{margin:0;width:4in;height:6in;position:relative}', 'ship', {fit: true});
         else printHTML('Test page', `<h1 style="font:700 22px Arial">Cellular Zone · test page</h1><p style="font:14px Arial">${esc(STORES[S.store])} · ${when}. If this came out of the Brother, bills of sale will too.</p>`, '@page{size:letter;margin:.6in}', 'paper'); });
       box.querySelector('#pr-local') && (box.querySelector('#pr-local').onchange = e => ls.set('czpos-localprint', e.target.checked ? '1' : ''));
       box.querySelector('#pr-re') && (box.querySelector('#pr-re').onclick = () => draw(true)); };
@@ -5141,12 +5145,13 @@ function shipLabelSheet(x, d, after){
         await Store.shipLabel(S.user, S.store, x.id, {tracking: r.tracking, shipTo: t, service: rate.service, cost: st.test ? 0 : rate.amount, labelUrl: r.labelUrl, shippoTx: r.shippoTx,
           paypalTxn: st.pay?.id || '', paypalOk: !!pp?.ok, paypalError: pp && !pp.ok ? pp.error : (st.pay && st.test ? 'test label: not sent to PayPal' : '')});
         let printed = false;
-        if (r.pdf) { try { await Store.cloudPrint({store: S.store, kind: 'paper', pdf: r.pdf, fit: false, title: 'Label ' + x.label}); printed = true; } catch (e) { toast('Printer: ' + e.message); } }
+        if (r.pdf) { try { await Store.cloudPrint({store: S.store, kind: 'ship', pdf: r.pdf, fit: true, title: 'Label ' + x.label}); printed = 'the shipping label printer'; }
+          catch (e) { if (/No shipping label printer/i.test(e.message)) { try { await Store.cloudPrint({store: S.store, kind: 'paper', pdf: r.pdf, fit: false, title: 'Label ' + x.label}); printed = 'the Brother'; } catch (e2) { toast('Printer: ' + e2.message); } } else toast('Printer: ' + e.message); } }
         if (!printed && r.labelUrl) window.open(r.labelUrl, '_blank', 'noopener');
         close();
         sheet(`<div class="row" style="justify-content:space-between"><h3>${st.test ? 'Test label made' : 'Label bought'}</h3><button data-close>Done</button></div>
           <div class="stack" style="gap:6px"><div>Tracking <b class="mono">${esc(r.tracking)}</b></div>
-          <div>${printed ? '✓ Sent to the printer' : r.labelUrl ? 'Opened the label PDF to print' : 'No label file (demo)'}${r.labelUrl ? ` · <a href="${esc(r.labelUrl)}" target="_blank" rel="noopener">Label PDF</a>` : ''}</div>
+          <div>${printed ? '✓ Sent to ' + printed : r.labelUrl ? 'Opened the label PDF to print' : 'No label file (demo)'}${r.labelUrl ? ` · <a href="${esc(r.labelUrl)}" target="_blank" rel="noopener">Label PDF</a>` : ''}</div>
           <div>${pp?.ok ? '<span style="color:var(--ok)">✓ Tracking added to the buyer\'s PayPal payment</span>' : st.test ? '<span class="muted">Test label: nothing sent to PayPal.</span>' : st.pay ? `<span style="color:var(--bad)">PayPal didn't take the tracking: ${esc(pp?.error || '')}</span>. Tap <b>Send to PayPal</b> on the row to try again.` : '<span style="color:var(--bad)">No PayPal payment picked.</span> Tap <b>Send to PayPal</b> on the row once the payment shows up.'}</div>
           <div class="small muted">Tape the label on, hand it to USPS, then tap <b>Shipped</b>.</div></div>`, () => {});
         after && after();
