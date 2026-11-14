@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794637993";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794638553";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -579,6 +579,9 @@ const DemoStore = {
     const d = this.db(); const t = d.tickets.find(x => x.id === id);
     t.comments.unshift({id: uid(), at: now(), who: emp.id, text, pub}); t.updatedAt = now(); this.save(d); return t;
   },
+  async partDamaged(emp, store, id, idx, who, note){ const d = this.db(); const t = d.tickets.find(x => x.id === id); const pu = t?.partsUsed?.[idx]; if (!pu) throw new Error('Part not found on the ticket.');
+    Object.assign(pu, {damaged: true, damagedBy: who, damagedNote: note, damagedAt: now()}); t.comments.unshift({id: uid(), at: now(), who: emp.id, text: `Part damaged: ${pu.name} (${cents(+pu.cost || 0)}) · ${staffName(who)} · ${note}`, pub: false, sys: true});
+    this.log(d, emp.id, store, 'Part damaged', `#${t.number} ${pu.name} · ${note}`); this.save(d); return t; },
   async useTicketPart(emp, store, id, partId, opts = {}){
     const d = this.db(); const t = d.tickets.find(x => x.id === id); const p = d.parts.find(x => x.id === partId);
     if ((p.qty[store] || 0) < 1) throw new Error(`No ${p.name} left at ${STORES[store]}. Move the ticket to Waiting for Parts.`);
@@ -1075,6 +1078,7 @@ const LiveStore = {
   async updateTicket(emp, store, id, patch){ return this.rpc('pos_update_ticket', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_patch: patch}); },
   async setPasscode(emp, store, id, v){ const r = await this.rpc('pos_set_passcode', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_passcode: v || ''}); this.keep(this.cT, [r]); return r; },
   async addComment(emp, store, id, text, pub){ return this.rpc('pos_ticket_comment', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_text: text, p_pub: pub}); },
+  async partDamaged(emp, store, id, idx, who, note){ const r = await this.rpc('pos_part_damaged', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_idx: idx, p_who: who, p_note: note}); this.keep && this.cT && this.keep(this.cT, [r]); return r; },
   async useTicketPart(emp, store, id, partId){ return this.rpc('pos_ticket_part', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_part: partId}); },
   async checkout(emp, store, inv){ const r = await this.rpc(inv.closeTickets ? 'pos_checkout_multi' : 'pos_checkout', {p_pin: this.pinFor(emp), p_store: store, p_inv: inv});
     for (const id of [inv.ticketId, ...(inv.otherTickets || [])].filter(Boolean)) { this.cT.delete(id); await this.loadTicket(id).catch(() => {}); } this.keep(this.cI, [r]); return r; },
@@ -1142,7 +1146,7 @@ const LiveStore = {
   async newInvoice(emp, store, customerId){ const r = await this.rpc('pos_new_invoice', {p_pin: this.pinFor(emp), p_store: store, p_customer: customerId || null}); this.keep(this.cI, [r]); return r; },
   async invoiceCustomer(emp, store, id, cid){ const r = await this.rpc('pos_invoice_customer', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_customer: cid}); this.keep(this.cI, [r]); return r; },
   async buybacksAll(){ return []; },
-  async reportTickets(from, to){ const f = from.toISOString(), t = to.toISOString(), cols = 'id,number,store,device,subject,status,techId,rsTech,createdAt,resolvedAt,customerId,charges,type';
+  async reportTickets(from, to){ const f = from.toISOString(), t = to.toISOString(), cols = 'id,number,store,device,subject,status,techId,rsTech,createdAt,resolvedAt,customerId,charges,type,partsUsed';
     const [a, b, c] = await Promise.all([this.all(() => this.sb.from('tickets_v').select(cols).gte('createdAt', f).lt('createdAt', t), 20000), this.all(() => this.sb.from('tickets_v').select(cols).gte('resolvedAt', f).lt('resolvedAt', t), 20000), this.all(() => this.sb.from('tickets_v').select(cols).neq('status', 'resolved'), 20000)]);
     const m = new Map(); [...a, ...b, ...c].forEach(x => m.set(x.id, x)); return [...m.values()]; },
   async buybackLog(store){ let q = this.sb.from('buybacks_v').select('*').order('at', {ascending: false}).limit(2000); if (store) q = q.eq('store', store); const {data, error} = await q; if (error) throw error; return data; },
@@ -1767,9 +1771,9 @@ async function viewTicket(el){
       </div>
       <div class="panel stack">
         <div class="row" style="justify-content:space-between"><h3>Parts pulled from stock</h3>${can(2) ? `<span class="muted small">${money(partsCost)} part cost</span>` : ''}</div>
-        ${t.partsUsed.length ? `<ul style="margin:0;padding-left:18px">${t.partsUsed.map(p => `<li>${esc(p.name)} <span class="muted small">· ${p.chargeId ? 'with its charge' : 'no charge'} · ${esc(staffName(p.by))}</span>${p.rma ? ` <button data-rmal="${t.partsUsed.indexOf(p)}" style="min-height:26px;padding:0 8px;font-size:12px">RMA label</button>` : ''}${p.rma ? ' <span class="pill warn">old part → RMA</span>' : ''}</li>`).join('')}</ul>` : '<span class="muted small">None yet. Adding a repair charge pulls its part from this store\'s stock automatically.</span>'}
+        ${t.partsUsed.length ? `<ul style="margin:0;padding-left:18px">${t.partsUsed.map(p => `<li>${esc(p.name)} <span class="muted small">· ${cents(+p.cost || 0)} · ${p.chargeId ? 'with its charge' : 'no charge'} · ${esc(staffName(p.by))}</span>${p.damaged ? ` <span class="pill bad">damaged${p.damagedBy ? ' · ' + esc(staffName(p.damagedBy)) : ''}</span>${p.damagedNote ? `<div class="small muted">${esc(p.damagedNote)}</div>` : ''}` : t.status !== 'resolved' ? ` <button data-dmg="${t.partsUsed.indexOf(p)}" style="min-height:26px;padding:0 8px;font-size:12px">Damaged?</button>` : ''}${p.rma ? ` <button data-rmal="${t.partsUsed.indexOf(p)}" style="min-height:26px;padding:0 8px;font-size:12px">RMA label</button>` : ''}${p.rma ? ' <span class="pill warn">old part → RMA</span>' : ''}</li>`).join('')}</ul>` : '<span class="muted small">None yet. Adding a repair charge pulls its part from this store\'s stock automatically.</span>'}
         ${t.status !== 'resolved' ? `<div class="row"><button id="t-order">+ Special order a part</button></div>
-          <details><summary class="small muted" style="cursor:pointer">Pull a part without a charge (warranty or rework)</summary>
+          <details><summary class="small muted" style="cursor:pointer">Pull a part without a charge (warranty, rework, or a part damaged during the repair)</summary>
           <div class="row" style="margin-top:8px"><select id="t-part" aria-label="Part to use" style="flex:1;min-width:0"><option value="">Pick a part…</option>${parts.map(p => `<option value="${p.id}" ${(p.qty[t.store] || 0) < 1 ? 'disabled' : ''}>${esc(p.name)} (${p.qty[t.store] || 0} at ${t.store})</option>`).join('')}</select><button id="t-usepart">Use part</button></div></details>` : ''}
         ${myOrders.length ? `<div class="stack" style="gap:6px"><span class="label">Special orders</span>${myOrders.map(o => `<div class="row" style="justify-content:space-between;gap:8px"><span>${esc(o.name)}${o.cost ? ` <span class="small muted">· ${cents(o.cost)}</span>` : ''}${o.rush ? ' <span class="pill bad">rush</span>' : ''}</span><span class="pill ${o.status === 'received' ? 'ok' : o.status === 'ordered' ? 'acc' : 'warn'}">${PO_ST[o.status]}${o.ref ? ' · ' + esc(o.ref) : ''}</span></div>`).join('')}</div>` : ''}
       </div>
@@ -1856,6 +1860,16 @@ async function viewTicket(el){
   $('#t-addnote').onclick = async () => { const v = $('#t-note').value.trim(); if (!v) { toast('Type the note first.'); return; } await Store.addComment(S.user, S.store, t.id, v, false); viewTicket(el); };
   renderThread($('#t-ghl'), t.store, c);
   $('#t-order') && ($('#t-order').onclick = () => specialOrderSheet({forType: 'ticket', forId: t.id, forLabel: `Ticket #${t.number} ${t.subject}`, store: t.store, device: t.device}, () => viewTicket(el)));
+  /* a part broken during the repair (e.g. OLED cracked taking it off for a back glass): who, what happened, and its cost goes against this ticket's profit */
+  el.querySelectorAll('[data-dmg]').forEach(b => b.onclick = () => { const i = +b.dataset.dmg, pu = t.partsUsed[i];
+    sheet(`<div class="row" style="justify-content:space-between"><h3>Damaged part · #${t.number}</h3><button data-close>Close</button></div>
+      <div><b>${esc(pu.name)}</b> <span class="muted">· ${cents(+pu.cost || 0)}</span></div>
+      <div class="field"><label class="label" for="dm-w">Who damaged it</label><select id="dm-w">${S.staff.filter(e => e.active !== false).map(e => `<option value="${e.id}" ${e.id === (t.techId || pu.by) ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select></div>
+      <div class="field"><label class="label" for="dm-n">What happened</label><input id="dm-n" placeholder="Cracked the OLED taking it off to do the back glass"></div>
+      <p class="small muted" style="margin:0">The cost stays on this ticket, counts against the invoice's profit, and shows in Reports → Damaged parts.</p>
+      <div class="err" id="dm-e" role="alert"></div><button class="primary" id="dm-go">Mark damaged</button>`, (L, close) => {
+      L.querySelector('#dm-go').onclick = async () => { const note = L.querySelector('#dm-n').value.trim(); if (note.length < 4) { L.querySelector('#dm-e').textContent = 'Write what happened.'; return; }
+        try { await Store.partDamaged(S.user, S.store, t.id, i, L.querySelector('#dm-w').value, note); close(); toast('Marked damaged'); viewTicket(el); } catch (e) { L.querySelector('#dm-e').textContent = e.message; } }; }); });
   $('#t-usepart') && ($('#t-usepart').onclick = async () => { const p = $('#t-part').value; if (!p) { toast('Pick a part first.'); return; }
     const use = async rma => { try { await Store.useTicketPart(S.user, S.store, t.id, p, {rma}); toast(rma ? 'Part logged · defective part added to RMA' : 'Part logged'); await viewTicket(el);
       if (rma) binLabelSheet('RMA', {name: (parts.find(x => x.id === p) || {}).name || 'Part', device: t.device, reason: 'Rework · defective', ticket: t.number, store: t.store, by: S.user.id}); } catch (e) { toast(e.message); } };
@@ -3667,7 +3681,10 @@ async function viewInvoice(el){
     if (l.productId) { const p = (S.prods || []).find(x => x.id === l.productId); return p && p.cost != null ? (+p.cost || 0) * q : null; }
     if (l.chargeId) { const c = [t, ...(t ? [] : [])].filter(Boolean).flatMap(x => x.charges || []).find(x => x.id === l.chargeId); return c && c.partCost != null ? +c.partCost : null; }
     return l.cost != null && l.cost !== '' ? (+l.cost || 0) * q : null; };
-  const costKnown = L.map(lc), costSum = Math.round(costKnown.reduce((a, v) => a + (v || 0), 0) * 100) / 100;
+  const costKnown = L.map(lc);
+  /* parts pulled on the ticket with no charge (warranty, rework, damaged during the repair): not billed, but they're a real cost of this job */
+  const extraParts = t && L.some(l => l.chargeId) ? (t.partsUsed || []).filter(p => !p.chargeId) : [];
+  const costSum = Math.round((costKnown.reduce((a, v) => a + (v || 0), 0) + extraParts.reduce((a, p) => a + (+p.cost || 0), 0)) * 100) / 100;
   const refunds = inv.refundOf ? [] : (await Store.allInvoices(inv.store).catch(() => [])).filter(r => r.refundOf === inv.id);
   el.innerHTML = `
   <div class="crumb"><a id="iv-back">Invoices</a><span class="muted">›</span><b class="num">#${inv.number}</b>
@@ -3695,6 +3712,7 @@ async function viewInvoice(el){
           : `<tr><td>${esc(l.desc)}<div class="small muted">${esc(l.cat || '')}</div>${dn ? `<div class="small" style="color:var(--ok)">${esc(dn)}</div>` : ''}</td><td class="r num">${l.qty}</td><td class="r num">${dn ? `<s class="muted small">${cents(l.orig)}</s><br>` : ''}${cents(l.price)}</td><td class="r small num muted">${costKnown[i] == null ? '—' : cents(costKnown[i])}</td><td style="text-align:center">${isTaxable(l) ? '✓' : '<span class="muted">no</span>'}</td><td class="r num">${cents(lt(l))}</td></tr>`; }).join('')
           || `<tr><td colspan="7" class="muted">${inv.rsId ? 'RepairShopr didn\'t send the line items for this invoice.' : 'No items yet. Scan or search below (type "UAG", "charger", "15 pro case"…).'}</td></tr>`}
         </tbody></table></div>
+        ${extraParts.length ? `<div class="stack" style="gap:4px"><span class="label">Parts used on ticket #${t.number} that aren't billed</span>${extraParts.map(p => `<div class="row small" style="justify-content:space-between"><span>${esc(p.name)}${p.damaged ? ` <span class="pill bad">damaged${p.damagedBy ? ' · ' + esc(staffName(p.damagedBy)) : ''}</span>` : ' <span class="muted">· no charge</span>'}${p.damagedNote ? ` <span class="muted">· ${esc(p.damagedNote)}</span>` : ''}</span><span class="num">${cents(+p.cost || 0)}</span></div>`).join('')}<span class="small muted">Counted in Our cost below.</span></div>` : ''}
         ${open ? `<div class="stack" style="gap:8px;border-top:1px solid var(--line);padding-top:10px">
           <div class="row" style="gap:6px"><input id="iv-add" placeholder="Add an item: scan or search (case, charger… or a phone: stock #, IMEI, BV70002, 16 pro max)" style="flex:1;min-width:220px" autocomplete="off"></div>
           <div id="iv-hits"></div>
@@ -4274,7 +4292,7 @@ window.addEventListener('message', e => {
 /* ---------------- REPORTS (managers): how the stores did, sales detail, profit, accessories, tickets, techs, reps, buybacks, inventory ----------------
    RepairShopr invoices arrive as totals only (no line items / costs), so item detail and profit cover sales rung up in this POS. */
 const tstLbl = k => (TSTATUS.find(x => x[0] === k) || [0, k])[1];
-const RP_TABS = [['overview', 'Store overview'], ['sales', 'Sales detail'], ['profit', 'Profit'], ['acc', 'Accessories & glass'], ['tickets', 'Tickets'], ['techs', 'Techs'], ['reps', 'Sales reps'], ['buybacks', 'Buybacks'], ['stock', 'Inventory value']];
+const RP_TABS = [['overview', 'Store overview'], ['sales', 'Sales detail'], ['profit', 'Profit'], ['acc', 'Accessories & glass'], ['tickets', 'Tickets'], ['techs', 'Techs'], ['reps', 'Sales reps'], ['buybacks', 'Buybacks'], ['stock', 'Inventory value'], ['damaged', 'Damaged parts']];
 const RP_PER = [['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'This week'], ['7d', 'Last 7 days'], ['month', 'This month'], ['lastmonth', 'Last month'], ['custom', 'Pick dates']];
 function rpRange(per, a, b){
   const d0 = new Date(new Date().toDateString()), add = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
@@ -4446,6 +4464,15 @@ async function viewReports(el){
     csv = [['Date', 'Store', 'Receipt', 'Device', 'Paid', 'Max', 'Payout', 'Heard from', 'Rep'], ...bbs.map(b => [new Date(b.at).toLocaleString('en-US'), b.store, b.store + b.receiptNo, model(b), b.paid, b.max || '', b.payout, b.seller?.heardFrom || '', staffName(b.by)])];
   }
 
+  if (R.tab === 'damaged') {
+    const dm = tixAll.filter(inStore).flatMap(t => (t.partsUsed || []).filter(p => p.damaged && (!p.damagedAt || (new Date(p.damagedAt) >= t0 && new Date(p.damagedAt) < t1))).map(p => ({t, p})))
+      .sort((a, b) => new Date(b.p.damagedAt || b.p.at) - new Date(a.p.damagedAt || a.p.at));
+    const by = {}; dm.forEach(({p}) => { const k = p.damagedBy || p.by || ''; by[k] = by[k] || {n: 0, cost: 0}; by[k].n++; by[k].cost += +p.cost || 0; });
+    body = `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px">${kpi('Parts damaged', dm.length)}${kpi('Cost of damaged parts', cents(sum(dm, x => +x.p.cost || 0)))}</div>
+      <h3 style="margin:8px 0 0">By person</h3>${tbl(['Who', '#Count', '$Cost'], Object.entries(by).sort((a, b) => b[1].cost - a[1].cost).map(([k, r]) => `<tr>${td(esc(staffName(k)))}${td(r.n, 1)}${td(cents(r.cost), 1)}</tr>`))}
+      <h3 style="margin:8px 0 0">Every damaged part</h3>${tbl(['When', 'Ticket', 'Part', 'Who', 'What happened', '$Cost'], dm.map(({t, p}) => `<tr data-rtk="${t.id}" style="cursor:pointer">${td(fmtDate(p.damagedAt || p.at))}${td('#' + t.number + ' · ' + esc(t.device || ''))}${td(esc(p.name))}${td(esc(staffName(p.damagedBy || p.by)))}${td(esc(p.damagedNote || ''))}${td(cents(+p.cost || 0), 1)}</tr>`))}`;
+    csv = [['Date', 'Store', 'Ticket', 'Device', 'Part', 'Who', 'What happened', 'Cost'], ...dm.map(({t, p}) => [dayKey(p.damagedAt || p.at), t.store, t.number, t.device || '', p.name, staffName(p.damagedBy || p.by), p.damagedNote || '', +p.cost || 0])];
+  }
   if (R.tab === 'stock') {
     const live = devs.filter(d => !['sold', 'atlas'].includes(d.status) && (R.store === 'all' || d.store === R.store));
     const g = {}; live.forEach(d => { const k = d.status; g[k] = g[k] || {n: 0, cost: 0, list: 0, noPrice: 0}; g[k].n++; g[k].cost += (+d.cost || 0) + (+d.partsCost || 0); const lp = +d.listPrice || +d.swappa?.price || 0; g[k].list += lp; if (!lp) g[k].noPrice++; });
