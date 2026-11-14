@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794618289";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794618710";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -2790,6 +2790,17 @@ async function registerPanel(box, again){
 }
 /* register phone search: stock #, IMEI, buyback ID (BV70002), or words like "16 pro max 512".
    Short numbers must match a whole word of the model / storage ("16" ≠ IMEI digits, "12" ≠ "128GB"); 5+ digits can be part of the IMEI or stock #. */
+/* old RepairShopr "products" named like a phone (iPhone 16 Pro Max 256GB Unlocked, $899.99) aren't real stock: phones are sold from phone stock by stock # / IMEI */
+const phoneProd = p => (!p.category || /phone sale/i.test(p.category)) && /\b(iphone|galaxy|pixel|ipad|moto|samsung)\b/i.test(p.name) && /\d+\s*(gb|tb)\b/i.test(p.name) && !/case|glass|screen|battery|port|camera|replacement|repair/i.test(p.name);
+const SELLABLE = ['hot', 'tolist', 'swappa', 'testing'];
+const devCost = d => (+d.cost || 0) + (+d.partsCost || 0);
+const devPrice = d => +(d.swappa?.price || d.listPrice || 0);
+/* one phone row: stock #, model, IMEI, buyback ID, status, cost and price so the sale is clear */
+const devRowHTML = (d, attr) => `<tr class="click" ${attr}="${d.id}"><td><b>#${d.stockNo} ${esc(d.model)} ${esc(d.storage || '')}</b>
+  <div class="small muted">${esc([d.carrier, d.color].filter(Boolean).join(' · '))} · ${esc(STATUS_LABEL[d.status] || d.status)}${d.bbId ? ' · ' + esc(d.bbId) : ''}</div>
+  <div class="small num">IMEI ${esc(d.imei || '—')}</div></td>
+  <td class="r small num" style="white-space:nowrap">Cost ${cents(devCost(d))}</td>
+  <td class="r num" style="white-space:nowrap">${devPrice(d) ? `<b>${cents(devPrice(d))}</b>${d.status === 'swappa' ? '<div class="small muted">Swappa price</div>' : ''}` : '<span class="muted small">set price</span>'}</td></tr>`;
 function devMatch(d, q){
   q = q.toLowerCase().replace(/^#/, '').trim(); if (!q) return false;
   const imei = (d.imei || '').toLowerCase(), bb = (d.bbId || '').toLowerCase();
@@ -2804,9 +2815,9 @@ async function viewRegister(el){
   const set = await Store.settings();
   if (!S.prods || Date.now() - S.prodsAt > 120000) { S.prods = await Store.products().catch(() => []); S.prodsAt = Date.now(); }
   const pq = (S.rgq || '').trim(); const exact = pq && S.prods.find(p => p.upc && p.upc === pq);
-  const hits = pq ? S.prods.filter(p => p.category !== 'Phone Sale' && prodMatch(p, pq)).sort((a, b) => (b.qty?.[S.store] || 0) - (a.qty?.[S.store] || 0)).slice(0, 15) : [];
+  const hits = pq ? S.prods.filter(p => p.category !== 'Phone Sale' && !phoneProd(p) && prodMatch(p, pq)).sort((a, b) => (b.qty?.[S.store] || 0) - (a.qty?.[S.store] || 0)).slice(0, 15) : [];
   /* phones in this store's stock can be sold here too: search by stock #, IMEI or model */
-  if (pq && (!S.rgDevs || Date.now() - S.rgDevsAt > 60000)) { S.rgDevs = (await Store.devices().catch(() => [])).filter(d => d.store === S.store && ['hot', 'tolist', 'swappa', 'testing'].includes(d.status) && !d.transferId); S.rgDevsAt = Date.now(); }
+  if (pq && (!S.rgDevs || Date.now() - S.rgDevsAt > 60000)) { S.rgDevs = (await Store.devices().catch(() => [])).filter(d => d.store === S.store && SELLABLE.includes(d.status) && !d.transferId); S.rgDevsAt = Date.now(); }
   const pql = pq.toLowerCase().replace(/^#/, '');
   const devHits = pq ? (S.rgDevs || []).filter(d => !S.cart.some(l => l.deviceId === d.id) && devMatch(d, pql)).slice(0, 8) : [];
   const sub = S.cart.reduce((a, l) => a + l.price * (l.qty || 1), 0), rtax = taxOf(S.cart), total = Math.round((sub + rtax) * 100) / 100;
@@ -2823,7 +2834,7 @@ async function viewRegister(el){
         <button data-gl="privacy" style="min-height:64px;text-align:left"><b>Privacy glass</b><div class="small muted num">${cents(GLASS.privacy)}</div></button>
         <button data-gl="replace" style="min-height:64px;text-align:left"><b>Lifetime replacement</b><div class="small muted num">${cents(GLASS.replace)} · look up their glass</div></button></div></div>
       <div class="field"><label class="label" for="rg-q">Scan or search inventory (${S.prods.length} items)</label><input id="rg-q" value="${esc(S.rgq || '')}" placeholder="Scan the barcode, or type: clear case 15 pro" autocomplete="off"></div>
-      ${devHits.length ? `<div class="stack" style="gap:4px"><span class="label">Phones in stock</span><div class="tbl"><table><tbody>${devHits.map(d => `<tr class="click" data-dev="${d.id}"><td><b>#${d.stockNo} ${esc(d.model)} ${esc(d.storage || '')}</b><div class="small muted">${esc(d.carrier || '')} · ${esc(STATUS_LABEL[d.status])} · IMEI ${esc(d.imei || '—')}</div></td><td class="r num">${d.swappa?.price || d.listPrice ? cents(d.swappa?.price || d.listPrice) : '<span class="muted small">set price</span>'}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
+      ${devHits.length ? `<div class="stack" style="gap:4px"><span class="label">Phones in stock</span><div class="tbl"><table><tbody>${devHits.map(d => devRowHTML(d, 'data-dev')).join('')}</tbody></table></div></div>` : ''}
       ${pq ? `<div class="tbl"><table><tbody>${hits.map(p => { const q = p.qty?.[S.store] || 0; return `<tr class="click" data-prod="${p.id}"><td><b>${esc(p.name)}</b><div class="small muted">${esc(p.category || '')}${p.upc ? ' · ' + esc(p.upc) : ''}</div></td><td class="r num">${cents(p.price)}</td><td class="r">${q > 0 ? `<span class="pill ok">${q} here</span>` : ''}</td></tr>`; }).join('') || '<tr><td class="muted">Nothing in inventory matches.</td></tr>'}
         <tr class="click" data-manual="1"><td colspan="3"><b>+ Ring up “${esc(pq)}” as a manual item</b><div class="small muted">Not in the system? Type the price and it goes on the sale.</div></td></tr></tbody></table></div>` : ''}
       <div class="grid g3">${set.accessories.map(([n, p, c], i) => `<button data-acc="${i}" style="min-height:64px;text-align:left"><b>${esc(n)}</b><div class="small muted num">${cents(p)}</div></button>`).join('')}
@@ -2879,7 +2890,7 @@ async function viewRegister(el){
     sheet(`<div class="row" style="justify-content:space-between"><h3>Sell #${d.stockNo} ${esc(d.model)} ${esc(d.storage || '')}</h3><button data-close>Close</button></div>
       <div class="small muted">${esc(d.carrier || '')} · IMEI ${esc(d.imei || '—')} · ${esc(STATUS_LABEL[d.status])}${d.status === 'swappa' ? ' · <b style="color:var(--warn)">listed on Swappa: take the listing down after the sale</b>' : ''}</div>
       <div class="field" style="max-width:220px"><label class="label" for="dv-p">Selling price (before tax)</label><input id="dv-p" inputmode="decimal" value="${d.swappa?.price || d.listPrice || ''}" placeholder="0.00"></div>
-      ${can(2) ? `<div class="small muted">Cost ${cents(cost)}</div>` : ''}
+      <div class="small muted">Cost ${cents(cost)}${d.bbId ? ' · ' + esc(d.bbId) : ''}</div>
       <div class="err" id="dv-e" role="alert"></div><button class="primary" id="dv-go">Add to sale</button>`,
       (L, close) => L.querySelector('#dv-go').onclick = () => { const v = parseFloat(L.querySelector('#dv-p').value); if (!(v > 0)) { L.querySelector('#dv-e').textContent = 'Enter the selling price.'; return; }
         S.cart.push({desc: `${d.model} ${d.storage || ''} ${d.carrier || ''} (stock #${d.stockNo})`.replace(/\s+/g, ' '), cat: 'Phone sale', price: v, deviceId: d.id}); S.rgq = ''; close(); viewRegister(el); }); });
@@ -3081,7 +3092,7 @@ async function viewCustomer(el){
   el.innerHTML = `<div class="crumb"><a id="back">Customers</a><span class="muted">›</span><b>${esc(c.name)}</b></div>
   <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr));align-items:start">
     <div class="panel stack"><dl class="kv"><dt>Phone</dt><dd class="num">${fmtPhone(c.phone)}</dd><dt>Email</dt><dd>${esc(c.email || '—')}</dd><dt>Since</dt><dd>${fmtDate(c.createdAt)}</dd><dt>Found us</dt><dd>${esc(c.heardFrom || '—')}</dd><dt>Glass warranty</dt><dd id="cv-glass" class="small">—</dd><dt>Spent</dt><dd class="num">${cents(paid.reduce((a, i) => a + i.total, 0))}</dd></dl>
-      <div class="row"><button class="primary" id="cv-nt">+ New ticket</button><button id="cv-sale">Quick sale</button><button id="cv-edit">Edit</button></div></div>
+      <div class="row"><button class="primary" id="cv-nt">+ New ticket</button><button id="cv-phone">New phone sale</button><button id="cv-sale">Quick sale</button><button id="cv-edit">Edit</button></div></div>
     <div class="stack">
       <div class="tbl"><table><thead><tr><th>#</th><th>Subject</th><th>Status</th><th>Created</th></tr></thead><tbody>
       ${mine.map(t => `<tr class="click" data-t="${t.id}"><td class="num">${t.number}</td><td>${esc(t.subject)}</td><td>${stPill(t.status)}</td><td class="small">${fmtDate(t.createdAt)}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">No tickets yet.</td></tr>'}
@@ -3092,6 +3103,7 @@ async function viewCustomer(el){
   $('#back').onclick = () => go('customers');
   $('#cv-nt').onclick = () => go('newticket', {draft: {customerId: c.id}});
   $('#cv-sale').onclick = () => quickSale(c.id);
+  $('#cv-phone').onclick = () => { S.ivPhone = true; quickSale(c.id); };
   $('#cv-edit').onclick = () => customerSheet(c, () => viewCustomer(el));
   renderThread($('#cv-ghl'), S.store, c);
   if (c.phone) Store.glassWarranties(c.phone).then(ws => { const g = $('#cv-glass'); if (g) g.innerHTML = ws.length ? ws.map(w => `${w.kind === 'privacy' ? 'Privacy' : 'Regular'} · ${fmtDate(w.soldAt)}${w.replacements ? ` · replaced ${w.replacements}×` : ''}`).join('<br>') + `<div class="muted">Lifetime: new one for ${cents(GLASS.replace)} at the Register</div>` : 'None on file'; }).catch(() => {});
@@ -3611,7 +3623,7 @@ async function viewInvoice(el){
           || `<tr><td colspan="6" class="muted">${inv.rsId ? 'RepairShopr didn\'t send the line items for this invoice.' : 'No items yet. Scan or search below (type "UAG", "charger", "15 pro case"…).'}</td></tr>`}
         </tbody></table></div>
         ${open ? `<div class="stack" style="gap:8px;border-top:1px solid var(--line);padding-top:10px">
-          <div class="row" style="gap:6px"><input id="iv-add" placeholder="Add an item: scan or search inventory (case, charger, cable…)" style="flex:1;min-width:220px" autocomplete="off"></div>
+          <div class="row" style="gap:6px"><input id="iv-add" placeholder="Add an item: scan or search (case, charger… or a phone: stock #, IMEI, BV70002, 16 pro max)" style="flex:1;min-width:220px" autocomplete="off"></div>
           <div id="iv-hits"></div>
           <div class="row" style="gap:6px"><button data-ia="regular">+ Tempered glass…</button><button data-ia="privacy">+ Privacy glass…</button><button data-ia="custom">+ Custom item</button><button data-ia="discount">+ Discount</button><button data-ia="diag">+ Diagnostic credit</button><button data-ia="thanks">+ $10 Customer appreciation</button></div>
         </div>` : ''}
@@ -3670,14 +3682,29 @@ async function viewInvoice(el){
   const hits = $('#iv-hits'); let tm;
   const drawHits = async q => { if (!q.trim()) { hits.innerHTML = ''; return; }
     if (!S.prods || Date.now() - (S.prodsAt || 0) > 120000) { S.prods = await Store.products().catch(() => []); S.prodsAt = Date.now(); }
-    const hs = S.prods.filter(p => prodMatch(p, q)).sort((a, b) => (b.qty?.[S.store] || 0) - (a.qty?.[S.store] || 0)).slice(0, 8);
-    hits.innerHTML = hs.length ? `<div class="tbl"><table><tbody>${hs.map(p => `<tr data-ip="${p.id}" style="cursor:pointer"><td>${esc(p.name)}<div class="small muted">${esc(p.category || '')}</div></td><td class="r small">${p.qty?.[S.store] ?? 0} at ${S.store}</td><td class="r num"><b>${cents(p.price)}</b></td></tr>`).join('')}</tbody></table></div>` : '<span class="small muted">Nothing in inventory matches. Use + Custom item.</span>';
+    const hs = S.prods.filter(p => !phoneProd(p) && prodMatch(p, q)).sort((a, b) => (b.qty?.[S.store] || 0) - (a.qty?.[S.store] || 0)).slice(0, 8);
+    if (!S.rgDevs || Date.now() - (S.rgDevsAt || 0) > 60000) { S.rgDevs = (await Store.devices().catch(() => [])).filter(d => d.store === S.store && SELLABLE.includes(d.status) && !d.transferId); S.rgDevsAt = Date.now(); }
+    const dh = S.rgDevs.filter(d => !L.some(l => l.deviceId === d.id) && devMatch(d, q)).slice(0, 8);
+    hits.innerHTML = (dh.length ? `<div class="stack" style="gap:4px;margin-bottom:6px"><span class="label">Phones in stock</span><div class="tbl"><table><tbody>${dh.map(d => devRowHTML(d, 'data-idv')).join('')}</tbody></table></div></div>` : '') + (hs.length || !dh.length ? (hs.length ? `<div class="tbl"><table><tbody>${hs.map(p => `<tr data-ip="${p.id}" style="cursor:pointer"><td>${esc(p.name)}<div class="small muted">${esc(p.category || '')}</div></td><td class="r small">${p.qty?.[S.store] ?? 0} at ${S.store}</td><td class="r num"><b>${cents(p.price)}</b></td></tr>`).join('')}</tbody></table></div>` : '<span class="small muted">Nothing in inventory matches. Use + Custom item.</span>') : '');
+    hits.querySelectorAll('[data-idv]').forEach(tr => tr.onclick = () => { const d = S.rgDevs.find(x => x.id === tr.dataset.idv); const cost = devCost(d);
+      sheet(`<div class="row" style="justify-content:space-between"><h3>Sell #${d.stockNo} ${esc(d.model)} ${esc(d.storage || '')}</h3><button data-close>Close</button></div>
+        <div class="small">${esc([d.carrier, d.color].filter(Boolean).join(' · '))} · IMEI <b class="num">${esc(d.imei || '—')}</b>${d.bbId ? ' · ' + esc(d.bbId) : ''} · ${esc(STATUS_LABEL[d.status] || d.status)}</div>
+        ${d.status === 'swappa' ? '<div class="banner warn small">Listed on Swappa: take the listing down after the sale.</div>' : ''}
+        <div class="grid g2"><div class="field"><label class="label" for="id-p">Selling price (before tax)</label><input id="id-p" inputmode="decimal" value="${devPrice(d) || ''}" placeholder="0.00"><div class="small muted" id="id-x"></div></div>
+          <div class="stack" style="gap:2px"><span class="label">Our cost</span><b class="num">${cents(cost)}</b></div></div>
+        <div class="err" id="id-e" role="alert"></div><button class="primary" id="id-go">Add to invoice</button>`, (S2, close) => {
+        const px = () => { const v = parseFloat(S2.querySelector('#id-p').value); S2.querySelector('#id-x').textContent = v > 0 ? `Profit ${cents(v - cost)}` : ''; }; px();
+        S2.querySelector('#id-p').oninput = px;
+        S2.querySelector('#id-go').onclick = () => { const v = parseFloat(S2.querySelector('#id-p').value); if (!(v > 0)) { S2.querySelector('#id-e').textContent = 'Enter the selling price.'; return; }
+          L.push({desc: `${d.model} ${d.storage || ''} ${d.carrier || ''} (stock #${d.stockNo}) IMEI ${d.imei || ''}`.replace(/\s+/g, ' ').trim(), cat: 'Phone sale', price: Math.round(v * 100) / 100, qty: 1, taxable: true, deviceId: d.id});
+          S.rgDevs = null; close(); save(L); }; }); });
     hits.querySelectorAll('[data-ip]').forEach(tr => tr.onclick = () => { const p = S.prods.find(x => x.id === tr.dataset.ip);
       const gl = /tempered|glass protector|screen protector/i.test(p.name) ? (/privacy/i.test(p.name) ? 'privacy' : 'regular') : null;
       if (!(gl ? GLASS[gl] : p.price > 0)) { toast(`${p.name} has no price in inventory. Use + Custom item.`); return; }
       L.push(gl ? {desc: p.name + ' (lifetime warranty)', cat: 'Tempered glass', price: GLASS[gl], qty: 1, taxable: true, productId: p.id, glass: gl, device: t?.device || ''} : {desc: p.name, cat: 'Accessory', price: p.price, qty: 1, taxable: true, productId: p.id}); save(L); }); };
   $('#iv-add').oninput = e => { clearTimeout(tm); tm = setTimeout(() => drawHits(e.target.value), 250); };
-  if (!L.length) $('#iv-add').focus();
+  if (S.ivPhone) { S.ivPhone = false; const a = $('#iv-add'); a.placeholder = 'Phone sale: scan or type the stock #, IMEI, buyback ID (BV70002) or model (16 pro max 512)'; a.focus(); toast('Find the phone: stock #, IMEI, buyback ID or model'); }
+  else if (!L.length) $('#iv-add').focus();
   $('#iv-add').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); clearTimeout(tm); drawHits(e.target.value).then(() => { const one = hits.querySelectorAll('[data-ip]'); if (one.length === 1) one[0].click(); }); } };
   el.querySelectorAll('[data-ia]').forEach(b => b.onclick = () => { const k = b.dataset.ia;
     if (k === 'regular' || k === 'privacy') return glassPicker(k, t?.device || '', line => { L.push(line); save(L); });
