@@ -165,7 +165,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794639431";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794639980";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -4946,7 +4946,8 @@ async function viewSwappa(el){
   const listed = listedAll.filter(d => inS(d.store)).map(d => ({d, ...info(d)})).sort((a, b) => b.since - a.since);
   const ready = readyAll.filter(d => inS(d.store)).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
   const myShips = shipsAll.filter(x => inS(x.store));
-  const shown = listed.filter(r => W.f === 'all' || (W.f === 'due' ? r.due : r.days >= 14));
+  const notHot = r => !HOT_STOCK.includes((r.d.model || '').toUpperCase().trim());   // models that aren't on the hot stock list
+  const shown = listed.filter(r => W.f === 'all' || (W.f === 'due' ? r.due : W.f === 'nothot' ? notHot(r) : r.days >= 14));
   const cardStores = W.store === 'all' ? Object.keys(STORES) : [W.store === 'mine' ? S.store : W.store];
   const card = st => { const L = listedAll.filter(d => d.store === st).map(info);
     return `<div class="panel stack" style="gap:8px"><h3>${STORES[st]}</h3><div class="grid" style="grid-template-columns:1fr 1fr">
@@ -4959,7 +4960,7 @@ async function viewSwappa(el){
   const btn = 'style="min-height:34px;padding:4px 10px"';
   let body = '';
   if (W.tab === 'listed') body = `
-    <div class="statusbar" role="group" aria-label="Filter listings"><button data-swf="all" aria-pressed="${W.f === 'all'}">All (${listed.length})</button><button data-swf="due" aria-pressed="${W.f === 'due'}">Due for a price drop (${listed.filter(r => r.due).length})</button><button data-swf="old" aria-pressed="${W.f === 'old'}">Listed 14+ days (${listed.filter(r => r.days >= 14).length})</button></div>
+    <div class="statusbar" role="group" aria-label="Filter listings"><button data-swf="all" aria-pressed="${W.f === 'all'}">All (${listed.length})</button><button data-swf="nothot" aria-pressed="${W.f === 'nothot'}">Not hot list (${listed.filter(notHot).length})</button><button data-swf="due" aria-pressed="${W.f === 'due'}">Due for a price drop (${listed.filter(r => r.due).length})</button><button data-swf="old" aria-pressed="${W.f === 'old'}">Listed 14+ days (${listed.filter(r => r.days >= 14).length})</button></div>
     <div class="tbl"><table><thead><tr><th>Stock #</th><th>Device</th>${W.store === 'all' ? '<th>Store</th>' : ''}<th class="r">Price</th><th class="r">Cost</th><th class="r">Est. margin</th><th>Listed</th><th>Last drop</th><th></th></tr></thead><tbody>
     ${shown.map(({d, x, days, last, due, cost, margin}) => `<tr><td class="num">${d.stockNo}</td><td><b>${esc(d.model)}</b> <span class="muted">${esc(d.storage)} · ${esc(d.carrier)}</span>${d.example ? ' <span class="pill">example</span>' : ''}${x.code || x.url ? ` <a href="${esc(x.url || 'https://swappa.com/listing/view/' + x.code)}" target="_blank" rel="noopener" class="small mono">${esc(x.code || 'Swappa')} ↗</a>` : ''}</td>${W.store === 'all' ? `<td>${d.store}</td>` : ''}
       <td class="r num">${cents(x.price)}</td><td class="r num">${money(cost)}</td><td class="r num" style="color:${margin < 65 ? 'var(--bad)' : 'inherit'}">${money(margin)}</td>
