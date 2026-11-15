@@ -194,7 +194,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794700706";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794702914";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -626,6 +626,17 @@ const DemoStore = {
   async partDamaged(emp, store, id, idx, who, note){ const d = this.db(); const t = d.tickets.find(x => x.id === id); const pu = t?.partsUsed?.[idx]; if (!pu) throw new Error('Part not found on the ticket.');
     Object.assign(pu, {damaged: true, damagedBy: who, damagedNote: note, damagedAt: now()}); t.comments.unshift({id: uid(), at: now(), who: emp.id, text: `Part damaged: ${pu.name} (${cents(+pu.cost || 0)}) · ${staffName(who)} · ${note}`, pub: false, sys: true});
     this.log(d, emp.id, store, 'Part damaged', `#${t.number} ${pu.name} · ${note}`); this.save(d); return t; },
+  async removeTicketPart(emp, store, id, at){
+    const d = this.db(); const t = d.tickets.find(x => x.id === id); if (!t) throw new Error('Ticket not found.');
+    if (t.status === 'resolved') throw new Error('This ticket is resolved. Ask a manager to fix parts on a closed ticket.');
+    const pu = t.partsUsed.find(x => x.at === at); if (!pu) throw new Error('That part is already off this ticket. Reload the page.');
+    if (pu.chargeId) throw new Error('This part came with a repair charge. Remove the charge instead.');
+    t.partsUsed = t.partsUsed.filter(x => x !== pu);
+    const p = pu.partId && d.parts.find(x => x.id === pu.partId);
+    if (p) { p.qty[t.store] = (p.qty[t.store] || 0) + 1; const r = d.rmaLog.find(x => x.refId === t.id && x.partId === p.id && x.status === 'held'); if (r) { d.rmaLog = d.rmaLog.filter(x => x !== r); if (p.rma) p.rma[t.store] = Math.max(0, (p.rma[t.store] || 0) - 1); } }
+    t.comments.unshift({id: uid(), at: now(), who: emp.id, text: `Part taken off (added by mistake): ${pu.name}${p ? ', back on the shelf' : ''}`, pub: false, sys: true}); t.updatedAt = now();
+    this.log(d, emp.id, t.store, 'Part taken off ticket', `#${t.number} ${pu.name} (added by mistake)`); this.save(d); return t;
+  },
   async useTicketPart(emp, store, id, partId, opts = {}){
     const d = this.db(); const t = d.tickets.find(x => x.id === id); const p = d.parts.find(x => x.id === partId);
     if ((p.qty[store] || 0) < 1) throw new Error(`No ${p.name} left at ${STORES[store]}. Move the ticket to Waiting for Parts.`);
@@ -1132,7 +1143,10 @@ const LiveStore = {
   async setPasscode(emp, store, id, v){ const r = await this.rpc('pos_set_passcode', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_passcode: v || ''}); this.keep(this.cT, [r]); return r; },
   async addComment(emp, store, id, text, pub){ return this.rpc('pos_ticket_comment', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_text: text, p_pub: pub}); },
   async partDamaged(emp, store, id, idx, who, note){ const r = await this.rpc('pos_part_damaged', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_idx: idx, p_who: who, p_note: note}); this.keep && this.cT && this.keep(this.cT, [r]); return r; },
-  async useTicketPart(emp, store, id, partId){ return this.rpc('pos_ticket_part', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_part: partId}); },
+  async useTicketPart(emp, store, id, partId, opts = {}){ const r = await this.rpc('pos_ticket_part', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_part: partId});
+    if (opts.rma) await this.rpc('pos_rma_add', {p_pin: this.pinFor(emp), p_store: store, p_part: partId, p_reason: opts.reason || 'Rework · defective', p_ref: id});   /* the defective one that came out goes on the RMA list */
+    return r; },
+  async removeTicketPart(emp, store, id, at){ return this.rpc('pos_ticket_part_remove', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_at: at}); },
   async checkout(emp, store, inv){ const r = await this.rpc(inv.closeTickets ? 'pos_checkout_multi' : 'pos_checkout', {p_pin: this.pinFor(emp), p_store: store, p_inv: inv});
     for (const id of [inv.ticketId, ...(inv.otherTickets || [])].filter(Boolean)) { this.cT.delete(id); await this.loadTicket(id).catch(() => {}); } this.keep(this.cI, [r]); return r; },
   async mergeInvoices(emp, store, into, fromIds){ const r = await this.rpc('pos_merge_invoices', {p_pin: this.pinFor(emp), p_store: store, p_into: into, p_from: fromIds}); fromIds.forEach(id => this.cI.delete(id)); this.keep(this.cI, [r]); return r; },
@@ -1933,7 +1947,7 @@ async function viewTicket(el){
       </div>
       <div class="panel stack">
         <div class="row" style="justify-content:space-between"><h3>Parts pulled from stock</h3>${can(2) ? `<span class="muted small">${money(partsCost)} part cost</span>` : ''}</div>
-        ${t.partsUsed.length ? `<ul style="margin:0;padding-left:18px">${t.partsUsed.map(p => `<li>${esc(p.name)} <span class="muted small">· ${cents(+p.cost || 0)} · ${p.chargeId ? 'with its charge' : 'no charge'} · ${esc(staffName(p.by))}</span>${p.damaged ? ` <span class="pill bad">damaged${p.damagedBy ? ' · ' + esc(staffName(p.damagedBy)) : ''}</span>${p.damagedNote ? `<div class="small muted">${esc(p.damagedNote)}</div>` : ''}` : t.status !== 'resolved' ? ` <button data-dmg="${t.partsUsed.indexOf(p)}" style="min-height:26px;padding:0 8px;font-size:12px">Damaged?</button>` : ''}${p.rma ? ` <button data-rmal="${t.partsUsed.indexOf(p)}" style="min-height:26px;padding:0 8px;font-size:12px">RMA label</button>` : ''}${p.rma ? ' <span class="pill warn">old part → RMA</span>' : ''}</li>`).join('')}</ul>` : '<span class="muted small">None yet. Adding a repair charge pulls its part from this store\'s stock automatically.</span>'}
+        ${t.partsUsed.length ? `<ul style="margin:0;padding-left:18px">${t.partsUsed.map(p => `<li>${esc(p.name)} <span class="muted small">· ${cents(+p.cost || 0)} · ${p.chargeId ? 'with its charge' : 'no charge'} · ${esc(staffName(p.by))}</span>${p.damaged ? ` <span class="pill bad">damaged${p.damagedBy ? ' · ' + esc(staffName(p.damagedBy)) : ''}</span>${p.damagedNote ? `<div class="small muted">${esc(p.damagedNote)}</div>` : ''}` : t.status !== 'resolved' ? ` <button data-dmg="${t.partsUsed.indexOf(p)}" style="min-height:26px;padding:0 8px;font-size:12px">Damaged?</button>` : ''}${p.rma ? ` <button data-rmal="${t.partsUsed.indexOf(p)}" style="min-height:26px;padding:0 8px;font-size:12px">RMA label</button>` : ''}${p.rma ? ' <span class="pill warn">old part → RMA</span>' : ''}${!p.chargeId && !p.damaged && t.status !== 'resolved' ? ` <button data-tprm="${esc(p.at)}" title="Added by mistake? Take it off. It goes back on the shelf." style="min-height:26px;padding:0 8px;font-size:12px">✕ Remove</button>` : ''}</li>`).join('')}</ul>` : '<span class="muted small">None yet. Adding a repair charge pulls its part from this store\'s stock automatically.</span>'}
         ${t.status !== 'resolved' ? `<div class="row"><button id="t-order">+ Special order a part</button></div>
           <details><summary class="small muted" style="cursor:pointer">Pull a part without a charge (warranty, rework, or a part damaged during the repair)</summary>
           <div class="row" style="margin-top:8px"><select id="t-part" aria-label="Part to use" style="flex:1;min-width:0"><option value="">Pick a part…</option>${parts.map(p => `<option value="${p.id}" ${(p.qty[t.store] || 0) < 1 ? 'disabled' : ''}>${esc(p.name)} (${p.qty[t.store] || 0} at ${t.store})</option>`).join('')}</select><button id="t-usepart">Use part</button></div></details>` : ''}
@@ -2024,6 +2038,9 @@ async function viewTicket(el){
   $('#t-order') && ($('#t-order').onclick = () => specialOrderSheet({forType: 'ticket', forId: t.id, forLabel: `Ticket #${t.number} ${t.subject}`, store: t.store, device: t.device}, () => viewTicket(el)));
   wirePoEdit(el, myOrders, {forType: 'ticket', forId: t.id, forLabel: `Ticket #${t.number} ${t.subject}`, store: t.store, device: t.device}, () => viewTicket(el));
   /* a part broken during the repair (e.g. OLED cracked taking it off for a back glass): who, what happened, and its cost goes against this ticket's profit */
+  el.querySelectorAll('[data-tprm]').forEach(b => b.onclick = async () => { const pu = t.partsUsed.find(x => x.at === b.dataset.tprm); if (!pu) return;
+    if (!confirm(`Take ${pu.name} off this ticket? It goes back on the ${STORES[t.store]} shelf${pu.rma ? ' and comes off the RMA list' : ''}.`)) return;
+    try { await Store.removeTicketPart(S.user, S.store, t.id, pu.at); toast(`${pu.name} taken off · back on the shelf`); viewTicket(el); } catch (e) { toast(e.message); } });
   el.querySelectorAll('[data-dmg]').forEach(b => b.onclick = () => { const i = +b.dataset.dmg, pu = t.partsUsed[i];
     sheet(`<div class="row" style="justify-content:space-between"><h3>Damaged part · #${t.number}</h3><button data-close>Close</button></div>
       <div><b>${esc(pu.name)}</b> <span class="muted">· ${cents(+pu.cost || 0)}</span></div>
@@ -2034,7 +2051,7 @@ async function viewTicket(el){
       L.querySelector('#dm-go').onclick = async () => { const note = L.querySelector('#dm-n').value.trim(); if (note.length < 4) { L.querySelector('#dm-e').textContent = 'Write what happened.'; return; }
         try { await Store.partDamaged(S.user, S.store, t.id, i, L.querySelector('#dm-w').value, note); close(); toast('Marked damaged'); viewTicket(el); } catch (e) { L.querySelector('#dm-e').textContent = e.message; } }; }); });
   $('#t-usepart') && ($('#t-usepart').onclick = async () => { const p = $('#t-part').value; if (!p) { toast('Pick a part first.'); return; }
-    const use = async rma => { try { await Store.useTicketPart(S.user, S.store, t.id, p, {rma}); toast(rma ? 'Part logged · defective part added to RMA' : 'Part logged'); await viewTicket(el);
+    const use = async rma => { try { await Store.useTicketPart(S.user, S.store, t.id, p, {rma, reason: `Ticket #${t.number} rework`}); toast(rma ? 'Part logged · defective part added to RMA' : 'Part logged'); await viewTicket(el);
       if (rma) binLabelSheet('RMA', {name: (parts.find(x => x.id === p) || {}).name || 'Part', device: t.device, reason: 'Rework · defective', ticket: t.number, store: t.store, by: S.user.id}); } catch (e) { toast(e.message); } };
     if (t.type !== 'rework') return use(false);
     sheet(`<div class="row" style="justify-content:space-between"><h3>Rework part</h3><button data-close>Close</button></div><p style="margin:0">Is the part you're taking out defective?</p>
