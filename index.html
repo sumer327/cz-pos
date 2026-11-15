@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794779508";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794780251";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -1056,6 +1056,7 @@ const DemoStore = {
     this.log(d, emp.id, store, 'Day closed', `${c.day} · cash counted ${cents(c.counted)} vs expected ${cents(c.expected)}`); this.save(d); return row; },
   /* ---------- counts ---------- */
   async counts(){ return this.db().counts; },
+  async partUses(stores){ return this.db().audit.filter(a => a.action === 'Part used' && stores.includes(a.store)); },
   async saveCount(emp, store, c){
     const d = this.db(); const row = {id: uid(), at: now(), by: emp.id, store, ...c}; d.counts.unshift(row);
     if (c.kind === 'parts' && c.apply) c.items.forEach(it => { if (it.counted !== it.expected) { const p = d.parts.find(x => x.id === it.id); if (p) p.qty[store] = it.counted; } });
@@ -1320,6 +1321,7 @@ const LiveStore = {
   async openRegister(emp, store, drawer, fund){ return this.rpc('pos_register_open', {p_pin: this.pinFor(emp), p_store: store, p_drawer: drawer, p_fund: fund}); },
   async closeRegister(emp, store, c){ return this.rpc('pos_register_close', {p_pin: this.pinFor(emp), p_store: store, p_drawer: c.drawer, p_fund: c.fund, p_square: c.square, p_notes: c.notes || ''}); },
   async saveCloseout(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
+  async partUses(stores){ const {data} = await this.sb.from('audit').select('who,at,store,detail').eq('action', 'Part used').in('store', stores).gte('at', new Date(Date.now() - 45 * 864e5).toISOString()).order('at', {ascending: false}).limit(1500); return data || []; },
   async counts(){ const {data, error} = await this.sb.from('shelf_counts_v').select('*').order('at', {ascending: false}).limit(60); if (error) throw error; return data; },
   async saveCount(emp, store, c){ return this.rpc('pos_save_count', {p_pin: this.pinFor(emp), p_store: store, p_c: c.kind === 'parts' ? {kind: 'parts', apply: !!c.apply, items: c.items.map(i => ({id: i.id, counted: i.counted}))} : c}); },
   async transfers(){ return []; },
@@ -1744,7 +1746,7 @@ const NAV = [
   ['dashboard','Dashboard',0],['customers','Customers',0],['tickets','Tickets',0],['techboard','Tech board',0],['invoices','Invoices',0],['register','Register',0],['inbox','Inbox',0],['buyback','Buyback',0],
   ['inventory','Devices',0],['swappa','Swappa',0],['wholesale','Wholesale',0],['repairs','Repair stock',0],['parts','Parts',0],['quote','Quote',0]
 ];
-const MORE = [['reports','Reports',2],['eod','End-of-day count',0],['counts','Sunday parts count',0],['transfers','Transfers',0],['closeout','Close out',0],['hours','Timesheets',2],['staff','Admin',3]];
+const MORE = [['reports','Reports',2],['eod','End-of-day count',0],['counts','Counts & parts check',0],['transfers','Transfers',0],['closeout','Close out',0],['hours','Timesheets',2],['staff','Admin',3]];
 const ALIAS = {bblog: 'buyback', invoice: 'invoices', ticket: 'tickets', newticket: 'tickets', customer: 'customers', repair: 'repairs', calls: 'inbox'};
 /* browser Back / Forward: every screen change is a history entry; Back closes an open popup first, and never leaves the POS */
 const NAV_KEYS = ['customerId', 'ticketId', 'deviceId', 'invoiceId', 'q'];
@@ -3370,33 +3372,54 @@ async function viewCounts(el){
       S.cnt = null; toast(missing.length || extra.length ? `Saved. ${missing.length} missing, ${extra.length} unexpected. A manager has been alerted.` : 'Saved. Every phone accounted for.'); viewCounts(el); };
     return;
   }
+  /* small parts: blind count, one section at a time. The POS number is only shown after saving. */
+  const secOf = p => partBrand(p.name) + ' · ' + (p.kind || 'Other');
+  const secs = [...new Set(parts.map(secOf))];
+  const pCounts = counts.filter(c => c.kind === 'parts' && c.store === S.store);
+  const weekAgo = Date.now() - 7 * 864e5;
+  const lastFor = sec => { const ids = new Set(parts.filter(p => secOf(p) === sec).map(p => p.id)); return pCounts.find(c => (c.items || []).some(i => ids.has(i.id))); };
+  const doneWeek = secs.filter(x => { const l = lastFor(x); return l && new Date(l.at) > weekAgo; });
+  const nextSec = secs.find(x => !doneWeek.includes(x)) || secs[0];
+  if (S.cnt?.kind === 'partsDone') {
+    const R = S.cnt.result, off = R.items.filter(i => i.counted !== i.expected);
+    el.innerHTML = `<div class="stack"><div class="crumb"><a id="back">Counts</a><span class="muted">›</span><b>${esc(R.sec)} · ${STORES[S.store]}</b></div>
+      <div class="panel stack">
+        <div class="banner ${off.length ? 'bad' : 'ok'}"><b>${R.items.length - off.length} of ${R.items.length} match the POS.</b> ${off.length ? `${off.length} don't. A manager will look into ${off.length === 1 ? 'it' : 'them'}. Don't change anything on the shelf.` : 'Nice work.'}</div>
+        ${off.length ? `<div class="tbl"><table><thead><tr><th>Part</th><th class="r">POS says</th><th class="r">Shelf</th><th class="r">Off by</th></tr></thead><tbody>
+          ${off.map(i => `<tr><td>${esc(i.name)}</td><td class="r num">${i.expected}</td><td class="r num">${i.counted}</td><td class="r num" style="color:var(--bad)">${i.counted - i.expected > 0 ? '+' : ''}${i.counted - i.expected}</td></tr>`).join('')}</tbody></table></div>` : ''}
+        <div class="row">${secs.some(x => x !== R.sec && !doneWeek.includes(x)) ? `<button class="primary" id="pc-next">Count next: ${esc(nextSec)}</button>` : ''}<button id="pc-done">Done</button></div></div></div>`;
+    $('#back').onclick = $('#pc-done').onclick = () => { S.cnt = null; viewCounts(el); };
+    $('#pc-next') && ($('#pc-next').onclick = () => { S.cnt = {kind: 'parts', counted: {}, sec: nextSec}; viewCounts(el); });
+    return;
+  }
   if (S.cnt?.kind === 'parts') {
-    const C = S.cnt.counted;
-    el.innerHTML = `<div class="stack"><div class="crumb"><a id="back">Counts</a><span class="muted">›</span><b>Small parts count · ${STORES[S.store]}</b></div>
-      <div class="panel stack"><p class="muted small" style="margin:0">Count what's on the shelf and type it in. Type 0 if none. Screens aren't here: they're in the end-of-day count. RMA and refurb boxes are counted separately. <b>${Object.values(C).filter(v => v !== '' && v !== undefined).length} of ${parts.length} counted.</b></p>
-        <div class="tbl"><table><thead><tr><th>Part</th><th class="r">System says</th><th class="r">Counted</th><th class="r">Off by</th><th class="r">Desired</th><th class="r">To order</th></tr></thead><tbody>
-        ${(() => { let grp = ''; return parts.map(p => { const exp = p.qty[S.store] || 0, c = C[p.id]; const diff = c === undefined || c === '' ? null : +c - exp; const g = partBrand(p.name) + ' · ' + (p.kind || 'Other'), dq = dqOf(p, S.store);
-          const head = g !== grp ? `<tr class="grp"><td colspan="6"><b>${esc(grp = g)}</b></td></tr>` : '';
-          return `${head}<tr><td>${esc(p.name)}</td><td class="r num">${exp}</td>
-          <td class="r"><input data-pc="${p.id}" inputmode="numeric" value="${c ?? ''}" style="width:80px;min-height:36px;text-align:right" aria-label="Counted ${esc(p.name)}"></td>
-          <td class="r num" style="color:${diff ? 'var(--bad)' : 'inherit'}">${diff == null ? '' : diff > 0 ? '+' + diff : diff}</td>
-          <td class="r num muted">${dq}</td><td class="r num">${Math.max(0, dq - (diff == null ? exp : +c)) || ''}</td></tr>`; }).join(''); })()}
+    const C = S.cnt.counted; const sec = secs.includes(S.cnt.sec) ? S.cnt.sec : nextSec; S.cnt.sec = sec;
+    const list = parts.filter(p => secOf(p) === sec);
+    const filled = () => list.filter(p => C[p.id] !== undefined && C[p.id] !== '').length;
+    el.innerHTML = `<div class="stack"><div class="crumb"><a id="back">Counts</a><span class="muted">›</span><b>Small parts check · ${STORES[S.store]}</b></div>
+      <div class="statusbar" role="group" aria-label="Section" style="flex-wrap:wrap">${secs.map(x => `<button data-sec="${esc(x)}" aria-pressed="${x === sec}">${doneWeek.includes(x) ? '✓ ' : ''}${esc(x)}</button>`).join('')}</div>
+      <div class="panel stack"><h2>${esc(sec)}</h2>
+        <p class="muted small" style="margin:0">Count what's on the shelf and type it in. Type 0 if there are none. The POS number shows after you save, so count, don't guess. Press Enter to jump to the next box.</p>
+        <div class="tbl"><table><thead><tr><th>Part</th><th class="r">On the shelf</th></tr></thead><tbody>
+        ${list.map(p => `<tr><td>${esc(p.name)}</td><td class="r"><input data-pc="${p.id}" inputmode="numeric" value="${C[p.id] ?? ''}" style="width:90px;min-height:40px;text-align:right" aria-label="On the shelf: ${esc(p.name)}" autocomplete="off"></td></tr>`).join('')}
         </tbody></table></div>
-        ${can(2) ? '<label class="row small" style="gap:8px"><input type="checkbox" id="pc-apply" style="width:auto;min-height:auto"> Set the system counts to what we counted (manager)</label>' : ''}
-        <button class="primary" id="pc-save" style="min-height:52px">Finish count</button></div></div>`;
+        <div class="err" id="pc-e" role="alert"></div>
+        <button class="primary" id="pc-save" style="min-height:52px">Save ${esc(sec)} (<span id="pc-n">${filled()}</span> of ${list.length})</button></div></div>`;
     $('#back').onclick = () => { S.cnt = null; viewCounts(el); };
+    el.querySelectorAll('[data-sec]').forEach(b => b.onclick = () => { if (filled() && !confirm('Switch sections? What you typed here is kept until you leave Counts.')) return; S.cnt.sec = b.dataset.sec; viewCounts(el); });
     el.querySelectorAll('[data-pc]').forEach(i => {
-      i.onchange = () => { const p = parts.find(x => x.id === i.dataset.pc), tr = i.closest('tr'); C[p.id] = i.value === '' ? '' : Math.max(0, parseInt(i.value) || 0);
-        const exp = p.qty[S.store] || 0, c = C[p.id], diff = c === '' ? null : c - exp, dq = dqOf(p, S.store);
-        tr.cells[3].textContent = diff == null ? '' : diff > 0 ? '+' + diff : diff; tr.cells[3].style.color = diff ? 'var(--bad)' : 'inherit';
-        tr.cells[5].textContent = Math.max(0, dq - (diff == null ? exp : c)) || '';
-        const b = el.querySelector('.panel p b'); if (b) b.textContent = `${Object.values(C).filter(v => v !== '' && v !== undefined).length} of ${parts.length} counted.`; };
-      i.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); i.onchange(); const all = [...el.querySelectorAll('[data-pc]')]; const n = all[all.indexOf(i) + 1]; if (n) { n.focus(); n.select(); } } }; });
+      i.oninput = () => { C[i.dataset.pc] = i.value.trim() === '' ? '' : Math.max(0, parseInt(i.value) || 0); $('#pc-n').textContent = filled(); };
+      i.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); const all = [...el.querySelectorAll('[data-pc]')]; const n = all[all.indexOf(i) + 1]; if (n) { n.focus(); n.select(); } else $('#pc-save').focus(); } }; });
+    const first = el.querySelector('[data-pc]'); first && first.focus();
     $('#pc-save').onclick = async () => {
-      const items = parts.filter(p => C[p.id] !== undefined && C[p.id] !== '').map(p => ({id: p.id, name: p.name, expected: p.qty[S.store] || 0, counted: +C[p.id]}));
-      if (items.length < parts.length) { toast(`${parts.length - items.length} parts not counted yet.`); return; }
-      await Store.saveCount(S.user, S.store, {kind: 'parts', items, apply: !!$('#pc-apply')?.checked});
-      S.cnt = null; const off = items.filter(i => i.counted !== i.expected).length; toast(off ? `Saved. ${off} parts off. A manager has been alerted.` : 'Saved. Every part matched.') ; viewCounts(el); };
+      const miss = list.filter(p => C[p.id] === undefined || C[p.id] === '');
+      if (miss.length) { $('#pc-e').textContent = `${miss.length} not counted yet: ${miss.slice(0, 3).map(p => p.name).join(', ')}${miss.length > 3 ? '…' : ''}. Type 0 if there are none.`; return; }
+      const btn = $('#pc-save'); btn.disabled = true;
+      try { const row = await Store.saveCount(S.user, S.store, {kind: 'parts', items: list.map(p => ({id: p.id, name: p.name, expected: p.qty[S.store] || 0, counted: +C[p.id]}))});
+        list.forEach(p => delete C[p.id]);
+        S.cnt = {kind: 'partsDone', result: {sec, items: row?.items || []}}; viewCounts(el); }
+      catch (e) { btn.disabled = false; $('#pc-e').textContent = e.message; }
+    };
     return;
   }
   const inTransit = trs.filter(t => t.status === 'transit' && (t.to === S.store || t.from === S.store));
@@ -3407,19 +3430,49 @@ async function viewCounts(el){
         <div class="stat"><span class="label">Should be in ${STORES[S.store]}</span><span class="v">${onHand.length}</span><span class="small muted">${onHand.filter(d => d.status === 'repair').length} in repair stock${inTransit.length ? ` · ${inTransit.length} transfer${inTransit.length > 1 ? 's' : ''} in transit (not counted)` : ''}</span></div>
         ${phonesDone ? `<div class="banner ${phonesDone.missing.length || phonesDone.extra.length ? 'bad' : 'ok'} small">Counted today at ${fmtTime(phonesDone.at)} by ${esc(staffName(phonesDone.by))}: ${phonesDone.missing.length ? phonesDone.missing.length + ' missing' : 'all here'}${phonesDone.extra.length ? ', ' + phonesDone.extra.length + ' unexpected' : ''}.</div>` : '<div class="banner warn small">Not counted yet today.</div>'}
         <button class="primary" id="ct-ph">${phonesDone ? 'Count again' : 'Start phone count'}</button></div>
-      <div class="panel stack"><h2>Small parts · every Sunday</h2>
-        <p class="muted small" style="margin:0">Every part used on a ticket or repair stock, every Sentrix delivery and transfer already moves the count. The shelf count catches anything that walked off.</p>
-        <div class="stat"><span class="label">Small parts tracked</span><span class="v">${parts.length}</span><span class="small muted">${partsCountDay() ? 'Count day' : 'Next count: Sunday'} · then Parts › Sentrix orders builds the order from what's below desired</span></div>
-        ${partsDone ? `<div class="banner ${partsDone.items.some(i => i.counted !== i.expected) ? 'bad' : 'ok'} small">Counted today: ${partsDone.items.filter(i => i.counted !== i.expected).length} off.</div>` : partsCountDay() ? '<div class="banner warn small">Count day. Not counted yet.</div>' : ''}
-        <button id="ct-pt" class="${partsCountDay() && !partsDone ? 'primary' : ''}">Start small parts count</button></div>
+      <div class="panel stack"><h2>Small parts check</h2>
+        <p class="muted small" style="margin:0">The POS keeps the numbers: tickets, RMA and Sentrix deliveries move them, and orders come from them. This check makes sure the shelf really matches. Count one section at a time; the whole shelf once a week.</p>
+        <div class="stat"><span class="label">Sections checked this week</span><span class="v">${doneWeek.length} of ${secs.length}</span><span class="small muted">${parts.length} small parts · next up: ${esc(nextSec || '')}</span></div>
+        <button id="ct-pt" class="${doneWeek.length < secs.length ? 'primary' : ''}">${doneWeek.length < secs.length ? 'Count ' + esc(nextSec) : 'Count a section again'}</button></div>
     </div>
+    <div id="mm-box"></div>
     <div class="panel stack"><h3>Count history</h3><div class="tbl"><table><thead><tr><th>When</th><th>Store</th><th>What</th><th>Result</th><th>By</th></tr></thead><tbody>
     ${counts.filter(c => can(3) || c.store === S.store).slice(0, 30).map(c => { const off = c.kind === 'phones' ? c.missing.length + c.extra.length : c.items.filter(i => i.counted !== i.expected).length;
       return `<tr><td class="small">${fmtDate(c.at)} ${fmtTime(c.at)}</td><td>${c.store}</td><td>${c.kind === 'phones' ? 'Phones' : 'Parts'}</td>
       <td class="small">${off ? `<span class="pill bad">${off} off</span> ${esc(c.kind === 'phones' ? [...c.missing, ...c.extra.map(x => 'unexpected #' + x)].join(', ') : c.items.filter(i => i.counted !== i.expected).map(i => `${i.name} ${i.expected}→${i.counted}`).join(', '))}` : '<span class="pill ok">Matched</span>'}</td><td class="small">${esc(staffName(c.by))}</td></tr>`; }).join('') || '<tr><td colspan="5" class="muted">No counts yet.</td></tr>'}
     </tbody></table></div></div></div>`;
   $('#ct-ph').onclick = () => { S.cnt = {kind: 'phones', seen: new Set(), extra: []}; viewCounts(el); };
-  $('#ct-pt').onclick = () => { S.cnt = {kind: 'parts', counted: {}}; viewCounts(el); };
+  $('#ct-pt').onclick = () => { S.cnt = {kind: 'parts', counted: {}, sec: nextSec}; viewCounts(el); };
+  mismatchReport($('#mm-box'), allParts, counts, () => viewCounts(el));
+}
+/* parts whose last shelf count didn't match the POS and haven't been fixed. Managers decide: set the POS to the shelf, or leave it. */
+async function mismatchReport(box, parts, counts, again){
+  if (!box) return;
+  const stores = can(3) ? Object.keys(STORES) : [S.store], since = Date.now() - 30 * 864e5;
+  const uses = await Store.partUses(stores).catch(() => []);
+  const rows = [];
+  stores.forEach(st => {
+    const latest = {};
+    counts.filter(c => c.kind === 'parts' && c.store === st && new Date(c.at) > since).forEach(c => (c.items || []).forEach(i => { if (!latest[i.id]) latest[i.id] = {...i, at: c.at, by: c.by}; }));
+    Object.values(latest).forEach(i => { const p = parts.find(x => x.id === i.id); if (!p || i.counted === i.expected) return;
+      const now = p.qty?.[st] || 0; if (now === i.counted) return;
+      const u = uses.find(a => a.store === st && String(a.detail || '').includes(' ' + p.name + ' →'));
+      rows.push({st, p, i, now, u}); });
+  });
+  const cost = rows.reduce((a, r) => a + Math.max(0, r.now - r.i.counted) * (+r.p.cost || 0), 0);
+  box.innerHTML = `<div class="panel stack"><div class="row" style="justify-content:space-between"><h3>Doesn't match the POS${rows.length ? ` (${rows.length})` : ''}</h3>${rows.length && cost ? `<span class="pill bad">${cents(cost)} short at cost</span>` : ''}</div>
+    ${rows.length ? `<p class="muted small" style="margin:0">From the last 30 days of shelf checks. Short usually means a part was used without adding it to a ticket. Extra usually means a Sentrix delivery wasn't received in the POS. ${can(2) ? 'Look into it, then set the POS to the shelf or leave it for the next count.' : 'A manager will look into these.'}</p>
+    <div class="tbl"><table><thead><tr>${stores.length > 1 ? '<th>Store</th>' : ''}<th>Part</th><th class="r">POS</th><th class="r">Shelf</th><th class="r">Off</th><th>Last used</th><th>Counted</th><th></th></tr></thead><tbody>
+    ${rows.map((r, k) => { const d = r.i.counted - r.now; return `<tr>${stores.length > 1 ? `<td>${STORES[r.st]}</td>` : ''}<td>${esc(r.p.name)}</td><td class="r num">${r.now}</td><td class="r num">${r.i.counted}</td>
+      <td class="r num" style="color:var(--bad)">${d > 0 ? '+' : ''}${d}</td><td class="small">${r.u ? `${esc(staffName(r.u.who))} · ${esc((String(r.u.detail).match(/^#\d+/) || [''])[0])} · ${ago(r.u.at)}` : '<span class="muted">not in 30 days</span>'}</td>
+      <td class="small">${fmtDate(r.i.at)} · ${esc(staffName(r.i.by))}</td>
+      <td class="r">${can(2) ? `<button data-mmfix="${k}" style="min-height:34px;padding:4px 10px">Set POS to ${r.i.counted}</button>` : ''}</td></tr>`; }).join('')}</tbody></table></div>`
+    : '<div class="banner ok small">Every part checked in the last 30 days matches the POS.</div>'}</div>`;
+  box.querySelectorAll('[data-mmfix]').forEach(b => b.onclick = async () => { const r = rows[+b.dataset.mmfix];
+    if (!confirm(`Set ${r.p.name} at ${STORES[r.st]} from ${r.now} to ${r.i.counted}? This is logged with your name.`)) return;
+    b.disabled = true;
+    try { await Store.adjustPart(S.user, r.st, r.p.id, r.i.counted - r.now, `Recount: shelf check ${fmtDate(r.i.at)} by ${staffName(r.i.by)}`); toast('POS updated and logged'); again(); }
+    catch (e) { b.disabled = false; toast(e.message); } });
 }
 
 /* ---------------- TRANSFERS ---------------- */
@@ -5722,7 +5775,7 @@ async function viewParts(el){
   };
   box.innerHTML = `<div class="stack">
     <div class="panel stack">
-      <div class="row" style="justify-content:space-between"><h2>Parts at ${STORES[S.store]}</h2><div class="row"><button id="p-cnt" class="${new Date().getDay() === 0 ? 'primary' : ''}">Sunday small parts count</button>${can(2) ? '<button id="p-add">Add part</button>' : ''}<button id="po-add">+ Request a part</button></div></div>
+      <div class="row" style="justify-content:space-between"><h2>Parts at ${STORES[S.store]}</h2><div class="row"><button id="p-cnt" class="${new Date().getDay() === 0 ? 'primary' : ''}">Small parts check</button>${can(2) ? '<button id="p-add">Add part</button>' : ''}<button id="po-add">+ Request a part</button></div></div>
       ${low.length ? `<div class="banner warn small"><b>${low.length} below desired.</b> They go on the next Sentrix order automatically.</div>` : '<div class="banner ok small">Every part is at or above its desired quantity.</div>'}
       <p class="muted small" style="margin:0">Counts only move through the system: parts used on tickets and repair stock, Sentrix deliveries received, transfers, and RMA. A manager can correct a count with a reason; every change is logged with a name. Desired is set per store.</p>
     </div>
