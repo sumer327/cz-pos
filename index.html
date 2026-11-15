@@ -45,6 +45,7 @@ input,select,textarea{background:var(--panel);border:1px solid var(--line);borde
 .grid{display:grid;gap:12px}
 .g2{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
 .g3{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+tr.grp td{background:var(--soft);font-size:13px;padding-top:10px;padding-bottom:6px}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}
 .stack{display:flex;flex-direction:column;gap:14px}
 .field{display:flex;flex-direction:column;gap:6px;min-width:0}
@@ -263,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794772863";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794779508";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -332,6 +333,10 @@ const HEARD_FROM = ['Walk In / Drive By', 'Returning Customer', 'Referred', 'Goo
 const PAYOUTS = ['Cash','Apple Pay','Cash App','Zelle','PayPal','Trade-in credit'];          // how a buyback seller gets paid
 const SAM_PAYS = ['Apple Pay','Cash App','Zelle','PayPal'];
 const payToLabel = p => p + (p === 'Cash App' ? ' $cashtag or phone' : p === 'PayPal' ? ' email or phone' : ' phone or email');                              // these need Sam to send the money
+const dqOf = (p, st) => p?.dqs && p.dqs[st] != null && p.dqs[st] !== '' ? +p.dqs[st] : (+p?.dq || 0);   /* desired qty at a store (per-store DQ, else the shared one) */
+const PART_KINDS = ['Screen', 'Battery', 'Charging port', 'Rear camera', 'Camera lens', 'Flex cable', 'Small part', 'Other'];
+const partBrand = n => /^iphone/i.test(n) ? 'iPhone' : /^(galaxy|samsung|s\d|note)/i.test(n) ? 'Samsung' : /^ipad/i.test(n) ? 'iPad' : /playstation|xbox|switch/i.test(n) ? 'Console' : 'Other';
+const isSmallPart = p => !(p.kind === 'Screen' || isScreenPart(p) && !/batter|charg|port|camera|lens|flex/i.test(p.name));
 const isScreenPart = p => /screen|lcd|oled|xo7|x07|aq7|incell|digitizer|display/i.test(p.name + ' ' + (p.kind || ''));
 const isGlassOnly = txt => /glass only/i.test(txt || '');
 const needsBH = t => /iphone/i.test(t.issue + ' ' + t.device) && t.type !== 'buycheck';
@@ -442,10 +447,13 @@ const DemoStore = {
     const parts = [
       ['iPhone 13 LCD (AQ7)', 'Screen', {DZ:3,BV:2,PT:4}, 3],
       ['iPhone 14 Pro Max OLED (X07 2.0)', 'Screen', {DZ:1,BV:0,PT:2}, 2],
-      ['iPhone 12/12 Pro battery', 'Battery', {DZ:4,BV:5,PT:1}, 4],
-      ['iPhone 15 charging port', 'Small part', {DZ:2,BV:2,PT:0}, 2],
-      ['Samsung S23 Ultra battery', 'Battery', {DZ:1,BV:1,PT:1}, 1]
-    ].map(([name, kind, qty, dq], i) => ({id: uid(), name, kind, qty, dq, cost: [28,95,12,9,18][i], example: true}));
+      ['iPhone 13 Battery', 'Battery', {DZ:4,BV:5,PT:1}, 4, {DZ:5,BV:5,PT:5}, 24.30, 1018],
+      ['iPhone 15 Charging Port', 'Charging port', {DZ:2,BV:3,PT:0}, 2, {DZ:1,BV:0,PT:1}, 17.45, 1045],
+      ['iPhone 15 Pro Max Rear Camera', 'Rear camera', {DZ:1,BV:2,PT:0}, 1, {DZ:1,BV:1,PT:1}, 56.35, 1075],
+      ['iPhone 15 Proximity Sensor Flex', 'Flex cable', {DZ:2,BV:5,PT:1}, 3, {DZ:3,BV:3,PT:3}, null, 1133],
+      ['Galaxy S23 Ultra Battery', 'Battery', {DZ:1,BV:2,PT:1}, 2, {DZ:2,BV:2,PT:2}, 14.50, 1166],
+      ['PlayStation 5 / PS5 Slim HDMI Port', 'Charging port', {DZ:6,BV:8,PT:2}, 8, {DZ:8,BV:8,PT:8}, null, 1270]
+    ].map(([name, kind, qty, dq, dqs, cost, sort], i) => ({id: uid(), name, kind, qty, dq, ...(dqs ? {dqs, sort} : {}), cost: cost ?? [28,95][i] ?? 0, example: true}));
     const cust = (name, phone, age) => ({id: uid(), name, phone, email: '', createdAt: ago(age), example: true});
     const customers = [cust('Maria Gonzalez','2105550142',40), cust('Derrick Thompson','2105550188',3), cust('Ana Ruiz','2105550117',1),
       cust('Kevin Pham','2105550193',6), cust('Jasmine Carter','2105550164',0), cust('Luis Ortega','2105550120',2)];
@@ -631,8 +639,8 @@ const DemoStore = {
     if (RANK[actor.role] < 2) throw new Error('Only a manager can add parts or change desired quantities.');
     const d = this.db(); let row = d.parts.find(x => x.id === p.id);
     if (!row) { row = {id: uid(), qty: {DZ:0,BV:0,PT:0}}; d.parts.push(row); }
-    Object.assign(row, {name: p.name, kind: p.kind, dq: p.dq, cost: p.cost || 0});
-    this.log(d, actor.id, actor.store, 'Part saved', `${p.name} · desired ${p.dq} per store`);
+    Object.assign(row, {name: p.name, kind: p.kind, dq: p.dq, cost: p.cost || 0}); if (p.dqs) row.dqs = p.dqs;
+    this.log(d, actor.id, actor.store, 'Part saved', `${p.name} · desired ${p.dqs ? `DZ ${p.dqs.DZ} · BV ${p.dqs.BV} · PT ${p.dqs.PT}` : p.dq + ' per store'}`);
     this.save(d); return row;
   },
   async audit(limit = 40){ return this.db().audit.slice(0, limit); },
@@ -1312,8 +1320,8 @@ const LiveStore = {
   async openRegister(emp, store, drawer, fund){ return this.rpc('pos_register_open', {p_pin: this.pinFor(emp), p_store: store, p_drawer: drawer, p_fund: fund}); },
   async closeRegister(emp, store, c){ return this.rpc('pos_register_close', {p_pin: this.pinFor(emp), p_store: store, p_drawer: c.drawer, p_fund: c.fund, p_square: c.square, p_notes: c.notes || ''}); },
   async saveCloseout(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
-  async counts(){ return []; },
-  async saveCount(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
+  async counts(){ const {data, error} = await this.sb.from('shelf_counts_v').select('*').order('at', {ascending: false}).limit(60); if (error) throw error; return data; },
+  async saveCount(emp, store, c){ return this.rpc('pos_save_count', {p_pin: this.pinFor(emp), p_store: store, p_c: c.kind === 'parts' ? {kind: 'parts', apply: !!c.apply, items: c.items.map(i => ({id: i.id, counted: i.counted}))} : c}); },
   async transfers(){ return []; },
   async createTransfer(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
   async receiveTransfer(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
@@ -1736,7 +1744,7 @@ const NAV = [
   ['dashboard','Dashboard',0],['customers','Customers',0],['tickets','Tickets',0],['techboard','Tech board',0],['invoices','Invoices',0],['register','Register',0],['inbox','Inbox',0],['buyback','Buyback',0],
   ['inventory','Devices',0],['swappa','Swappa',0],['wholesale','Wholesale',0],['repairs','Repair stock',0],['parts','Parts',0],['quote','Quote',0]
 ];
-const MORE = [['reports','Reports',2],['eod','End-of-day count',0],['counts','Old counts',2],['transfers','Transfers',0],['closeout','Close out',0],['hours','Timesheets',2],['staff','Admin',3]];
+const MORE = [['reports','Reports',2],['eod','End-of-day count',0],['counts','Sunday parts count',0],['transfers','Transfers',0],['closeout','Close out',0],['hours','Timesheets',2],['staff','Admin',3]];
 const ALIAS = {bblog: 'buyback', invoice: 'invoices', ticket: 'tickets', newticket: 'tickets', customer: 'customers', repair: 'repairs', calls: 'inbox'};
 /* browser Back / Forward: every screen change is a history entry; Back closes an open popup first, and never leaves the POS */
 const NAV_KEYS = ['customerId', 'ticketId', 'deviceId', 'invoiceId', 'q'];
@@ -3331,11 +3339,12 @@ async function viewCloseout(el){
     (L, close) => L.querySelector('#pd-go').onclick = async () => { try { await Store.markPayout(S.user, b.dataset.paid, L.querySelector('#pd-ref').value.trim()); close(); toast('Payout marked sent. The store sees it.'); viewCloseout(el); } catch (e) { toast(e.message); } }));
 }
 
-/* ---------------- COUNTS: phones every day, parts Mon/Wed/Fri ---------------- */
+/* ---------------- COUNTS: phones every day, small parts every Sunday (screens are in the end-of-day count) ---------------- */
 S.cnt = null;
-const partsCountDay = () => [1, 3, 5].includes(new Date().getDay());
+const partsCountDay = () => new Date().getDay() === 0;
 async function viewCounts(el){
-  const [devs, parts, counts, trs] = await Promise.all([Store.devices(), Store.parts(), Store.counts(), Store.transfers()]);
+  const [devs, allParts, counts, trs] = await Promise.all([Store.devices(), Store.parts(), Store.counts(), Store.transfers()]);
+  const parts = allParts.filter(isSmallPart).sort((x, y) => (x.sort ?? 1e9) - (y.sort ?? 1e9) || x.name.localeCompare(y.name));
   const today = dayKey(new Date()); const mine = counts.filter(c => c.store === S.store);
   const phonesDone = mine.find(c => c.kind === 'phones' && dayKey(c.at) === today), partsDone = mine.find(c => c.kind === 'parts' && dayKey(c.at) === today);
   const onHand = devs.filter(d => d.store === S.store && !['sold','atlas'].includes(d.status) && !d.transferId);
@@ -3363,22 +3372,31 @@ async function viewCounts(el){
   }
   if (S.cnt?.kind === 'parts') {
     const C = S.cnt.counted;
-    el.innerHTML = `<div class="stack"><div class="crumb"><a id="back">Counts</a><span class="muted">›</span><b>Parts count · ${STORES[S.store]}</b></div>
-      <div class="panel stack"><p class="muted small" style="margin:0">Count what's on the shelf. Leave a box blank only if you couldn't count that part. RMA and refurb boxes are counted separately.</p>
-        <div class="tbl"><table><thead><tr><th>Part</th><th class="r">System says</th><th class="r">Counted</th><th class="r">Off by</th></tr></thead><tbody>
-        ${parts.map(p => { const exp = p.qty[S.store] || 0, c = C[p.id]; const diff = c === undefined || c === '' ? null : +c - exp; return `<tr><td>${esc(p.name)}</td><td class="r num">${exp}</td>
+    el.innerHTML = `<div class="stack"><div class="crumb"><a id="back">Counts</a><span class="muted">›</span><b>Small parts count · ${STORES[S.store]}</b></div>
+      <div class="panel stack"><p class="muted small" style="margin:0">Count what's on the shelf and type it in. Type 0 if none. Screens aren't here: they're in the end-of-day count. RMA and refurb boxes are counted separately. <b>${Object.values(C).filter(v => v !== '' && v !== undefined).length} of ${parts.length} counted.</b></p>
+        <div class="tbl"><table><thead><tr><th>Part</th><th class="r">System says</th><th class="r">Counted</th><th class="r">Off by</th><th class="r">Desired</th><th class="r">To order</th></tr></thead><tbody>
+        ${(() => { let grp = ''; return parts.map(p => { const exp = p.qty[S.store] || 0, c = C[p.id]; const diff = c === undefined || c === '' ? null : +c - exp; const g = partBrand(p.name) + ' · ' + (p.kind || 'Other'), dq = dqOf(p, S.store);
+          const head = g !== grp ? `<tr class="grp"><td colspan="6"><b>${esc(grp = g)}</b></td></tr>` : '';
+          return `${head}<tr><td>${esc(p.name)}</td><td class="r num">${exp}</td>
           <td class="r"><input data-pc="${p.id}" inputmode="numeric" value="${c ?? ''}" style="width:80px;min-height:36px;text-align:right" aria-label="Counted ${esc(p.name)}"></td>
-          <td class="r num" style="color:${diff ? 'var(--bad)' : 'inherit'}">${diff == null ? '' : diff > 0 ? '+' + diff : diff}</td></tr>`; }).join('')}
+          <td class="r num" style="color:${diff ? 'var(--bad)' : 'inherit'}">${diff == null ? '' : diff > 0 ? '+' + diff : diff}</td>
+          <td class="r num muted">${dq}</td><td class="r num">${Math.max(0, dq - (diff == null ? exp : +c)) || ''}</td></tr>`; }).join(''); })()}
         </tbody></table></div>
         ${can(2) ? '<label class="row small" style="gap:8px"><input type="checkbox" id="pc-apply" style="width:auto;min-height:auto"> Set the system counts to what we counted (manager)</label>' : ''}
         <button class="primary" id="pc-save" style="min-height:52px">Finish count</button></div></div>`;
     $('#back').onclick = () => { S.cnt = null; viewCounts(el); };
-    el.querySelectorAll('[data-pc]').forEach(i => i.onchange = () => { C[i.dataset.pc] = i.value === '' ? '' : Math.max(0, parseInt(i.value) || 0); const y = window.scrollY; viewCounts(el).then(() => window.scrollTo(0, y)); });
+    el.querySelectorAll('[data-pc]').forEach(i => {
+      i.onchange = () => { const p = parts.find(x => x.id === i.dataset.pc), tr = i.closest('tr'); C[p.id] = i.value === '' ? '' : Math.max(0, parseInt(i.value) || 0);
+        const exp = p.qty[S.store] || 0, c = C[p.id], diff = c === '' ? null : c - exp, dq = dqOf(p, S.store);
+        tr.cells[3].textContent = diff == null ? '' : diff > 0 ? '+' + diff : diff; tr.cells[3].style.color = diff ? 'var(--bad)' : 'inherit';
+        tr.cells[5].textContent = Math.max(0, dq - (diff == null ? exp : c)) || '';
+        const b = el.querySelector('.panel p b'); if (b) b.textContent = `${Object.values(C).filter(v => v !== '' && v !== undefined).length} of ${parts.length} counted.`; };
+      i.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); i.onchange(); const all = [...el.querySelectorAll('[data-pc]')]; const n = all[all.indexOf(i) + 1]; if (n) { n.focus(); n.select(); } } }; });
     $('#pc-save').onclick = async () => {
       const items = parts.filter(p => C[p.id] !== undefined && C[p.id] !== '').map(p => ({id: p.id, name: p.name, expected: p.qty[S.store] || 0, counted: +C[p.id]}));
       if (items.length < parts.length) { toast(`${parts.length - items.length} parts not counted yet.`); return; }
       await Store.saveCount(S.user, S.store, {kind: 'parts', items, apply: !!$('#pc-apply')?.checked});
-      S.cnt = null; const off = items.filter(i => i.counted !== i.expected).length; toast(off ? `Saved. ${off} parts off. A manager has been alerted.` : 'Saved. Every part matched.'); viewCounts(el); };
+      S.cnt = null; const off = items.filter(i => i.counted !== i.expected).length; toast(off ? `Saved. ${off} parts off. A manager has been alerted.` : 'Saved. Every part matched.') ; viewCounts(el); };
     return;
   }
   const inTransit = trs.filter(t => t.status === 'transit' && (t.to === S.store || t.from === S.store));
@@ -3389,11 +3407,11 @@ async function viewCounts(el){
         <div class="stat"><span class="label">Should be in ${STORES[S.store]}</span><span class="v">${onHand.length}</span><span class="small muted">${onHand.filter(d => d.status === 'repair').length} in repair stock${inTransit.length ? ` · ${inTransit.length} transfer${inTransit.length > 1 ? 's' : ''} in transit (not counted)` : ''}</span></div>
         ${phonesDone ? `<div class="banner ${phonesDone.missing.length || phonesDone.extra.length ? 'bad' : 'ok'} small">Counted today at ${fmtTime(phonesDone.at)} by ${esc(staffName(phonesDone.by))}: ${phonesDone.missing.length ? phonesDone.missing.length + ' missing' : 'all here'}${phonesDone.extra.length ? ', ' + phonesDone.extra.length + ' unexpected' : ''}.</div>` : '<div class="banner warn small">Not counted yet today.</div>'}
         <button class="primary" id="ct-ph">${phonesDone ? 'Count again' : 'Start phone count'}</button></div>
-      <div class="panel stack"><h2>Parts · Mon, Wed, Fri</h2>
+      <div class="panel stack"><h2>Small parts · every Sunday</h2>
         <p class="muted small" style="margin:0">Every part used on a ticket or repair stock, every Sentrix delivery and transfer already moves the count. The shelf count catches anything that walked off.</p>
-        <div class="stat"><span class="label">Parts tracked</span><span class="v">${parts.length}</span><span class="small muted">${partsCountDay() ? 'Count day' : 'Next count: ' + ['Mon','Mon','Wed','Wed','Fri','Fri','Mon'][new Date().getDay()]}</span></div>
+        <div class="stat"><span class="label">Small parts tracked</span><span class="v">${parts.length}</span><span class="small muted">${partsCountDay() ? 'Count day' : 'Next count: Sunday'} · then Parts › Sentrix orders builds the order from what's below desired</span></div>
         ${partsDone ? `<div class="banner ${partsDone.items.some(i => i.counted !== i.expected) ? 'bad' : 'ok'} small">Counted today: ${partsDone.items.filter(i => i.counted !== i.expected).length} off.</div>` : partsCountDay() ? '<div class="banner warn small">Count day. Not counted yet.</div>' : ''}
-        <button id="ct-pt" class="${partsCountDay() && !partsDone ? 'primary' : ''}">Start parts count</button></div>
+        <button id="ct-pt" class="${partsCountDay() && !partsDone ? 'primary' : ''}">Start small parts count</button></div>
     </div>
     <div class="panel stack"><h3>Count history</h3><div class="tbl"><table><thead><tr><th>When</th><th>Store</th><th>What</th><th>Result</th><th>By</th></tr></thead><tbody>
     ${counts.filter(c => can(3) || c.store === S.store).slice(0, 30).map(c => { const off = c.kind === 'phones' ? c.missing.length + c.extra.length : c.items.filter(i => i.counted !== i.expected).length;
@@ -5661,7 +5679,7 @@ async function viewAccessories(box, again){
 }
 async function viewParts(el){
   const [parts, reqs, pos] = await Promise.all([Store.parts(), Store.partOrders(), Store.pos()]);
-  const low = parts.filter(p => (p.qty[S.store] || 0) < p.dq);
+  const low = parts.filter(p => (p.qty[S.store] || 0) < dqOf(p, S.store));
   const openReq = reqs.filter(o => o.status === 'needed' && !o.poId);
   const openPOs = pos.filter(p => p.status !== 'received');
   el.innerHTML = `<div class="stack"><div class="statusbar" role="group" aria-label="Parts section">
@@ -5681,32 +5699,55 @@ async function viewParts(el){
       ${lks.map(l => `<tr><td class="small">${ago(l.at)}</td><td><b>${esc(l.device)}</b> · ${esc(l.part)}</td><td class="small">${esc(staffName(l.by))} · ${l.store}</td>
         <td>${l.status === 'pending' ? '<span class="pill warn">Waiting on Claude</span>' : l.status === 'done' ? `<span class="pill ok">Answered${l.cached ? ' (reused)' : ''}</span>` : '<span class="pill bad">Not found</span>'}</td>
         <td class="num small">${l.options?.length ? cents(Math.min(...l.options.map(o => o.cost))) : ''}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No lookups yet.</td></tr>'}</tbody></table></div></div>`; return; }
+  const PF = [['all', 'All'], ['low', 'Low here'], ['Screen', 'Screens'], ['Battery', 'Batteries'], ['Charging port', 'Ports'], ['cam', 'Cameras & lenses'], ['Flex cable', 'Flex cables'], ['etc', 'Other']];
+  S.pf = S.pf || {f: 'all', q: ''};
+  const kindOf = p => p.kind === 'Screen' || isScreenPart(p) && !/batter|charg|port|camera|lens|flex/i.test(p.name) ? 'Screen' : p.kind;
+  const inF = (p, f) => f === 'all' ? true : f === 'low' ? (p.qty[S.store] || 0) < dqOf(p, S.store) : f === 'cam' ? /camera/i.test(p.kind || '') || /camera|lens/i.test(p.name) && kindOf(p) !== 'Screen'
+    : f === 'etc' ? !['Screen', 'Battery', 'Charging port', 'Rear camera', 'Camera lens', 'Flex cable'].includes(kindOf(p)) : kindOf(p) === f;
+  const draw = () => {
+    const words = S.pf.q.toLowerCase().split(/\s+/).filter(Boolean);
+    const rows = parts.filter(p => inF(p, S.pf.f) && words.every(w => p.name.toLowerCase().includes(w)))
+      .sort((x, y) => (x.sort ?? 1e9) - (y.sort ?? 1e9) || x.name.localeCompare(y.name));
+    let grp = '';
+    $('#pt-body').innerHTML = rows.map(p => { const q = p.qty[S.store] || 0, dq = dqOf(p, S.store), g = partBrand(p.name) + ' · ' + (kindOf(p) === 'Screen' ? 'Screens' : p.kind || 'Other');
+      const head = S.pf.f !== 'low' && g !== grp ? `<tr class="grp"><td colspan="7"><b>${esc(grp = g)}</b></td></tr>` : '';
+      return `${head}<tr>
+      <td><b>${esc(p.name)}</b>${p.example ? ' <span class="pill">example</span>' : ''}</td><td class="small">${esc(p.kind || '')}</td>
+      <td class="r num" style="font-size:18px;color:${q < dq ? 'var(--bad)' : 'inherit'}">${q}</td><td class="r num">${dq}</td>
+      <td class="r num small muted">${p.qty.DZ || 0} · ${p.qty.BV || 0} · ${p.qty.PT || 0}</td><td class="r num small">${+p.cost ? cents(p.cost) : '<span class="muted" title="Fills in when the first Sentrix order is received">—</span>'}</td>
+      <td class="r">${can(2) ? `<button data-adj="${p.id}" style="min-height:34px;padding:4px 10px">Correct</button> <button data-e="${p.id}" style="min-height:34px;padding:4px 10px">Edit</button>` : ''}</td></tr>`; }).join('') || '<tr><td colspan="7" class="muted">No parts match.</td></tr>';
+    $('#pt-n').textContent = `${rows.length} part${rows.length === 1 ? '' : 's'}`;
+    box.querySelectorAll('[data-pf]').forEach(x => x.setAttribute('aria-pressed', x.dataset.pf === S.pf.f));
+    wireRows();
+  };
   box.innerHTML = `<div class="stack">
     <div class="panel stack">
-      <div class="row" style="justify-content:space-between"><h2>Parts at ${STORES[S.store]}</h2><div class="row">${can(2) ? '<button id="p-add">Add part</button>' : ''}<button id="po-add">+ Request a part</button></div></div>
+      <div class="row" style="justify-content:space-between"><h2>Parts at ${STORES[S.store]}</h2><div class="row"><button id="p-cnt" class="${new Date().getDay() === 0 ? 'primary' : ''}">Sunday small parts count</button>${can(2) ? '<button id="p-add">Add part</button>' : ''}<button id="po-add">+ Request a part</button></div></div>
       ${low.length ? `<div class="banner warn small"><b>${low.length} below desired.</b> They go on the next Sentrix order automatically.</div>` : '<div class="banner ok small">Every part is at or above its desired quantity.</div>'}
-      <p class="muted small" style="margin:0">Counts only move through the system: parts used on tickets and repair stock, Sentrix deliveries received, transfers, and RMA. A manager can correct a count with a reason; every change is logged with a name.</p>
+      <p class="muted small" style="margin:0">Counts only move through the system: parts used on tickets and repair stock, Sentrix deliveries received, transfers, and RMA. A manager can correct a count with a reason; every change is logged with a name. Desired is set per store.</p>
     </div>
-    <div class="tbl"><table><thead><tr><th>Part</th><th>Type</th><th class="r">Here</th><th class="r">Desired</th><th class="r">DZ · BV · PT</th><th class="r">Cost</th><th></th></tr></thead><tbody>
-    ${parts.map(p => { const q = p.qty[S.store] || 0; return `<tr>
-      <td><b>${esc(p.name)}</b>${p.example ? ' <span class="pill">example</span>' : ''}</td><td class="small">${esc(p.kind)}</td>
-      <td class="r num" style="font-size:18px;color:${q < p.dq ? 'var(--bad)' : 'inherit'}">${q}</td><td class="r num">${p.dq}</td>
-      <td class="r num small muted">${p.qty.DZ || 0} · ${p.qty.BV || 0} · ${p.qty.PT || 0}</td><td class="r num small">${cents(p.cost)}</td>
-      <td class="r">${can(2) ? `<button data-adj="${p.id}" style="min-height:34px;padding:4px 10px">Correct</button> <button data-e="${p.id}" style="min-height:34px;padding:4px 10px">Edit</button>` : ''}</td></tr>`; }).join('')}
-    </tbody></table></div></div>`;
-  const edit = p => sheet(`<div class="row" style="justify-content:space-between"><h3>${p ? 'Edit part' : 'Add part'}</h3><button data-close>Close</button></div>
-      <div class="field"><label class="label" for="pp-n">Part name</label><input id="pp-n" value="${esc(p?.name || '')}" placeholder="iPhone 15 Pro OLED (XO7 Soft)"></div>
-      <div class="grid g2"><div class="field"><label class="label" for="pp-k">Type</label><select id="pp-k">${['Screen','Battery','Charging port','Small part','Other'].map(k => `<option ${p?.kind === k ? 'selected' : ''}>${k}</option>`).join('')}</select></div>
-      <div class="field"><label class="label" for="pp-d">Desired per store</label><input id="pp-d" inputmode="numeric" value="${p?.dq ?? 2}"></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center"><input id="pt-q" type="search" placeholder="Search parts: 15 pro max battery" value="${esc(S.pf.q)}" style="max-width:320px" autocomplete="off" aria-label="Search parts">
+      <div class="statusbar" role="group" aria-label="Part type">${PF.map(([k, l]) => `<button data-pf="${k}" aria-pressed="${S.pf.f === k}">${l}${k === 'low' && low.length ? ` (${low.length})` : ''}</button>`).join('')}</div><span class="small muted" id="pt-n"></span></div>
+    <div class="tbl"><table><thead><tr><th>Part</th><th>Type</th><th class="r">Here</th><th class="r">Desired here</th><th class="r">DZ · BV · PT</th><th class="r">Cost</th><th></th></tr></thead><tbody id="pt-body"></tbody></table></div></div>`;
+  box.querySelectorAll('[data-pf]').forEach(x => x.onclick = () => { S.pf.f = x.dataset.pf; draw(); });
+  $('#pt-q').oninput = e => { S.pf.q = e.target.value; draw(); };
+  const edit = p => { const kinds = p?.kind && !PART_KINDS.includes(p.kind) ? [...PART_KINDS, p.kind] : PART_KINDS;
+    sheet(`<div class="row" style="justify-content:space-between"><h3>${p ? 'Edit part' : 'Add part'}</h3><button data-close>Close</button></div>
+      <div class="field"><label class="label" for="pp-n">Part name</label><input id="pp-n" value="${esc(p?.name || '')}" placeholder="iPhone 15 Pro Max Battery"></div>
+      <div class="grid g2"><div class="field"><label class="label" for="pp-k">Type</label><select id="pp-k">${kinds.map(k => `<option ${(p?.kind || 'Screen') === k ? 'selected' : ''}>${k}</option>`).join('')}</select></div>
       <div class="field"><label class="label" for="pp-c">Our cost (Sentrix)</label><input id="pp-c" inputmode="decimal" value="${p?.cost ?? ''}"></div></div>
+      <div class="field"><span class="label">Desired quantity per store</span><div class="grid g3">${Object.keys(STORES).map(k => `<label class="small">${STORES[k]}<input data-dq="${k}" inputmode="numeric" value="${p ? dqOf(p, k) : 2}" aria-label="Desired at ${STORES[k]}"></label>`).join('')}</div></div>
       <div class="err" id="pp-e" role="alert"></div><button class="primary" id="pp-s">Save part</button>`,
     (L, close) => L.querySelector('#pp-s').onclick = async () => {
       const name = L.querySelector('#pp-n').value.trim(); if (!name) { L.querySelector('#pp-e').textContent = 'Enter a part name.'; return; }
-      try { await Store.savePart(S.user, {id: p?.id, name, kind: L.querySelector('#pp-k').value, dq: parseInt(L.querySelector('#pp-d').value) || 0, cost: parseFloat(L.querySelector('#pp-c').value) || 0}); close(); viewParts(el); }
+      const dqs = {}; L.querySelectorAll('[data-dq]').forEach(i => dqs[i.dataset.dq] = Math.max(0, parseInt(i.value) || 0));
+      try { await Store.savePart(S.user, {id: p?.id, name, kind: L.querySelector('#pp-k').value, dq: dqs[S.store] ?? 0, dqs, cost: parseFloat(L.querySelector('#pp-c').value) || 0}); close(); viewParts(el); }
       catch (e) { L.querySelector('#pp-e').textContent = e.message; }
-    });
+    }); };
   $('#p-add') && ($('#p-add').onclick = () => edit(null));
+  $('#p-cnt').onclick = () => { S.cnt = {kind: 'parts', counted: {}}; go('counts'); };
   $('#po-add').onclick = () => orderPartSheet({forType: 'stock', store: S.store}, () => viewParts(el));
+  function wireRows(){
   el.querySelectorAll('[data-e]').forEach(b => b.onclick = () => edit(parts.find(p => p.id === b.dataset.e)));
   el.querySelectorAll('[data-adj]').forEach(b => b.onclick = () => { const p = parts.find(x => x.id === b.dataset.adj);
     sheet(`<div class="row" style="justify-content:space-between"><h3>Correct ${esc(p.name)}</h3><button data-close>Close</button></div>
@@ -5716,10 +5757,12 @@ async function viewParts(el){
       (L, close) => L.querySelector('#aj-go').onclick = async () => { const q = parseInt(L.querySelector('#aj-q').value); const n = L.querySelector('#aj-n').value.trim();
         if (!q) { L.querySelector('#aj-e').textContent = 'Enter how many to add or take away.'; return; } if (!n) { L.querySelector('#aj-e').textContent = 'Add a note so the correction can be checked.'; return; }
         await Store.adjustPart(S.user, S.store, p.id, q, `${L.querySelector('#aj-r').value}: ${n}`); close(); toast('Count corrected and logged'); viewParts(el); }); });
+  }
+  draw();
 }
 function suggestOrder(store, parts, reqs, pos){
   const onOrder = id => pos.filter(p => p.store === store && p.status !== 'received').reduce((a, p) => a + p.lines.filter(l => l.partId === id).reduce((x, l) => x + l.qty - l.received, 0), 0);
-  const lines = parts.filter(p => p.dq > 0).map(p => ({name: p.name, partId: p.id, qty: Math.max(0, p.dq - (p.qty[store] || 0) - onOrder(p.id)), why: `DQ ${p.dq} · have ${p.qty[store] || 0}${onOrder(p.id) ? ' · on order ' + onOrder(p.id) : ''}`, requestIds: []})).filter(l => l.qty > 0);
+  const lines = parts.filter(p => dqOf(p, store) > 0).map(p => ({name: p.name, partId: p.id, qty: Math.max(0, dqOf(p, store) - (p.qty[store] || 0) - onOrder(p.id)), why: `DQ ${dqOf(p, store)} · have ${p.qty[store] || 0}${onOrder(p.id) ? ' · on order ' + onOrder(p.id) : ''}`, requestIds: []})).filter(l => l.qty > 0);
   reqs.filter(r => r.store === store && r.status === 'needed' && !r.poId).forEach(r => {
     const same = r.partId && lines.find(l => l.partId === r.partId);
     if (same) { same.qty += r.qty; same.requestIds.push(r.id); same.why += ` · +${r.qty} for ${r.forLabel || 'request'}`; }
@@ -6236,7 +6279,7 @@ async function viewRepDash(el){
       : d.repairStatus === 'diag' ? ['Needs diagnosis', daysOld(d.createdAt) >= 2] : [REPAIR_ST.find(x => x[0] === d.repairStatus)?.[1] || 'In repair', false];
     return {d, need}; });
   const toList = devs.filter(d => d.store === st && d.status === 'tolist' && !d.transferId && !d.swappa?.skip && !isLockedCarrier(d.carrier));
-  const low = parts.filter(p => p.dq && (p.qty[st] || 0) < p.dq);
+  const low = parts.filter(p => dqOf(p, st) && (p.qty[st] || 0) < dqOf(p, st));
   const CATS = [
     {k: 'ship', ic: '📦', l: 'Swappa sales to ship', n: ship.length, hot: ship.length, list: ship.map(x => `<li data-act="go:swappa:ship" class="hot"><span class="chip bad">ship</span><span class="grow">${esc(x.label)}${x.status === 'pull' ? ' <span class="muted small">not packed yet</span>' : ''}</span></li>`)},
     {k: 'cust', ic: '📞', l: 'Waiting on customer', n: waitC.length, hot: waitC.filter(t => daysOld(t.updatedAt) >= 5).length, rule: 'red = 5+ days', list: waitC.map(t => tRow(t, daysOld(t.updatedAt), daysOld(t.updatedAt) >= 5, 'call them'))},
@@ -6245,7 +6288,7 @@ async function viewRepDash(el){
     {k: 'pend', ic: '❓', l: 'Pending phones', n: pend.length, hot: pend.filter(d => daysOld(d.createdAt) >= 1).length, rule: 'pick where each goes', list: pend.map(d => dRow(d, daysOld(d.createdAt) >= 1, 'pick Inventory, Repair stock or Wholesale', 'go:inventory'))},
     {k: 'rep', ic: '🔧', l: 'Repair stock', n: repair.length, hot: repair.filter(x => x.need[1]).length, rule: 'red = needs action', list: repair.map(x => dRow(x.d, x.need[1], x.need[0]))},
     {k: 'list', ic: '🏷️', l: 'Ready to list on Swappa', n: toList.length, hot: 0, list: toList.map(d => dRow(d, false, `${daysOld(d.createdAt)}d in store`, 'go:swappa:ready'))},
-    {k: 'low', ic: '📉', l: 'Low parts', n: low.length, hot: 0, list: low.map(p => `<li data-act="go:parts"><span class="chip">${p.qty[st] || 0} / ${p.dq}</span><span class="grow">${esc(p.name)}</span></li>`)}];
+    {k: 'low', ic: '📉', l: 'Low parts', n: low.length, hot: 0, list: low.map(p => `<li data-act="go:parts"><span class="chip">${p.qty[st] || 0} / ${dqOf(p, st)}</span><span class="grow">${esc(p.name)}</span></li>`)}];
   const D = S.rd = S.rd || {open: null};
   const opened = CATS.find(c => c.k === D.open);
   const ring = (v, goal, label, sub, tone) => { const pct = goal ? Math.min(1, Math.max(0, v / goal)) : 0, L = 2 * Math.PI * 52;
