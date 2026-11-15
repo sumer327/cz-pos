@@ -141,6 +141,47 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 @media (max-width:900px){.appbar .me .t{display:none}.appbar .me{padding:3px}.appbar .me > .dim{display:none}}
 @media (max-width:760px){.appbar .r1{flex-wrap:wrap}.appbar .gs{order:9;flex:1 0 100%;max-width:none}.appbar .logo{flex:1}}
 @media (max-width:480px){.appbar .logo{font-size:0}.appbar .logo .pill{font-size:12px}}
+/* dashboards */
+.dash{display:flex;flex-direction:column;gap:16px}
+.dh{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}.dh h2{font-size:24px;letter-spacing:-.01em}
+.dk-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}.dk-row.four{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.dk{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:2px;position:relative;overflow:hidden}
+.dk::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent)}.dk.ok::before{background:var(--ok)}.dk.warn::before{background:var(--warn)}.dk.bad::before{background:var(--bad)}
+.dk-l{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.dk-v{font-size:26px;font-weight:700;line-height:1.15;font-variant-numeric:tabular-nums}.dk-v small{font-size:13px;font-weight:500;color:var(--muted)}
+.dk-s{font-size:12.5px;color:var(--muted)}
+.dg{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:14px;align-items:start}
+@media (max-width:980px){.dg{grid-template-columns:1fr}}
+.ds,.dp{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.ds-h,.dp>header{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}.dp>header{align-items:center}
+.ds-h h3{font-size:18px}.ds-team{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.ds-btn{min-height:34px;padding:4px 12px;font-size:13px;border-radius:999px}
+.ds-nums{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.ds-nums>div{display:flex;flex-direction:column;gap:1px}
+.ds-nums b{font-size:22px;font-variant-numeric:tabular-nums}.ds-nums b small{font-size:12px;color:var(--muted);font-weight:500}
+@media (max-width:560px){.ds-nums{grid-template-columns:1fr 1fr}}
+.ds-pills{display:flex;gap:6px;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;background:var(--soft);color:var(--muted);white-space:nowrap;text-decoration:none}
+.chip.ok{background:var(--ok-soft);color:var(--ok)}.chip.warn{background:var(--warn-soft);color:var(--warn)}.chip.bad{background:var(--bad-soft);color:var(--bad)}.chip.acc{background:var(--accent-soft);color:var(--accent)}
+.dm{height:6px;background:var(--soft);border-radius:999px;overflow:hidden}.dm-f{height:100%;background:var(--accent);border-radius:999px}.dm-f.ok{background:var(--ok)}
+.ds-more{display:grid;grid-template-columns:1fr 1fr;gap:16px;border-top:1px solid var(--line);padding-top:12px}
+@media (max-width:760px){.ds-more{grid-template-columns:1fr}}
+.ds-col{display:flex;flex-direction:column;gap:8px;min-width:0}.ds-col h4{margin:4px 0 0;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+table.mini{width:100%;border-collapse:collapse;font-size:13.5px}table.mini td,table.mini th{padding:4px 0;border-bottom:1px solid var(--line)}table.mini th{font-size:12px;color:var(--muted);font-weight:600;text-align:left}table.mini .r{text-align:right}table.mini tr.tot td{font-weight:700;border-bottom:0}
+.ds-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.ds-list li{padding:7px 2px;border-bottom:1px solid var(--line);font-size:14px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;min-width:0}.ds-list li:last-child{border-bottom:0}
+.ds-list li[data-t]{cursor:pointer}.ds-list li[data-t]:hover{background:var(--soft)}
+.ds-list.act li{font-size:13px}
+.flags{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.flags li{display:flex;gap:10px;align-items:center;padding:9px 12px;border-radius:10px;background:var(--soft);font-size:14px;line-height:1.35}
+.flags li[data-go],.flags li[data-act]{cursor:pointer}.flags li[data-go]:hover,.flags li[data-act]:hover{filter:brightness(.97)}
+.flags li.bad{background:var(--bad-soft)}.flags li.warn{background:var(--warn-soft)}.flags li.acc{background:var(--accent-soft)}.flags li.ok{background:var(--ok-soft)}
+.flags .dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--muted)}.flags .bad .dot{background:var(--bad)}.flags .warn .dot{background:var(--warn)}.flags .acc .dot{background:var(--accent)}.flags .ok .dot{background:var(--ok)}
+.flags .ic{flex:none;width:22px;text-align:center}
+.team{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}.team li{display:flex;align-items:center;gap:10px}
+.team .tn{flex:1;display:flex;flex-direction:column;min-width:0;line-height:1.25}
+.av{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;background:var(--soft);color:var(--muted);flex:none}
+.av.on{background:var(--ok-soft);color:var(--ok);box-shadow:0 0 0 2px var(--ok)}.av.off{background:var(--soft);color:var(--ink)}
+.rem{display:flex;gap:10px;flex-wrap:wrap}.rem span{flex:1;min-width:240px;background:var(--accent-soft);color:var(--accent);border-radius:12px;padding:10px 14px;font-weight:600;font-size:14px}
 .menu{position:absolute;right:0;top:calc(100% + 4px);background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:10px;min-width:200px;padding:6px;z-index:30;display:flex;flex-direction:column}
 .menu button{border:0;text-align:left;min-height:40px}
 .menu button:hover{background:var(--soft)}
@@ -194,7 +235,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794705728";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794765762";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -204,7 +245,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
    - Live mode: window.CZ_CONFIG = {supabaseUrl, supabaseKey} → Supabase (see schema.sql).
    ============================================================ */
 const STORES = {DZ:'Babcock', BV:'Bulverde', PT:'Potranco'};   /* RepairShopr location names */
-const ROLES = {owner:'Owner', manager:'Manager', tech:'Tech', rep:'Sales rep'};
+const ROLES = {owner:'Owner (admin)', manager:'Manager', tech:'Tech', rep:'Sales rep'};
 const RANK = {rep:1, tech:1, manager:2, owner:3};
 const STATUSES = [
   ['testing','Pending (pick where it goes)'],['repair','Needs repair'],['hot','Hot stock (in store)'],
@@ -5950,66 +5991,249 @@ async function viewQuote(el){
 }
 
 /* ---------------- DASHBOARD ---------------- */
+/* ---------------- DASHBOARDS ----------------
+   Owner (Sam, the only owner/admin account): all three stores at a glance, red flags, who's in, drill-down per store.
+   Everyone else: their own day and month, their store's to-do list, the repair lineup. The owner can switch to the store view. */
+const DASH_SWAPPA_NET = 0.87;   /* Swappa sale price after fees, same as the Swappa tab */
+const SHIFT_K = 'czpos-shift-start';
+const shiftStart = st => (ls.get(SHIFT_K, {}) || {})[st] || '10:00';
+const dashRanges = () => { const d0 = new Date(new Date().toDateString()), d1 = new Date(d0); d1.setDate(d1.getDate() + 1);
+  const m0 = new Date(d0.getFullYear(), d0.getMonth(), 1), dim = new Date(d0.getFullYear(), d0.getMonth() + 1, 0).getDate();
+  const dayFrac = (d0.getDate() - 1 + Math.min(1, (Date.now() - d0) / 864e5)) / dim;   /* how far through the month we are */
+  return {d0, d1, m0, dim, dayFrac}; };
+/* sales + profit for a set of invoices and devices: invoice lines (with their cost) + Swappa / other sales that never went through an invoice */
+function dashNums(invs, sold, dv, pr, tk){
+  const lines = rpLines(invs, dv, pr, tk), onInv = new Set(lines.filter(l => l.deviceId).map(l => l.deviceId));
+  const sum = (a, f) => a.reduce((s, x) => s + (+f(x) || 0), 0);
+  const known = lines.filter(l => l.cost !== null && !l.i.rsId);
+  const other = sold.filter(d => !onInv.has(d.id));
+  const otherRev = sum(other, d => d.soldPrice), otherProfit = sum(other, d => (+d.soldPrice || 0) * (d.channel === 'Swappa' ? DASH_SWAPPA_NET : 1) - (+d.cost || 0) - (+d.partsCost || 0));
+  const isAcc = l => /accessory|glass/i.test(l.cat || '') || l.productId;
+  return {
+    sales: sum(invs, i => i.subtotal ?? i.total - (i.tax || 0)) + otherRev,
+    profit: sum(known, l => l.rev - l.cost) + otherProfit,
+    rsOnly: invs.length > 0 && invs.every(i => i.rsId && !i.by),   /* still on RepairShopr: no costs, so no profit */
+    repairs: sum(lines.filter(l => !isAcc(l) && !l.deviceId && !/phone sale|discount|refund/i.test(l.cat || '')), l => l.rev),
+    acc: sum(lines.filter(isAcc), l => l.rev), phones: sum(lines.filter(l => l.deviceId || /phone sale/i.test(l.cat || '')), l => l.rev),
+    swappa: sum(other.filter(d => d.channel === 'Swappa'), d => d.soldPrice), swappaN: other.filter(d => d.channel === 'Swappa').length,
+    n: invs.filter(i => i.total > 0).length };
+}
+const dashTile = (label, value, sub, tone) => `<div class="dk ${tone || ''}"><div class="dk-l">${label}</div><div class="dk-v num">${value}</div>${sub ? `<div class="dk-s">${sub}</div>` : ''}</div>`;
+const dashMeter = (v, of, tone) => `<div class="dm"><div class="dm-f ${tone || ''}" style="width:${of > 0 ? Math.max(2, Math.min(100, v / of * 100)) : 0}%"></div></div>`;
+const greet = () => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; };
+
 async function viewDashboard(el){
-  const t0 = new Date(); t0.setHours(0,0,0,0); const t1 = new Date(t0); t1.setDate(t1.getDate() + 1);
-  const [bbs, devs, punches, audit, parts, tix, invs, custs, counts, trs, leads, ships, bbAll, closes] = await Promise.all([Store.buybacks(t0, t1), Store.devices(), Store.punches(new Date(t0 - 86400000), t1), Store.audit(can(3) ? 25 : 120), Store.parts(), Store.tickets(), Store.invoices(t0, t1), Store.customers(),
-    Store.counts(), Store.transfers(), Store.leads(), Store.ships(), Store.buybacksAll(), Store.registerDays()]);
-  const today = dayKey(new Date()), yest = dayKey(new Date(Date.now() - 86400000));
-  const att = [];
-  const DS = [S.store]; const AS = can(3) ? Object.keys(STORES) : [];   /* cards/lineup: this store only. Needs attention: owner only, all stores */
-  AS.forEach(st => {
-    if (!counts.some(c => c.store === st && c.kind === 'phones' && dayKey(c.at) === today)) att.push(['warn', `${STORES[st]}: phones not counted today`, 'counts']);
-    const lastPh = counts.find(c => c.store === st && c.kind === 'phones'); if (lastPh && (lastPh.missing.length || lastPh.extra.length)) att.push(['bad', `${STORES[st]}: last phone count was off (${lastPh.missing.length} missing, ${lastPh.extra.length} unexpected)`, 'counts']);
-    if (!closes.some(c => c.store === st && c.day === yest && c.closedAt)) att.push(['warn', `${STORES[st]}: yesterday's register (${fmtDate(yest + 'T12:00')}) wasn't closed`, 'register']);
-    { const o = closes.find(c => c.store === st && !c.closedAt && c.day < today); if (o) att.push(['bad', `${STORES[st]}: register from ${fmtDate(o.day + 'T12:00')} is still open`, 'register']); }
+  if (can(3) && S.dashMode !== 'store') return viewOwnerDash(el);
+  return viewRepDash(el);
+}
+
+/* ---------- OWNER ---------- */
+async function viewOwnerDash(el){
+  const R = dashRanges(), today = dayKey(new Date()), yest = dayKey(new Date(Date.now() - 864e5));
+  el.innerHTML = '<p class="muted">Loading the dashboard…</p>';
+  const [invM, bbM, devs, prods, tix, punches, closes, ships, bbAll, audit, parts, porders, trs, leads] = await Promise.all([
+    Store.invoices(R.m0, R.d1), Store.buybacks(R.m0, R.d1).catch(() => []), Store.devices(), Store.products().catch(() => []), Store.tickets(),
+    Store.punches(R.d0, R.d1).catch(() => []), Store.registerDays().catch(() => []), Store.ships().catch(() => []), Store.buybacksAll().catch(() => []),
+    Store.audit(80).catch(() => []), Store.parts().catch(() => []), Store.partOrders().catch(() => []), Store.transfers().catch(() => []), Store.leads().catch(() => [])]);
+  const custs = await Store.customers().catch(() => []); const C = custById(custs);
+  const dv = Object.fromEntries(devs.map(d => [d.id, d])), pr = Object.fromEntries(prods.map(p => [p.id, p])), tk = Object.fromEntries(tix.map(t => [t.id, t]));
+  const isToday = d => d && new Date(d) >= R.d0 && new Date(d) < R.d1;
+  const invs = invM.filter(i => i.paid !== false), soldM = devs.filter(d => d.status === 'sold' && d.soldAt && new Date(d.soldAt) >= R.m0 && new Date(d.soldAt) < R.d1);
+  const SK = Object.keys(STORES);
+  const per = Object.fromEntries(SK.map(st => {
+    const iv = invs.filter(i => i.store === st), so = soldM.filter(d => d.store === st);
+    const day = dashNums(iv.filter(i => isToday(i.at)), so.filter(d => isToday(d.soldAt)), dv, pr, tk), mon = dashNums(iv, so, dv, pr, tk);
+    const bb = bbM.filter(b => b.store === st), bbT = bb.filter(b => isToday(b.at));
+    const open = tix.filter(t => t.store === st && t.status !== 'resolved');
+    return [st, {st, day, mon, bbT: bbT.length, bbT$: bbT.reduce((a, b) => a + (+b.paid || 0), 0), bbM: bb.length, bbM$: bb.reduce((a, b) => a + (+b.paid || 0), 0),
+      open, lineup: open.filter(t => ['new', 'progress', 'board', 'reply'].includes(t.status)).sort((a, b) => (a.status === 'board') - (b.status === 'board') || new Date(a.createdAt) - new Date(b.createdAt)),
+      parts: open.filter(t => t.status === 'parts'), waitCust: open.filter(t => t.status === 'customer'),
+      pending: devs.filter(d => d.store === st && d.status === 'testing'), repairStock: devs.filter(d => d.store === st && d.status === 'repair'),
+      toShip: ships.filter(x => x.store === st && x.status !== 'shipped'), on: punches.filter(p => p.store === st && !p.t_out)}];
+  }));
+  const T = k => SK.reduce((a, st) => a + (+k(per[st]) || 0), 0);
+  const proj = v => R.dayFrac > 0.03 ? money(v / R.dayFrac) : '—';
+
+  /* team: first clock-in today per person, late vs the store's start time */
+  const firstIn = {}; punches.forEach(p => { if (!firstIn[p.emp] || new Date(p.t_in) < new Date(firstIn[p.emp].t_in)) firstIn[p.emp] = p; });
+  const lateBy = p => { const [h, m] = shiftStart(p.store).split(':').map(Number); const s = new Date(p.t_in); s.setHours(h, m + 5, 0, 0); return Math.round((new Date(p.t_in) - s) / 60000) + 5; };
+  const team = S.staff.filter(e => e.active !== false && e.role !== 'owner').map(e => { const p = firstIn[e.id], cur = punches.find(x => x.emp === e.id && !x.t_out);
+    return {e, p, cur, late: p ? lateBy(p) : 0}; }).sort((a, b) => !!b.cur - !!a.cur || (a.e.name > b.e.name ? 1 : -1));
+
+  /* red flags (all stores) */
+  const F = []; const flag = (lvl, store, text, go_, extra) => F.push({lvl, store, text, go: go_, extra});
+  SK.forEach(st => {
+    const o = closes.find(c => c.store === st && !c.closedAt && c.day < today); if (o) flag('bad', st, `Register from ${fmtDate(o.day + 'T12:00')} is still open`, 'register');
+    const y = closes.find(c => c.store === st && c.day === yest && c.closedAt);
+    if (y && Math.abs((+y.fundCounted || 0) - (+y.fundExpected || 0)) >= 1) flag('bad', st, `Buyback fund was ${(+y.fundCounted - +y.fundExpected) < 0 ? 'short' : 'over'} ${cents(Math.abs(y.fundCounted - y.fundExpected))} at yesterday's close`, 'register');
+    if (y && y.drawerExpected != null && Math.abs((+y.drawerCounted || 0) - (+y.drawerExpected || 0)) >= 1) flag('bad', st, `Cash drawer ${(+y.drawerCounted - +y.drawerExpected) < 0 ? 'short' : 'over'} ${cents(Math.abs(y.drawerCounted - y.drawerExpected))} at yesterday's close`, 'register');
+    const P = per[st];
+    P.toShip.forEach(x => flag(daysOld(x.at || x.createdAt || new Date()) >= 1 ? 'bad' : 'warn', st, `Swappa sale to ship: ${x.label}${x.status === 'pull' ? ' (not packed)' : ''}`, 'swappa'));
+    const pend = P.pending.filter(d => daysOld(d.createdAt) >= 1); if (pend.length) flag('warn', st, `${pend.length} bought phone${pend.length === 1 ? '' : 's'} still Pending (no destination picked)`, 'inventory');
+    const pl = P.parts.filter(t => daysOld(t.createdAt) >= 5); if (pl.length) flag('bad', st, `${pl.length} ticket${pl.length === 1 ? '' : 's'} waiting on parts 5+ days`, 'tickets');
+    const wc = P.waitCust.filter(t => daysOld(t.updatedAt) >= 3); if (wc.length) flag('warn', st, `${wc.length} customer${wc.length === 1 ? '' : 's'} not picked up / not answered in 3+ days`, 'tickets');
+    const stale = P.open.filter(t => ['new', 'progress'].includes(t.status) && daysOld(t.updatedAt) >= 3); if (stale.length) flag('warn', st, `${stale.length} ticket${stale.length === 1 ? '' : 's'} untouched 3+ days`, 'tickets');
   });
-  bbAll.filter(b => b.payoutStatus === 'requested' && AS.includes(b.store)).forEach(b => att.push(['bad', `Payout waiting: ${b.bbId} ${cents(b.paid)} by ${b.payout}`, 'closeout']));
-  trs.filter(t => t.status === 'transit' && (AS.includes(t.from) || AS.includes(t.to))).forEach(t => att.push(['warn', `Transfer T${t.number} ${t.from} → ${t.to} in transit ${daysOld(t.at)}d`, 'transfers']));
-  ships.filter(x => x.status !== 'shipped' && AS.includes(x.store)).forEach(x => att.push([x.status === 'pull' ? 'bad' : 'warn', `${x.store}: ${x.label} sold, ${x.status === 'pull' ? 'not packed yet' : 'not shipped yet'}`, 'swappa']));
-  const nl = AS.length ? leads.filter(l => l.status === 'new').length : 0; if (nl) att.push(['acc', `${nl} new website ${nl === 1 ? 'lead' : 'leads'}`, 'inbox']);
+  bbAll.filter(b => b.payoutStatus === 'requested').forEach(b => flag('bad', b.store, `Payout to send: ${b.bbId} ${cents(b.paid)} by ${b.payout}`, 'closeout'));
+  trs.filter(t => t.status === 'transit' && daysOld(t.at) >= 2).forEach(t => flag('warn', t.from, `Transfer T${t.number} ${t.from} → ${t.to} in transit ${daysOld(t.at)} days`, 'transfers'));
+  invs.filter(i => isToday(i.at)).forEach(i => (i.lines || []).forEach(l => { if (l.deviceId && dv[l.deviceId]) { const d = dv[l.deviceId], c = (+d.cost || 0) + (+d.partsCost || 0); if ((+l.price || 0) < c) flag('bad', i.store, `#${d.stockNo} ${d.model} sold for ${cents(l.price)}, below its ${cents(c)} cost (invoice #${i.number})`, 'invoices'); } }));
+  { const by = {}; devs.filter(d => d.imei && !['sold', 'atlas'].includes(d.status)).forEach(d => (by[d.imei] = by[d.imei] || []).push(d));
+    Object.values(by).filter(a => a.length > 1).forEach(a => flag('bad', a[0].store, `Same IMEI on ${a.map(d => '#' + d.stockNo).join(' and ')} (${a[0].model})`, 'inventory')); }
+  audit.filter(a => isToday(a.at) && /invoice deleted|refund/i.test(a.action || '')).forEach(a => flag('bad', a.store, `${a.action}: ${a.detail || ''} · ${staffName(a.who)}`, 'invoices'));
+  { const ov = bbM.filter(b => isToday(b.at) && b.override); if (ov.length) ov.forEach(b => flag('warn', b.store, `Buyback over the max: ${cents(b.paid)} (max ${cents(b.max)}) · approved by ${staffName(b.override)}`, 'bblog')); }
+  { const nl = leads.filter(l => l.status === 'new').length; if (nl) flag('acc', null, `${nl} new website lead${nl === 1 ? '' : 's'}`, 'inbox'); }
+  const lvl = {bad: 0, warn: 1, acc: 2}; F.sort((a, b) => lvl[a.lvl] - lvl[b.lvl]);
+
+  const S0 = S.od = S.od || {open: {}, act: false};
+  const tot = {dS: T(p => p.day.sales), dP: T(p => p.day.profit), mS: T(p => p.mon.sales), mP: T(p => p.mon.profit), bbT: T(p => p.bbT), bbT$: T(p => p.bbT$), bbM: T(p => p.bbM), bbM$: T(p => p.bbM$)};
+  const rsNote = SK.filter(st => per[st].mon.rsOnly).map(st => STORES[st]);
+  const maxMP = Math.max(1, ...SK.map(st => per[st].mon.profit));
+  const mix = n => [['Repairs', n.repairs], ['Accessories', n.acc], ['Phones in store', n.phones], [`Swappa${n.swappaN ? ' (' + n.swappaN + ')' : ''}`, n.swappa]];
+
+  const storeCard = st => { const P = per[st], o = !!S0.open[st], rs = P.mon.rsOnly;
+    return `<section class="ds ${o ? 'open' : ''}">
+      <header class="ds-h"><div><h3>${STORES[st]}</h3><div class="ds-team">${P.on.length ? P.on.map(p => `<span class="chip ok" title="In since ${fmtTime(p.t_in)}">● ${esc(staffName(p.emp).split(' ')[0])}</span>`).join('') : '<span class="chip bad">Nobody clocked in</span>'}</div></div>
+        <button class="ds-btn" data-dsx="${st}" aria-expanded="${o}">${o ? 'Hide details ▴' : 'Details ▾'}</button></header>
+      <div class="ds-nums">
+        <div><span class="dk-l">Today</span><b class="num">${money(P.day.sales)}</b><span class="dk-s">${rs ? 'profit: RepairShopr' : 'profit ' + money(P.day.profit)}</span></div>
+        <div><span class="dk-l">This month</span><b class="num">${money(P.mon.sales)}</b><span class="dk-s">${rs ? 'profit: RepairShopr' : 'profit ' + money(P.mon.profit)}</span></div>
+        <div><span class="dk-l">Buybacks</span><b class="num">${P.bbT} <small>today</small></b><span class="dk-s">${money(P.bbT$)} · ${P.bbM} this month (${money(P.bbM$)})</span></div>
+      </div>
+      ${rs ? '' : dashMeter(P.mon.profit, maxMP, 'ok')}
+      <div class="ds-pills">
+        <span class="chip">${P.open.length} open ticket${P.open.length === 1 ? '' : 's'}</span><span class="chip ${P.parts.some(t => daysOld(t.createdAt) >= 5) ? 'bad' : ''}">${P.parts.length} waiting on parts</span>
+        <span class="chip">${P.waitCust.length} waiting on customer</span><span class="chip">${P.repairStock.length} in repair stock</span>
+        ${P.pending.length ? `<span class="chip warn">${P.pending.length} pending phone${P.pending.length === 1 ? '' : 's'}</span>` : ''}${P.toShip.length ? `<span class="chip bad">${P.toShip.length} to ship</span>` : ''}
+      </div>
+      ${o ? `<div class="ds-more">
+        <div class="ds-col"><h4>Sales mix</h4><table class="mini"><tr><th></th><th class="r">Today</th><th class="r">Month</th></tr>
+          ${mix(P.day).map(([l], i) => `<tr><td>${l.replace(/ \(\d+\)$/, '')}</td><td class="r num">${money(mix(P.day)[i][1])}</td><td class="r num">${money(mix(P.mon)[i][1])}</td></tr>`).join('')}
+          <tr class="tot"><td>Total</td><td class="r num">${money(P.day.sales)}</td><td class="r num">${money(P.mon.sales)}</td></tr></table>
+          ${rs ? '<p class="small muted" style="margin:6px 0 0">Still on RepairShopr: sales come in as totals only, so the mix and profit fill in once this store is on the POS.</p>' : ''}
+          <h4>Pending</h4><ul class="ds-list">
+          ${P.parts.slice(0, 6).map(t => `<li data-t="${t.id}"><span class="chip ${daysOld(t.createdAt) >= 5 ? 'bad' : ''}">parts ${daysOld(t.createdAt)}d</span> #${t.number} ${esc(C[t.customerId]?.name || '')} · ${esc(t.subject || '')}</li>`).join('')}
+          ${P.waitCust.slice(0, 6).map(t => `<li data-t="${t.id}"><span class="chip warn">customer ${daysOld(t.updatedAt)}d</span> #${t.number} ${esc(C[t.customerId]?.name || '')} · ${esc(t.subject || '')}</li>`).join('')}
+          ${P.pending.map(d => `<li><span class="chip warn">pending</span> #${d.stockNo} ${esc(d.model)} ${esc(d.storage || '')}</li>`).join('')}
+          ${P.toShip.map(x => `<li><span class="chip bad">ship</span> ${esc(x.label)}</li>`).join('')}
+          ${!P.parts.length && !P.waitCust.length && !P.pending.length && !P.toShip.length ? '<li class="muted">Nothing pending.</li>' : ''}</ul></div>
+        <div class="ds-col"><h4>Repair lineup (${P.lineup.length})</h4><ul class="ds-list">${P.lineup.slice(0, 10).map(t => `<li data-t="${t.id}">${stPill(t.status)} #${t.number} ${esc(C[t.customerId]?.name || '')} · ${esc(t.subject || '')} <span class="muted small">${daysOld(t.createdAt)}d${t.techId ? ' · ' + esc(staffName(t.techId).split(' ')[0]) : ''}</span></li>`).join('') || '<li class="muted">Nothing in the lineup.</li>'}</ul>
+          <h4>Latest at ${STORES[st]}</h4><ul class="ds-list act">${audit.filter(a => a.store === st).slice(0, 8).map(a => `<li><span class="muted small num">${fmtTime(a.at)}</span> <b>${esc(staffName(a.who).split(' ')[0])}</b> ${esc(a.action)}<span class="muted"> ${esc(a.detail || '')}</span></li>`).join('') || '<li class="muted">No activity yet.</li>'}</ul></div>
+      </div>` : ''}</section>`; };
+
+  el.innerHTML = `<div class="dash">
+    <div class="dh"><div><h2>${greet()}, ${esc(S.user.name.split(' ')[0])}</h2><div class="muted">${new Date().toLocaleDateString('en-US', {weekday: 'long', month: 'long', day: 'numeric'})} · all stores</div></div>
+      <div class="row" style="gap:8px"><button id="od-store" class="small">Store view</button><button id="od-ref" class="small" title="Refresh">⟳ Refresh</button></div></div>
+    <div class="dk-row">
+      ${dashTile('Sales today', money(tot.dS), `${T(p => p.day.n)} sale${T(p => p.day.n) === 1 ? '' : 's'}`)}
+      ${dashTile('Profit today', money(tot.dP), tot.dS ? Math.round(tot.dP / tot.dS * 100) + '% margin' : '', 'ok')}
+      ${dashTile('Sales this month', money(tot.mS), `on pace for ${proj(tot.mS)}`)}
+      ${dashTile('Profit this month', money(tot.mP), `on pace for ${proj(tot.mP)}`, 'ok')}
+      ${dashTile('Buybacks today', `${tot.bbT}`, `${money(tot.bbT$)} paid out`)}
+      ${dashTile('Buybacks this month', `${tot.bbM}`, `${money(tot.bbM$)} paid out`)}
+    </div>
+    ${rsNote.length ? `<div class="small muted">Profit counts sales rung up in this POS. ${rsNote.join(' and ')} ${rsNote.length > 1 ? 'are' : 'is'} still on RepairShopr, so ${rsNote.length > 1 ? 'their' : 'its'} sales show but profit doesn't yet.</div>` : ''}
+    <div class="dg">
+      <div class="stack" style="gap:14px">${SK.map(storeCard).join('')}</div>
+      <div class="stack" style="gap:14px">
+        <section class="dp"><header><h3>Red flags</h3><span class="chip ${F.some(f => f.lvl === 'bad') ? 'bad' : F.length ? 'warn' : 'ok'}">${F.length || 'All clear'}</span></header>
+          <ul class="flags">${F.slice(0, 14).map(f => `<li class="${f.lvl}" data-go="${f.go}"><span class="dot"></span><span>${f.store ? `<b>${STORES[f.store]}</b> · ` : ''}${esc(f.text)}</span></li>`).join('') || '<li class="ok"><span class="dot"></span>Nothing needs you right now.</li>'}
+          ${F.length > 14 ? `<li class="muted small">+${F.length - 14} more</li>` : ''}</ul></section>
+        <section class="dp"><header><h3>Team today</h3><button id="od-shift" class="small" title="When each store's shift starts, for the late check">Start times</button></header>
+          <ul class="team">${team.map(({e, p, cur, late}) => `<li><span class="av ${cur ? 'on' : p ? 'off' : ''}">${esc(initials(e.name))}</span>
+            <span class="tn"><b>${esc(e.name)}</b><span class="small muted">${cur ? `${STORES[cur.store]} · in since ${fmtTime(p.t_in)}` : p ? `clocked out · was in ${fmtTime(p.t_in)}` : 'not clocked in today'}</span></span>
+            ${p && late > 0 ? `<span class="chip bad">${late} min late</span>` : p ? '<span class="chip ok">on time</span>' : ''}</li>`).join('')}</ul></section>
+        <section class="dp"><header><h3>Recent activity</h3><button id="od-act" class="small">${S0.act ? 'Show less ▴' : 'Show more ▾'}</button></header>
+          <ul class="ds-list act">${audit.slice(0, S0.act ? 40 : 6).map(a => `<li><span class="muted small num">${fmtTime(a.at)}</span> ${a.store ? `<span class="chip">${a.store}</span> ` : ''}<b>${esc(staffName(a.who).split(' ')[0])}</b> ${esc(a.action)}<span class="muted"> ${esc(a.detail || '')}</span></li>`).join('')}</ul></section>
+      </div>
+    </div></div>`;
+  el.querySelectorAll('[data-dsx]').forEach(b => b.onclick = () => { S0.open[b.dataset.dsx] = !S0.open[b.dataset.dsx]; viewOwnerDash(el); });
+  el.querySelectorAll('[data-t]').forEach(x => x.onclick = e => go('ticket', {ticketId: x.dataset.t}));
+  el.querySelectorAll('.flags [data-go]').forEach(x => x.onclick = () => { if (x.dataset.go === 'swappa') S.sw.tab = 'ship'; go(x.dataset.go); });
+  $('#od-act').onclick = () => { S0.act = !S0.act; viewOwnerDash(el); };
+  $('#od-ref').onclick = () => viewOwnerDash(el);
+  $('#od-store').onclick = () => { S.dashMode = 'store'; viewDashboard(el); };
+  $('#od-shift').onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Shift start times</h3><button data-close>Close</button></div>
+    <p class="small muted" style="margin:0">Anyone clocking in more than 5 minutes after their store's start time shows as late.</p>
+    ${SK.map(st => `<div class="field"><label class="label" for="ss-${st}">${STORES[st]}</label><input type="time" id="ss-${st}" value="${shiftStart(st)}"></div>`).join('')}
+    <button class="primary" id="ss-go">Save</button>`, (L, close) => L.querySelector('#ss-go').onclick = () => {
+      ls.set(SHIFT_K, Object.fromEntries(SK.map(st => [st, L.querySelector('#ss-' + st).value || '10:00']))); close(); toast('Start times saved'); viewOwnerDash(el); });
+}
+
+/* ---------- STORE / SALES REP ---------- */
+const REMINDERS = [['⭐', 'Ask every repair customer for a Google review before they leave.'], ['🛡️', 'Offer tempered glass and a case with every screen repair and phone sale.'],
+  ['📞', 'Call anyone whose repair has been ready for 2+ days.'], ['🏷️', 'Label every buyback before it leaves the counter.'], ['🔌', 'Charger and cable with every phone sale.']];
+async function viewRepDash(el){
+  const R = dashRanges(), me = S.user.id, st = S.store;
+  el.innerHTML = '<p class="muted">Loading…</p>';
+  const [invM, bbM, devs, prods, tix, ships, porders, parts, custs] = await Promise.all([Store.invoices(R.m0, R.d1), Store.buybacks(R.m0, R.d1).catch(() => []), Store.devices(),
+    Store.products().catch(() => []), Store.tickets(), Store.ships().catch(() => []), Store.partOrders().catch(() => []), Store.parts().catch(() => []), Store.customers().catch(() => [])]);
   const C = custById(custs);
-  const per = DS.map(s => {
-    const b = bbs.filter(x => x.store === s), d = devs.filter(x => x.store === s && x.status !== 'sold'), inv = invs.filter(i => i.store === s);
-    const open = tix.filter(t => t.store === s && t.status !== 'resolved');
-    const sales = inv.reduce((a, i) => a + i.total - (i.tax || 0), 0), gm = inv.reduce((a, i) => a + i.total - (i.tax || 0) - (i.partsCost || 0), 0);
-    return {s, sales, gm, nInv: inv.length, open: open.length, parts: open.filter(t => t.status === 'parts').length,
-      partsLate: open.filter(t => t.status === 'parts' && daysOld(t.createdAt) >= 5).length, ready: open.filter(t => t.status === 'customer').length,
-      bb: b.length, spend: b.reduce((a, x) => a + x.paid, 0), inv: d.length, invCost: d.reduce((a, x) => a + (+x.cost || 0), 0),
-      on: punches.filter(p => p.store === s && !p.t_out).map(p => staffName(p.emp)), low: parts.filter(p => (p.qty[s] || 0) < p.dq).length};
-  });
-  const lineup = tix.filter(t => DS.includes(t.store) && ['new','progress','board'].includes(t.status)).sort((a, b) => (a.status === 'board') - (b.status === 'board') || new Date(a.createdAt) - new Date(b.createdAt));
-  const late = tix.filter(t => DS.includes(t.store) && t.status === 'parts' && daysOld(t.createdAt) >= 5);
-  const bar = v => `<div style="height:8px;background:var(--soft);border-radius:4px;overflow:hidden"><div style="height:100%;width:${Math.min(100, v / DAILY_GOAL * 100)}%;background:${v >= DAILY_GOAL ? 'var(--ok)' : 'var(--accent)'}"></div></div>`;
+  const dv = Object.fromEntries(devs.map(d => [d.id, d])), pr = Object.fromEntries(prods.map(p => [p.id, p])), tk = Object.fromEntries(tix.map(t => [t.id, t]));
+  const isToday = d => d && new Date(d) >= R.d0;
+  const mine = invM.filter(i => i.paid !== false && i.by === me);
+  const day = dashNums(mine.filter(i => isToday(i.at)), [], dv, pr, tk), mon = dashNums(mine, [], dv, pr, tk);
+  const myBB = bbM.filter(b => b.by === me), myBBt = myBB.filter(b => isToday(b.at));
+  const open = tix.filter(t => t.store === st && t.status !== 'resolved');
+  const parts_ = open.filter(t => t.status === 'parts'), waitC = open.filter(t => t.status === 'customer');
+  const repair = devs.filter(d => d.store === st && d.status === 'repair');
+  const toShip = ships.filter(x => x.store === st && x.status !== 'shipped');
+  const toList = devs.filter(d => d.store === st && d.status === 'tolist' && !d.transferId && !d.swappa?.skip && !isLockedCarrier(d.carrier));
+  const pending = devs.filter(d => d.store === st && d.status === 'testing');
+  const lineup = open.filter(t => ['new', 'progress', 'board', 'reply'].includes(t.status)).sort((a, b) => (a.status === 'board') - (b.status === 'board') || new Date(a.createdAt) - new Date(b.createdAt));
+  const low = parts.filter(p => p.dq && (p.qty[st] || 0) < p.dq);
+  /* to-do, most urgent first */
+  const todo = [];
+  toShip.forEach(x => todo.push(['bad', '📦', `Ship the Swappa sale: ${x.label}`, `go:swappa`]));
+  pending.forEach(d => todo.push(['warn', '❓', `Pick where #${d.stockNo} ${d.model} goes (Pending)`, `go:inventory`]));
+  waitC.sort((a, b) => new Date(a.updatedAt) - new Date(b.updatedAt)).forEach(t => { const c = C[t.customerId] || {}, d = daysOld(t.updatedAt);
+    todo.push([d >= 3 ? 'bad' : 'warn', '📞', `Call ${c.name || 'the customer'}: #${t.number} ${t.subject || ''} waiting ${d} day${d === 1 ? '' : 's'}`, `t:${t.id}`, c.phone]); });
+  parts_.filter(t => daysOld(t.createdAt) >= 5).forEach(t => todo.push(['bad', '⏳', `#${t.number} waiting on parts ${daysOld(t.createdAt)} days: check the order`, `t:${t.id}`]));
+  repair.forEach(d => { const po = porders.filter(o => o.forId === d.id && o.status !== 'received');
+    if (d.repairStatus === 'parts' && !po.length) todo.push(['warn', '🛒', `Order parts for #${d.stockNo} ${d.model} (${(d.needs || []).join(', ') || 'repair stock'})`, `r:${d.id}`]);
+    else if (d.repairStatus === 'ordered' && daysOld(d.updatedAt) >= 5) todo.push(['warn', '⏳', `Parts for #${d.stockNo} ${d.model} ordered ${daysOld(d.updatedAt)} days ago`, `r:${d.id}`]);
+    else if (d.repairStatus === 'ready') todo.push(['acc', '🔧', `Parts are in: repair #${d.stockNo} ${d.model}`, `r:${d.id}`]);
+    else if (d.repairStatus === 'diag' && daysOld(d.createdAt) >= 2) todo.push(['warn', '🔍', `Diagnose #${d.stockNo} ${d.model} (in repair stock ${daysOld(d.createdAt)} days)`, `r:${d.id}`]); });
+  if (toList.length) todo.push(['acc', '🏷️', `${toList.length} phone${toList.length === 1 ? '' : 's'} ready to list on Swappa`, 'go:swappa']);
+  if (low.length) todo.push(['acc', '📉', `${low.length} part${low.length === 1 ? '' : 's'} below the stock level: ${low.slice(0, 3).map(p => p.name).join(', ')}${low.length > 3 ? '…' : ''}`, 'go:parts']);
+  const rem = REMINDERS[new Date().getDate() % REMINDERS.length], rem2 = REMINDERS[(new Date().getDate() + 1) % REMINDERS.length];
+
+  /* quick actions + announcements (as before) */
   const anns = (await Store.announcements().catch(() => [])).filter(a => !a.stores?.length || a.stores.includes(S.store) || can(3)).sort((a, b) => (b.pinned - a.pinned) || new Date(b.at) - new Date(a.at));
   const annHTML = `<div class="panel stack" id="ann-box"><div class="row" style="justify-content:space-between"><h3>📣 Announcements</h3>${can(2) ? '<button class="primary" id="ann-new" style="min-height:36px">+ New announcement</button>' : ''}</div>
     <div class="stack" style="gap:8px;max-height:300px;overflow:auto">${anns.map(a => `<div class="ann ${a.pinned ? 'pin' : ''}"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:nowrap;align-items:flex-start"><span class="small muted">${a.pinned ? '📌 ' : ''}${esc(staffName(a.by))} · ${ago(a.at)}${a.stores?.length ? ' · ' + a.stores.map(x => STORES[x] || x).join(', ') + ' only' : ''}${a.expiresAt ? ' · until ' + fmtDate(a.expiresAt) : ''}</span>${can(2) ? `<button data-annx="${a.id}" aria-label="Remove announcement" style="min-height:26px;padding:0 8px;font-size:12px">✕</button>` : ''}</div><div style="margin-top:4px">${esc(a.text)}</div></div>`).join('') || '<p class="small muted" style="margin:0">No announcements right now.</p>'}</div></div>`;
   const QA = [['customer', 'New customer', 'Add someone to the system'], ['ticket', 'New ticket', 'Check in a repair'], ['buyback', 'New buyback', 'Test, pay and label a device'],
     ['appraisal', 'New appraisal', 'Price a device for a seller'], ['quote', 'New quote', 'Repair price + phone script']];
-  el.innerHTML = `<div class="stack">
-    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">${QA.map(([k, l, d]) => `<button class="qa" data-qa="${k}" style="min-height:76px;text-align:left;align-items:flex-start;flex-direction:column;justify-content:center;gap:2px;border-radius:12px"><b style="font-size:16px;display:block">+ ${l}</b><span class="small muted" style="display:block;font-weight:400">${d}</span></button>`).join('')}</div>
+  el.innerHTML = `<div class="dash">
+    <div class="dh"><div><h2>${greet()}, ${esc(S.user.name.split(' ')[0])}</h2><div class="muted">${STORES[st]} · ${new Date().toLocaleDateString('en-US', {weekday: 'long', month: 'long', day: 'numeric'})}</div></div>
+      ${can(3) ? '<button id="od-owner" class="small">← All stores</button>' : ''}</div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">${QA.map(([k, l, d]) => `<button class="qa" data-qa="${k}" style="min-height:72px;text-align:left;align-items:flex-start;flex-direction:column;justify-content:center;gap:2px"><b>${l}</b><span class="small muted">${d}</span></button>`).join('')}</div>
+    <div class="rem"><span>${rem[0]} ${esc(rem[1])}</span><span>${rem2[0]} ${esc(rem2[1])}</span></div>
+    <div class="dk-row">
+      ${dashTile('My sales today', money(day.sales), `${day.n} sale${day.n === 1 ? '' : 's'}`)}
+      ${dashTile('My accessories today', money(day.acc), 'glass, cases, chargers', day.acc ? 'ok' : '')}
+      ${dashTile('My sales this month', money(mon.sales), `profit ${money(mon.profit)}`)}
+      ${dashTile('My accessories this month', money(mon.acc), mon.sales ? Math.round(mon.acc / mon.sales * 100) + '% of my sales' : '', 'ok')}
+      ${dashTile('My buybacks', `${myBBt.length} <small>today</small>`, `${myBB.length} this month`)}
+      ${dashTile('Reviews this month', '—', 'tracking coming soon')}
+    </div>
+    <div class="dk-row four">
+      ${dashTile('Open tickets', open.length, STORES[st])}
+      ${dashTile('Waiting on parts', parts_.length, `${parts_.filter(t => daysOld(t.createdAt) >= 5).length} over 5 days`, parts_.some(t => daysOld(t.createdAt) >= 5) ? 'bad' : '')}
+      ${dashTile('Waiting on customer', waitC.length, `${waitC.filter(t => daysOld(t.updatedAt) >= 3).length} over 3 days`, waitC.some(t => daysOld(t.updatedAt) >= 3) ? 'warn' : '')}
+      ${dashTile('Repair stock', repair.length, `${repair.filter(d => d.repairStatus === 'ready').length} ready to repair`)}
+    </div>
+    <div class="dg">
+      <section class="dp"><header><h3>To do</h3><span class="chip ${todo.some(x => x[0] === 'bad') ? 'bad' : todo.length ? 'warn' : 'ok'}">${todo.length || 'All clear'}</span></header>
+        <ul class="flags">${todo.map(([lvl, ic, text, act, phone]) => `<li class="${lvl}" data-act="${act}"><span class="ic">${ic}</span><span style="flex:1">${esc(text)}</span>${phone ? `<a class="chip acc" href="tel:${esc(phone)}" onclick="event.stopPropagation()">${fmtPhone(phone)}</a>` : ''}</li>`).join('') || '<li class="ok"><span class="ic">✅</span>Nothing waiting on you.</li>'}</ul></section>
+      <section class="dp"><header><h3>Repair lineup</h3><span class="chip">${lineup.length}</span></header>
+        <ul class="ds-list">${lineup.slice(0, 14).map(t => `<li data-t="${t.id}">${stPill(t.status)} #${t.number} ${esc(C[t.customerId]?.name || '')} · ${esc(t.subject || '')} <span class="muted small">${daysOld(t.createdAt)}d${t.techId ? ' · ' + esc(staffName(t.techId).split(' ')[0]) : ''}</span></li>`).join('') || '<li class="muted">Nothing waiting.</li>'}</ul></section>
+    </div>
     ${annHTML}
-    ${can(3) && att.length ? `<div class="panel stack"><h3>Needs attention</h3><div class="stack" style="gap:6px">${att.map(([k, t, tab]) => `<button data-att="${tab}" style="text-align:left;justify-content:flex-start;min-height:40px"><span class="pill ${k}" style="margin-right:8px">!</span>${esc(t)}</button>`).join('')}</div></div>` : ''}
-    <div class="grid ${per.length > 1 ? 'g3' : ''}">${per.map(p => `<div class="panel stack">
-      <div class="row" style="justify-content:space-between"><h3>${STORES[p.s]}</h3><span class="pill ${p.on.length ? 'ok' : 'bad'}">${p.on.length ? esc(p.on.join(', ')) : 'nobody on'}</span></div>
-      <div class="stack" style="gap:6px"><div class="row" style="justify-content:space-between"><span class="label">Gross margin today</span><span class="num">${money(p.gm)} / ${money(DAILY_GOAL)}</span></div>${bar(p.gm)}<span class="small muted">${money(p.sales)} sales · ${p.nInv} ${p.nInv === 1 ? 'invoice' : 'invoices'}</span></div>
-      <div class="grid" style="grid-template-columns:1fr 1fr">
-        <div class="stat"><span class="label">Open tickets</span><span class="v">${p.open}</span><span class="small muted">${p.ready} waiting on customer</span></div>
-        <div class="stat"><span class="label">Waiting on parts</span><span class="v" style="color:${p.partsLate ? 'var(--bad)' : 'inherit'}">${p.parts}</span><span class="small muted">${p.partsLate} over 5 days</span></div>
-        <div class="stat"><span class="label">Buybacks today</span><span class="v">${p.bb}</span><span class="small muted">${money(p.spend)} spent</span></div>
-        <div class="stat"><span class="label">Devices on hand</span><span class="v">${p.inv}</span><span class="small muted">${money(p.invCost)} at cost · ${p.low} ${p.low === 1 ? 'part' : 'parts'} low</span></div>
-      </div></div>`).join('')}</div>
-    <div class="grid g2" style="align-items:start">
-      <div class="panel stack"><h3>Repair lineup</h3><p class="muted small" style="margin:0">Everything a tech can work on now, oldest first. Board level last.</p>
-        <div class="tbl"><table><thead><tr><th>#</th><th>Customer</th><th>Repair</th><th>Status</th></tr></thead><tbody>
-        ${lineup.map(t => `<tr class="click" data-t="${t.id}"><td class="num">${t.number}</td><td>${esc(C[t.customerId]?.name || '')}</td><td>${esc(t.subject)}</td><td>${stPill(t.status)}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">Nothing waiting. Nice.</td></tr>'}
-        </tbody></table></div>
-        ${late.length ? `<div class="banner bad small"><b>Parts late:</b> ${late.map(t => `#${t.number} ${esc(C[t.customerId]?.name || '')} (${daysOld(t.createdAt)}d)`).join(', ')}. Someone needs to check the Sentrix order.</div>` : ''}
-      </div>
-      <div class="panel stack"><h3>Recent activity</h3>
-        <div class="tbl"><table><tbody>${audit.filter(a => !a.store || DS.includes(a.store)).slice(0, 25).map(a => `<tr><td class="num small muted" style="white-space:nowrap">${fmtDate(a.at)} ${fmtTime(a.at)}</td><td class="small"><b>${esc(staffName(a.who))}</b> · ${esc(a.action)}<div class="muted">${esc(a.detail)}</div></td></tr>`).join('')}</tbody></table></div></div>
-    </div></div>`;
-  el.querySelectorAll('tr[data-t]').forEach(tr => tr.onclick = () => go('ticket', {ticketId: tr.dataset.t}));
-  el.querySelectorAll('[data-att]').forEach(b => b.onclick = () => (b.dataset.att === 'swappa' && (S.sw.tab = 'ship'), go(b.dataset.att)));
+  </div>`;
+  el.querySelectorAll('[data-t]').forEach(x => x.onclick = () => go('ticket', {ticketId: x.dataset.t}));
+  el.querySelectorAll('[data-act]').forEach(x => x.onclick = () => { const [k, v] = x.dataset.act.split(':');
+    if (k === 't') go('ticket', {ticketId: v}); else if (k === 'r') go('repair', {deviceId: v}); else { if (v === 'swappa') S.sw.tab = /Ship/.test(x.textContent) ? 'ship' : 'ready'; go(v); } });
+  $('#od-owner') && ($('#od-owner').onclick = () => { S.dashMode = 'owner'; viewDashboard(el); });
   el.querySelectorAll('[data-annx]').forEach(b => b.onclick = async () => { try { await Store.removeAnnouncement(S.user, b.dataset.annx); toast('Announcement removed'); viewDashboard(el); } catch (e) { toast(e.message); } });
   $('#ann-new') && ($('#ann-new').onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>New announcement</h3><button data-close>Close</button></div>
       <div class="field"><label class="label" for="an-t">Message</label><textarea id="an-t" rows="4" placeholder="Starting Monday, every buyback needs the IMEI checked on SickW before paying."></textarea></div>
