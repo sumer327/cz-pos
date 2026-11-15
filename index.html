@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794780251";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794784992";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -1135,6 +1135,10 @@ const DemoStore = {
     this.notify(d, dv.store, `SOLD on Swappa: #${dv.stockNo} ${dv.model} ${dv.storage}. Pull it now, power it off, and pack it for shipping.`, {tab: 'swappa', sub: 'ship'});
     this.log(d, emp.id, store, 'Swappa sale', `#${dv.stockNo} ${dv.model} ${cents(salePrice)}`); this.save(d); return dv; },
   async ships(){ return this.db().ships; },
+  async swappaSync(emp, kind, id, value, ok, note){ if (RANK[emp.role] < 3) throw new Error('Owner only.'); const d = this.db();
+    if (kind === 'price') { const dv = d.devices.find(x => x.id === id); dv.swappa = Object.assign({}, dv.swappa || {}, {syncedPrice: +value, syncedAt: now(), syncOk: !!ok, syncNote: note || null}); this.log(d, emp.id, dv.store, ok ? 'Swappa price synced' : 'Swappa price not synced', `#${dv.stockNo} $${value}${note ? ' · ' + note : ''}`); }
+    else { const sh = d.ships.find(x => x.id === id); Object.assign(sh, ok ? {swappaPostedAt: now(), swappaError: null} : {swappaError: note || 'failed'}); this.log(d, emp.id, sh.store, ok ? 'Swappa tracking added' : 'Swappa tracking failed', `${sh.label} · ${sh.tracking}`); }
+    this.save(d); return {ok: true}; },
   async swappaSkip(emp, store, id, reason){ const d = this.db(); const dv = d.devices.find(x => x.id === id); dv.swappa = Object.assign({}, dv.swappa || {}, reason ? {skip: true, skipReason: reason, skipAt: now(), skipBy: emp.id} : {skip: false, skipReason: null}); this.save(d); return dv; },
   async ppEmails(){ return []; },
   async ship(b){ await new Promise(r => setTimeout(r, 200));
@@ -1342,6 +1346,7 @@ const LiveStore = {
   async swappaDrop(emp, store, id, price){ return this.rpc('pos_swappa_drop', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_price: price}); },
   async swappaSold(emp, store, id, price, buyer){ return this.rpc('pos_swappa_sold', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_price: price, p_buyer: buyer || ''}); },
   async ships(){ const {data, error} = await this.sb.from('ships_v').select('*').order('at', {ascending: false}).limit(300); if (error) throw error; return data; },
+  async swappaSync(emp, kind, id, value, ok, note){ return this.rpc('pos_swappa_sync', {p_pin: this.pinFor(emp), p_kind: kind, p_id: id, p_value: String(value ?? ''), p_ok: !!ok, p_note: note || ''}); },
   async swappaSkip(emp, store, id, reason){ return this.rpc('pos_swappa_skip', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_reason: reason || null}); },
   async ppEmails(){ const {data, error} = await this.sb.from('paypal_payments_v').select('*').gt('at', new Date(Date.now() - 21 * 864e5).toISOString()).order('at', {ascending: false}).limit(60); if (error) throw error; return data || []; },
   async ship(body){ const {data, error} = await this.sb.functions.invoke('ship', {body}); if (error) { let m = error.message; try { m = (await error.context.json()).error || m; } catch {} throw new Error(m); } if (data?.error) throw new Error(data.error); return data; },
@@ -1746,7 +1751,7 @@ const NAV = [
   ['dashboard','Dashboard',0],['customers','Customers',0],['tickets','Tickets',0],['techboard','Tech board',0],['invoices','Invoices',0],['register','Register',0],['inbox','Inbox',0],['buyback','Buyback',0],
   ['inventory','Devices',0],['swappa','Swappa',0],['wholesale','Wholesale',0],['repairs','Repair stock',0],['parts','Parts',0],['quote','Quote',0]
 ];
-const MORE = [['reports','Reports',2],['eod','End-of-day count',0],['counts','Counts & parts check',0],['transfers','Transfers',0],['closeout','Close out',0],['hours','Timesheets',2],['staff','Admin',3]];
+const MORE = [['reports','Reports',2],['eod','End-of-day count',0],['counts','Counts & parts check',0],['transfers','Transfers',0],['closeout','Close out',0],['hours','Timesheets',2],['swappasync','Swappa sync',3],['staff','Admin',3]];
 const ALIAS = {bblog: 'buyback', invoice: 'invoices', ticket: 'tickets', newticket: 'tickets', customer: 'customers', repair: 'repairs', calls: 'inbox'};
 /* browser Back / Forward: every screen change is a history entry; Back closes an open popup first, and never leaves the POS */
 const NAV_KEYS = ['customerId', 'ticketId', 'deviceId', 'invoiceId', 'q'];
@@ -1893,7 +1898,7 @@ async function renderShell(){
   const views = {clock: viewClock, buyback: viewBuyback, inventory: viewInventory, parts: viewParts, quote: viewQuote, swappa: viewSwappa, wholesale: viewWholesale, dashboard: viewDashboard,
     hours: viewHours, staff: viewStaff, tickets: viewTickets, ticket: viewTicket, newticket: viewNewTicket, customers: viewCustomers,
     customer: viewCustomer, search: viewSearch, invoices: viewInvoices, invoice: viewInvoice, eod: viewEod, techboard: viewTechboard, calls: viewInbox, inbox: viewInbox, repairs: viewRepairs, repair: viewRepair,
-    register: viewRegister, closeout: viewCloseout, bblog: viewBbLog, reports: viewReports, counts: viewCounts, transfers: viewTransfers};
+    register: viewRegister, closeout: viewCloseout, bblog: viewBbLog, reports: viewReports, counts: viewCounts, transfers: viewTransfers, swappasync: viewSwappaSync};
   const mainEl = $('#main');
   try { await (views[S.tab] || viewTickets)(mainEl); }
   catch (e) { console.error(e); if (tok !== RENDER_NO || !mainEl.isConnected) return;   /* you already went somewhere else: ignore */
@@ -3473,6 +3478,46 @@ async function mismatchReport(box, parts, counts, again){
     b.disabled = true;
     try { await Store.adjustPart(S.user, r.st, r.p.id, r.i.counted - r.now, `Recount: shelf check ${fmtDate(r.i.at)} by ${staffName(r.i.by)}`); toast('POS updated and logged'); again(); }
     catch (e) { b.disabled = false; toast(e.message); } });
+}
+
+/* ---------------- SWAPPA SYNC (owner) ----------------
+   The to-do list for the scheduled Claude task on the Mac mini: tracking numbers to add to Swappa sales and
+   rep-entered price drops to apply to live listings. The task reads #czsync (JSON) and checks items off with czSwappaDone(). */
+function swappaTodo(devs, ships){
+  const since = Date.now() - 21 * 864e5;
+  const prices = devs.filter(d => d.status === 'swappa' && d.swappa?.code && +d.swappa?.price > 0 && +d.swappa.price !== +(d.swappa.syncedPrice ?? -1))
+    .map(d => { const drop = (d.swappa.drops || [])[0];
+      return {kind: 'price', id: d.id, stockNo: d.stockNo, store: d.store, item: `${d.model} ${d.storage || ''} ${d.carrier || ''}`.trim(), code: d.swappa.code,
+        posPrice: +d.swappa.price, lastSynced: d.swappa.syncedPrice ?? null, repDrop: !!(drop && +drop.to === +d.swappa.price), dropBy: drop ? staffName(drop.by) : '', dropAt: drop?.at || null,
+        editUrl: `https://swappa.com/listing/edit/${d.swappa.code}`, viewUrl: `https://swappa.com/listing/view/${d.swappa.code}`}; });
+  const tracks = ships.filter(s => (s.tracking || '').trim() && !s.swappaPostedAt && new Date(s.labelAt || s.at) > since)
+    .map(s => { const d = devs.find(x => x.id === s.deviceId) || {};
+      return {kind: 'tracking', id: s.id, store: s.store, item: s.label, buyer: s.buyer || '', tracking: s.tracking.trim(), carrier: /^1Z/i.test(s.tracking) ? 'UPS' : 'USPS',
+        listingCode: d.swappa?.code || '', saleCode: d.swappa?.saleCode || '', saleUrl: d.swappa?.saleCode ? `https://swappa.com/sale/${d.swappa.saleCode}` : '', lastError: s.swappaError || ''}; });
+  const flagged = devs.filter(d => d.status === 'swappa' && d.swappa?.code && d.swappa.syncOk === false && +d.swappa.price === +d.swappa.syncedPrice)
+    .map(d => ({stockNo: d.stockNo, item: `${d.model} ${d.storage || ''}`.trim(), code: d.swappa.code, posPrice: +d.swappa.price, note: d.swappa.syncNote || ''}));
+  return {prices, tracks, flagged};
+}
+async function viewSwappaSync(el){
+  if (!can(3)) { el.innerHTML = '<div class="banner warn">Owner only.</div>'; return; }
+  const [devs, ships] = await Promise.all([Store.devices(), Store.ships()]);
+  const T = swappaTodo(devs, ships);
+  window.czSwappaDone = async (kind, id, value, ok, note) => { const r = await Store.swappaSync(S.user, kind, id, value, ok, note); return r; };
+  el.innerHTML = `<div class="stack">
+    <div class="panel stack"><h2>Swappa sync</h2>
+      <p class="muted small" style="margin:0">A scheduled task on the Mac mini works this list every 2 hours (10 AM–8 PM): it adds tracking to each Swappa sale and applies price drops reps entered in the POS. It never raises a price or invents one; anything that doesn't line up is left for you under "Needs Sam".</p>
+      <div class="row" style="gap:16px"><span class="pill">${T.tracks.length} tracking to add</span><span class="pill">${T.prices.length} prices to check</span><span class="pill ${T.flagged.length ? 'bad' : ''}">${T.flagged.length} need Sam</span></div></div>
+    <div class="panel stack"><h3>Tracking to add on Swappa</h3><div class="tbl"><table><thead><tr><th>Store</th><th>Item</th><th>Sale</th><th>Tracking</th><th></th></tr></thead><tbody>
+      ${T.tracks.map(t => `<tr><td>${t.store}</td><td>${esc(t.item)}${t.lastError ? `<div class="small" style="color:var(--bad)">${esc(t.lastError)}</div>` : ''}</td><td class="small">${t.saleCode ? `<a href="${t.saleUrl}" target="_blank" rel="noopener">${t.saleCode}</a>` : `listing ${esc(t.listingCode) || '?'}`}</td><td class="num small">${esc(t.tracking)}</td>
+        <td class="r"><button data-sdone="tracking:${t.id}" style="min-height:32px;padding:2px 10px">Done</button></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Nothing to add.</td></tr>'}</tbody></table></div></div>
+    <div class="panel stack"><h3>Prices to check on Swappa</h3><div class="tbl"><table><thead><tr><th>#</th><th>Item</th><th>Listing</th><th class="r">POS price</th><th>Last change</th><th></th></tr></thead><tbody>
+      ${T.prices.map(p => `<tr><td class="num">${p.stockNo}</td><td>${esc(p.item)}</td><td class="small"><a href="${p.viewUrl}" target="_blank" rel="noopener">${esc(p.code)}</a></td><td class="r num">${cents(p.posPrice)}</td>
+        <td class="small">${p.repDrop ? `drop by ${esc(p.dropBy)} ${ago(p.dropAt)}` : 'listing price'}</td><td class="r"><button data-sdone="price:${p.id}:${p.posPrice}" style="min-height:32px;padding:2px 10px">Done</button></td></tr>`).join('') || '<tr><td colspan="6" class="muted">Every live listing matches.</td></tr>'}</tbody></table></div></div>
+    ${T.flagged.length ? `<div class="panel stack"><h3>Needs Sam</h3><div class="tbl"><table><thead><tr><th>#</th><th>Item</th><th>Listing</th><th class="r">POS</th><th>Why</th></tr></thead><tbody>
+      ${T.flagged.map(f => `<tr><td class="num">${f.stockNo}</td><td>${esc(f.item)}</td><td class="small">${esc(f.code)}</td><td class="r num">${cents(f.posPrice)}</td><td class="small">${esc(f.note)}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
+    <pre id="czsync" hidden>${esc(JSON.stringify(T))}</pre></div>`;
+  el.querySelectorAll('[data-sdone]').forEach(b => b.onclick = async () => { const [k, id, v] = b.dataset.sdone.split(':'); b.disabled = true;
+    try { await Store.swappaSync(S.user, k, id, v ?? '', true, 'Marked done by hand'); toast('Checked off'); viewSwappaSync(el); } catch (e) { b.disabled = false; toast(e.message); } });
 }
 
 /* ---------------- TRANSFERS ---------------- */
