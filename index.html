@@ -194,7 +194,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794703968";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794705728";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -633,10 +633,11 @@ const DemoStore = {
     const pu = t.partsUsed.find(x => x.at === at); if (!pu) throw new Error('That part is not on this ticket anymore. Reload the page.');
     if (pu.defective) throw new Error('That part is already marked defective.');
     const p = pu.partId && d.parts.find(x => x.id === pu.partId); if (!p) throw new Error('This part is not a shelf part, so there is no replacement to pull. Special order one.');
-    if ((p.qty[t.store] || 0) < 1) throw new Error(`No ${p.name} left at this store for the replacement. Special order one, then mark this defective when it arrives.`);
+    const man = t.partsUsed.filter(x => x !== pu && x.partId === p.id && !x.chargeId && !x.replaces && !x.defective && !x.damaged).pop();   /* replacement already pulled by hand */
+    if (!man && (p.qty[t.store] || 0) < 1) throw new Error(`No ${p.name} left at this store for the replacement. Special order one, then mark this defective when it arrives.`);
     const tech = techId || t.techId || emp.id;
-    p.qty[t.store] -= 1; Object.assign(pu, {defective: true, defectReason: reason.trim(), defectBy: tech, defectAt: now()});
-    t.partsUsed.push({partId: p.id, name: p.name, cost: 0, at: now(), by: emp.id, replaces: at});
+    Object.assign(pu, {defective: true, defectReason: reason.trim(), defectBy: tech, defectAt: now()});
+    if (man) Object.assign(man, {cost: 0, replaces: at}); else { p.qty[t.store] -= 1; t.partsUsed.push({partId: p.id, name: p.name, cost: 0, at: now(), by: emp.id, replaces: at}); }
     t.comments.unshift({id: uid(), at: now(), who: emp.id, text: `Defective part → RMA: ${p.name} (${reason.trim()}). Replacement pulled from the shelf.`, pub: false, sys: true}); t.updatedAt = now();
     this.rmaAdd(d, {id: tech}, t.store, p, `Ticket #${t.number} · ${reason.trim()}`, t.id); this.save(d); return t;
   },
@@ -2062,7 +2063,7 @@ async function viewTicket(el){
       <div class="field"><span class="label">What was wrong?</span><div class="row" style="gap:6px;flex-wrap:wrap">${chips.map(c => `<button type="button" data-chip="${esc(c)}" style="min-height:34px;padding:4px 10px">${esc(c)}</button>`).join('')}</div>
         <input id="df-r" placeholder="Or type it: touch dead on the bottom half" style="margin-top:6px"></div>
       <div class="field"><label class="label" for="df-t">Tech</label><select id="df-t">${S.staff.filter(e => e.active !== false).map(e => `<option value="${e.id}" ${e.id === (t.techId || S.user.id) ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select></div>
-      <div class="banner small" style="margin:0">A new <b>${esc(pu.name)}</b> comes off the ${STORES[t.store]} shelf for the replacement, the bad one goes on the RMA list, and its label prints next. The ticket's profit doesn't change.</div>
+      <div class="banner small" style="margin:0">${t.partsUsed.some(x => x !== pu && x.partId === pu.partId && !x.chargeId && !x.replaces && !x.defective && !x.damaged) ? `The <b>${esc(pu.name)}</b> you already pulled becomes the replacement ($0 to this ticket), the bad one` : `A new <b>${esc(pu.name)}</b> comes off the ${STORES[t.store]} shelf for the replacement, the bad one`} goes on the RMA list, and its label prints next. The ticket's profit doesn't change.</div>
       <div class="err" id="df-e" role="alert"></div><button class="primary" id="df-go">Pull replacement + print RMA label</button>`, (L, close) => {
       L.querySelectorAll('[data-chip]').forEach(c => c.onclick = () => { L.querySelectorAll('[data-chip]').forEach(x => x.setAttribute('aria-pressed', x === c)); L.querySelector('#df-r').value = c.dataset.chip; });
       L.querySelector('#df-go').onclick = async () => { const reason = L.querySelector('#df-r').value.trim(); if (reason.length < 3) { L.querySelector('#df-e').textContent = 'Pick or type what was wrong.'; return; }
