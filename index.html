@@ -263,7 +263,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794766595";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794772863";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -4489,7 +4489,7 @@ const initials = name => String(name || '').trim().split(/\s+/).filter(Boolean).
 function labelHTML(dv){
   const L = LABELS[labelSize()]; const small = parseFloat(L.h) < 1;
   const dt = new Date(dv.createdAt || Date.now()); const md = `${dt.getMonth() + 1}/${dt.getDate()}/${String(dt.getFullYear()).slice(2)}`;
-  const l1 = [dv.model, dv.storage, dv.carrier].filter(Boolean).join(' - ');
+  const l1 = [noPrice(dv.model), dv.storage, dv.carrier].filter(Boolean).join(' - ');
   const l2 = [GRADE_LETTER[dv.cond] || '', dv.imei || ''].filter(Boolean).join(' ');
   const who = dv.by ? initials(staffName(dv.by)) : '';
   const l3 = [md, dv.color, costCode((+dv.cost || 0) + (+dv.partsCost || 0)), dv.battery ? 'BH ' + dv.battery + '%' : '', who, dv.bbId || ''].filter(Boolean).join(' - ');   /* cost on the label = buy + repair parts, written backwards */
@@ -4597,7 +4597,8 @@ function bbNeeds(B){
 function bbModels(){ const seen = new Set(), out = []; for (const r of S.prices.buyback) if (!seen.has(r.m)) { seen.add(r.m); out.push(r.m); } return out; }
 /* the Counter Appraisal tool (sumer327.github.io/cz-counter) runs inside the Buyback tab; its "Buy it" button hands the offer to the POS */
 const COUNTER_URL = location.origin + '/cz-counter/?pos=1';
-const niceModel = m => { m = String(m || '').trim(); if (m && m === m.toUpperCase()) m = m.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+const noPrice = m => String(m || '').replace(/\s*\(\s*[+\u2212-]?\s*\$[\d,.]+\s*\)/g, '').replace(/\s{2,}/g, ' ').trim();   /* appraisal options carry their price: "16GB (+$115)" */
+const niceModel = m => { m = noPrice(m); if (m && m === m.toUpperCase()) m = m.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
   return m.replace(/\bIphone\b/gi, 'iPhone').replace(/\bIpad\b/gi, 'iPad').replace(/\bImac\b/gi, 'iMac').replace(/\bMacbook\b/gi, 'MacBook').replace(/\bIpod\b/gi, 'iPod')
     .replace(/\b(se|xr|xs|ps5|ps4|gb|tb|wifi|gps|lte|oled|fe)\b/gi, w => w.toUpperCase()).replace(/\bPro Max\b/g, 'Pro Max'); };
 const CARRIER_NAME = {Unlocked: 'Unlocked', ATT: 'AT&T', OTHER: 'Verizon / T-Mobile / Cricket', 'ATT Financed': 'AT&T (financed)', 'Carrier Locked': 'Carrier locked / financed'};
