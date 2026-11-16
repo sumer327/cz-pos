@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794790497";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794803741";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -772,6 +772,8 @@ const DemoStore = {
     devs.forEach(x => { Object.assign(x, {status: 'atlas', channel: 'Atlas', atlasBatch: b.id, soldAt: x.soldAt || now(), updatedAt: now()}); (x.log = x.log || []).unshift({at: now(), who: emp.id, text: `Shipped to Atlas · batch #${b.number}` + (b.tracking ? ' · ' + b.tracking : '')}); });
     this.log(d, emp.id, store, 'Shipped to Atlas', `Batch #${b.number} · ${devs.length} devices · cost ${money(b.costTotal)}`); this.save(d); return b;
   },
+  async atlasPayoutLines(emp, id, lines, other){ if (RANK[emp.role] < 2) throw new Error('Manager only.'); const d = this.db(); const b = d.atlasBatches.find(x => x.id === id);
+    lines.forEach(l => { const dv = d.devices.find(x => x.id === l.id); if (dv) dv.soldPrice = +l.price; }); Object.assign(b, {payout: lines.reduce((a, l) => a + +l.price, 0) + (+other || 0), paidAt: now(), paidBy: emp.id}); this.log(d, emp.id, b.store, 'Atlas payout', `Batch #${b.number} · ${lines.length} devices`); this.save(d); return b; },
   async atlasPayout(emp, id, amount){
     if (RANK[emp.role] < 2) throw new Error('A manager records the Atlas payout.'); if (!(amount >= 0)) throw new Error('Enter what Atlas paid for this batch.');
     const d = this.db(); const b = d.atlasBatches.find(x => x.id === id); Object.assign(b, {payout: amount, paidAt: now(), paidBy: emp.id});
@@ -1256,6 +1258,7 @@ const LiveStore = {
   async atlasBatches(){ const {data, error} = await this.sb.from('atlas_batches_v').select('*').order('at', {ascending: false}).limit(200); if (error) throw error; return data; },
   async wholesaleShip(emp, store, ids, tracking, notes){ return this.rpc('pos_wholesale_ship', {p_pin: this.pinFor(emp), p_store: store, p_ids: ids, p_tracking: tracking || '', p_notes: notes || ''}); },
   async atlasPayout(emp, id, amount){ return this.rpc('pos_atlas_payout', {p_pin: this.pinFor(emp), p_id: id, p_amount: amount}); },
+  async atlasPayoutLines(emp, id, lines, other){ return this.rpc('pos_atlas_payout_lines', {p_pin: this.pinFor(emp), p_id: id, p_lines: lines, p_other: +other || 0}); },
   async ticketInvoices(id){ const {data, error} = await this.sb.from('invoices_v').select('*').eq('ticketId', id).order('at', {ascending: false}); if (error) throw error; this.keep(this.cI, data); return data; },
   async invoices(from, to){ const {data, error} = await this.sb.from('invoices_v').select('*').gte('at', from.toISOString()).lt('at', to.toISOString()).or('paid.eq.true,rsId.not.is.null'); if (error) throw error; return data; },
   async invoice(id){ const {data, error} = await this.sb.from('invoices_v').select('*').eq('id', id).maybeSingle(); if (error) throw error; if (data) this.keep(this.cI, [data]); return data; },
@@ -5357,12 +5360,33 @@ async function viewWholesale(el){
     <table><thead><tr><th>#</th><th>Stock #</th><th>Device</th><th>Carrier</th><th>IMEI / serial</th></tr></thead><tbody>${b.devices.map((x, i) => `<tr><td>${i + 1}</td><td>${x.stockNo}</td><td>${esc(x.model)} ${esc(x.storage || '')}</td><td>${esc(x.carrier || '')}</td><td>${esc(x.imei || '')}</td></tr>`).join('')}</tbody></table>`,
     '@page{size:letter;margin:12mm}body{font:12px Arial,sans-serif}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #999;padding:4px 6px;text-align:left}');
   el.querySelectorAll('[data-bprint]').forEach(b => b.onclick = () => packing(bs.find(x => x.id === b.dataset.bprint)));
-  el.querySelectorAll('[data-pay]').forEach(btn => btn.onclick = () => { const b = bs.find(x => x.id === btn.dataset.pay);
+  el.querySelectorAll('[data-pay]').forEach(btn => btn.onclick = () => { const b = bs.find(x => x.id === btn.dataset.pay); const devsB = b.devices.map(x => all.find(d => d.id === x.id) || x);
     sheet(`<div class="row" style="justify-content:space-between"><h3>Atlas payout · batch #${b.number}</h3><button data-close>Close</button></div>
-      <div class="small muted">${b.devices.length} devices · ${money(b.costTotal)} cost. The payout is split over the devices by cost, so each one shows what it sold for.</div>
-      <div class="field" style="max-width:200px"><label class="label" for="ap-v">Atlas paid</label><input id="ap-v" inputmode="decimal" value="${b.payout ?? ''}" placeholder="0.00"></div>
+      <div class="small muted">${b.devices.length} devices · ${money(b.costTotal)} cost. Paste Atlas's payout breakdown (from the email or their portal: select the rows, copy, paste). Each device is matched by its IMEI / serial and gets the price Atlas paid for it.</div>
+      <div class="field"><label class="label" for="ap-txt">Atlas payout breakdown</label><textarea id="ap-txt" rows="7" placeholder="356680115573361   iPhone 12 Pro 256GB   $185.00&#10;353730202131087   iPhone 16 128GB   $310.00"></textarea></div>
+      <div id="ap-prev"></div>
+      <div class="grid g2"><div class="field"><label class="label" for="ap-o">Other lines on the statement (fees − / bonus +)</label><input id="ap-o" inputmode="decimal" placeholder="0.00"></div>
+        <div class="field"><label class="label" for="ap-v">…or just the batch total (no breakdown)</label><input id="ap-v" inputmode="decimal" value="${b.payout ?? ''}" placeholder="0.00"></div></div>
       <div class="err" id="ap-e" role="alert"></div><button class="primary" id="ap-go">Save payout</button>`,
-      (L, close) => L.querySelector('#ap-go').onclick = async () => { try { await Store.atlasPayout(S.user, b.id, parseFloat(L.querySelector('#ap-v').value)); close(); toast('Payout saved'); viewWholesale(el); } catch (e) { L.querySelector('#ap-e').textContent = e.message; } }); });
+      (L, close) => { let M = [];
+        const norm = x => String(x || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const parse = () => { const txt = L.querySelector('#ap-txt').value; M = [];
+          txt.split(/\n/).forEach(line => { const toks = line.toUpperCase().match(/[A-Z0-9]{8,}/g) || [];
+            const dv = devsB.find(d => { const im = norm(d.imei); return im && toks.some(t => t === im || (im.length >= 10 && t.length >= 10 && (t.endsWith(im.slice(-10)) || im.endsWith(t.slice(-10))))); });
+            if (!dv || M.some(m => m.id === dv.id)) return;
+            const nums = (line.replace(/[A-Z0-9]{8,}/gi, ' ').match(/\$?\s*\d{1,5}(?:,\d{3})*(?:\.\d{1,2})?/g) || []).map(x => parseFloat(x.replace(/[$,\s]/g, ''))).filter(v => v >= 0 && v < 5000);
+            const price = nums.length ? (line.includes('$') ? parseFloat((line.match(/\$\s*([\d,]+(?:\.\d{1,2})?)/g) || []).pop().replace(/[$,\s]/g, '')) : nums[nums.length - 1]) : null;
+            if (price != null && !isNaN(price)) M.push({id: dv.id, price, d: dv}); });
+          const miss = devsB.filter(d => !M.some(m => m.id === d.id)), sumP = M.reduce((a, m) => a + m.price, 0), costM = M.reduce((a, m) => a + (+m.d.cost || 0) + (+m.d.partsCost || 0), 0);
+          L.querySelector('#ap-prev').innerHTML = !txt.trim() ? '' : `<div class="tbl"><table><thead><tr><th>#</th><th>Device</th><th class="r">Cost</th><th class="r">Atlas paid</th><th class="r">Profit</th></tr></thead><tbody>
+            ${M.map(m => { const c = (+m.d.cost || 0) + (+m.d.partsCost || 0); return `<tr><td class="num">${m.d.stockNo}</td><td>${esc(m.d.model)} ${esc(m.d.storage || '')}</td><td class="r num">${cents(c)}</td><td class="r num">${cents(m.price)}</td><td class="r num" style="color:${m.price - c >= 0 ? 'var(--ok)' : 'var(--bad)'}">${cents(m.price - c)}</td></tr>`; }).join('')}
+            <tr><td></td><td><b>${M.length} of ${devsB.length} matched</b></td><td class="r num"><b>${cents(costM)}</b></td><td class="r num"><b>${cents(sumP)}</b></td><td class="r num"><b>${cents(sumP - costM)}</b></td></tr></tbody></table></div>
+            ${miss.length ? `<div class="banner warn small">Not found in the paste: ${miss.map(d => `#${d.stockNo} ${esc(d.model)} (…${esc(String(d.imei || '').slice(-5))})`).join(', ')}. They keep no price until you add them.</div>` : '<div class="banner ok small">Every device in this box matched.</div>'}`; };
+        L.querySelector('#ap-txt').oninput = parse;
+        L.querySelector('#ap-go').onclick = async () => { const e = L.querySelector('#ap-e'); e.textContent = '';
+          try { if (M.length) await Store.atlasPayoutLines(S.user, b.id, M.map(m => ({id: m.id, price: m.price})), parseFloat(L.querySelector('#ap-o').value) || 0);
+            else { const v = parseFloat(L.querySelector('#ap-v').value); if (!(v >= 0)) { e.textContent = 'Paste the breakdown or enter the batch total.'; return; } await Store.atlasPayout(S.user, b.id, v); }
+            close(); toast('Payout saved'); viewWholesale(el); } catch (x) { e.textContent = x.message; } }; }); });
   $('#ws-ship') && ($('#ws-ship').onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Ship to Atlas · ${STORES[shipStore]}</h3><button data-close>Close</button></div>
     <p style="margin:0">These ${picked.length} device${picked.length === 1 ? '' : 's'} come out of ${STORES[shipStore]} wholesale and are marked <b>Sent to Atlas</b>.</p>
     <div class="tbl" style="max-height:260px;overflow:auto"><table><tbody>${picked.map(d => `<tr><td class="num">#${d.stockNo}</td><td>${esc(d.model)} ${esc(d.storage || '')}</td><td class="mono small">${esc(d.imei || '')}</td><td class="r num">${cents((+d.cost || 0) + (+d.partsCost || 0))}</td></tr>`).join('')}</tbody></table></div>
@@ -6175,7 +6199,11 @@ async function viewQuote(el){
 /* ---------------- DASHBOARDS ----------------
    Owner (Sam, the only owner/admin account): all three stores at a glance, red flags, who's in, drill-down per store.
    Everyone else: their own day and month, their store's to-do list, the repair lineup. The owner can switch to the store view. */
-const DASH_SWAPPA_NET = 0.87;   /* Swappa sale price after fees, same as the Swappa tab */
+const DASH_SWAPPA_NET = 0.87;   /* old flat estimate, kept for the Swappa tab's quick margin */
+/* Swappa net, same as Sam's Cost Calc sheet: 0.884375 × price (Swappa + PayPal fees) − shipping. Shipping = the real label cost when the POS bought it,
+   else phones $11 ($27 over $675), tablets/computers $18 ($33 over $675). */
+let DASH_SHIP = {};
+const swappaNet = d => { const p = +d.soldPrice || 0, big = p > 675, tab = ['ipad', 'mac'].includes(devKind(d)); const sh = DASH_SHIP[d.id] ?? (tab ? (big ? 33 : 18) : (big ? 27 : 11)); return p * 0.884375 - sh; };
 const SHIFT_K = 'czpos-shift-start';
 const shiftStart = st => (ls.get(SHIFT_K, {}) || {})[st] || '10:00';
 const dashRanges = () => { const d0 = new Date(new Date().toDateString()), d1 = new Date(d0); d1.setDate(d1.getDate() + 1);
@@ -6188,7 +6216,7 @@ function dashNums(invs, sold, dv, pr, tk){
   const sum = (a, f) => a.reduce((s, x) => s + (+f(x) || 0), 0);
   const known = lines.filter(l => l.cost !== null && !l.i.rsId);
   const other = sold.filter(d => !onInv.has(d.id));
-  const otherRev = sum(other, d => d.soldPrice), otherProfit = sum(other, d => (+d.soldPrice || 0) * (d.channel === 'Swappa' ? DASH_SWAPPA_NET : 1) - (+d.cost || 0) - (+d.partsCost || 0));
+  const otherRev = sum(other, d => d.soldPrice), otherProfit = sum(other, d => (d.channel === 'Swappa' ? swappaNet(d) : (+d.soldPrice || 0)) - (+d.cost || 0) - (+d.partsCost || 0));
   const isAcc = l => /accessory|glass/i.test(l.cat || '') || l.productId;
   return {
     sales: sum(invs, i => i.subtotal ?? i.total - (i.tax || 0)) + otherRev,
@@ -6197,6 +6225,7 @@ function dashNums(invs, sold, dv, pr, tk){
     repairs: sum(lines.filter(l => !isAcc(l) && !l.deviceId && !/phone sale|discount|refund/i.test(l.cat || '')), l => l.rev),
     acc: sum(lines.filter(isAcc), l => l.rev), phones: sum(lines.filter(l => l.deviceId || /phone sale/i.test(l.cat || '')), l => l.rev),
     swappa: sum(other.filter(d => d.channel === 'Swappa'), d => d.soldPrice), swappaN: other.filter(d => d.channel === 'Swappa').length,
+    swappaP: sum(other.filter(d => d.channel === 'Swappa'), d => swappaNet(d) - (+d.cost || 0) - (+d.partsCost || 0)),
     n: invs.filter(i => i.total > 0).length };
 }
 const dashTile = (label, value, sub, tone) => `<div class="dk ${tone || ''}"><div class="dk-l">${label}</div><div class="dk-v num">${value}</div>${sub ? `<div class="dk-s">${sub}</div>` : ''}</div>`;
@@ -6216,6 +6245,8 @@ async function viewOwnerDash(el){
     Store.invoices(R.m0, R.d1), Store.buybacks(R.m0, R.d1).catch(() => []), Store.devices(), Store.products().catch(() => []), Store.tickets(),
     Store.punches(R.d0, R.d1).catch(() => []), Store.registerDays().catch(() => []), Store.ships().catch(() => []), Store.buybacksAll().catch(() => []),
     Store.audit(80).catch(() => []), Store.parts().catch(() => []), Store.partOrders().catch(() => []), Store.transfers().catch(() => []), Store.leads().catch(() => [])]);
+  const atlasB = await Store.atlasBatches().catch(() => []);
+  DASH_SHIP = Object.fromEntries(ships.filter(x => x.deviceId && +x.labelCost > 0).map(x => [x.deviceId, +x.labelCost]));
   const custs = await Store.customers().catch(() => []); const C = custById(custs);
   const dv = Object.fromEntries(devs.map(d => [d.id, d])), pr = Object.fromEntries(prods.map(p => [p.id, p])), tk = Object.fromEntries(tix.map(t => [t.id, t]));
   const isToday = d => d && new Date(d) >= R.d0 && new Date(d) < R.d1;
@@ -6224,13 +6255,19 @@ async function viewOwnerDash(el){
   const per = Object.fromEntries(SK.map(st => {
     const iv = invs.filter(i => i.store === st), so = soldM.filter(d => d.store === st);
     const day = dashNums(iv.filter(i => isToday(i.at)), so.filter(d => isToday(d.soldAt)), dv, pr, tk), mon = dashNums(iv, so, dv, pr, tk);
+    /* Atlas: counted in the month the payout is recorded (that's when we know what Atlas paid) */
+    const ab = atlasB.filter(b => b.store === st && b.payout != null && b.paidAt && new Date(b.paidAt) >= R.m0 && new Date(b.paidAt) < R.d1);
+    const atl = {n: ab.reduce((a, b) => a + (b.deviceIds || b.devices || []).length, 0), rev: ab.reduce((a, b) => a + (+b.payout || 0), 0), profit: ab.reduce((a, b) => a + (+b.payout || 0) - (+b.costTotal || 0), 0)};
+    Object.assign(mon, {sales: mon.sales + atl.rev, profit: mon.profit + atl.profit, atlas: atl.rev, atlasN: atl.n, atlasP: atl.profit});
+    const abT = ab.filter(b => isToday(b.paidAt)); if (abT.length) { const r = abT.reduce((a, b) => a + (+b.payout || 0), 0), pf = abT.reduce((a, b) => a + (+b.payout || 0) - (+b.costTotal || 0), 0); Object.assign(day, {sales: day.sales + r, profit: day.profit + pf, atlas: r, atlasN: abT.length, atlasP: pf}); }
+    const awaiting = atlasB.filter(b => b.store === st && b.payout == null);
     const bb = bbM.filter(b => b.store === st), bbT = bb.filter(b => isToday(b.at));
     const open = tix.filter(t => t.store === st && t.status !== 'resolved');
     return [st, {st, day, mon, bbT: bbT.length, bbT$: bbT.reduce((a, b) => a + (+b.paid || 0), 0), bbM: bb.length, bbM$: bb.reduce((a, b) => a + (+b.paid || 0), 0),
       open, lineup: open.filter(t => ['new', 'progress', 'board', 'reply'].includes(t.status)).sort((a, b) => (a.status === 'board') - (b.status === 'board') || new Date(a.createdAt) - new Date(b.createdAt)),
       parts: open.filter(t => t.status === 'parts'), waitCust: open.filter(t => t.status === 'customer'),
       pending: devs.filter(d => d.store === st && d.status === 'testing'), repairStock: devs.filter(d => d.store === st && d.status === 'repair'),
-      toShip: ships.filter(x => x.store === st && x.status !== 'shipped'), on: punches.filter(p => p.store === st && !p.t_out)}];
+      toShip: ships.filter(x => x.store === st && x.status !== 'shipped'), on: punches.filter(p => p.store === st && !p.t_out), awaiting}];
   }));
   const T = k => SK.reduce((a, st) => a + (+k(per[st]) || 0), 0);
   const proj = v => R.dayFrac > 0.03 ? money(v / R.dayFrac) : '—';
@@ -6262,6 +6299,7 @@ async function viewOwnerDash(el){
     Object.values(by).filter(a => a.length > 1).forEach(a => flag('bad', a[0].store, `Same IMEI on ${a.map(d => '#' + d.stockNo).join(' and ')} (${a[0].model})`, 'inventory')); }
   audit.filter(a => isToday(a.at) && /invoice deleted|refund/i.test(a.action || '')).forEach(a => flag('bad', a.store, `${a.action}: ${a.detail || ''} · ${staffName(a.who)}`, 'invoices'));
   { const ov = bbM.filter(b => isToday(b.at) && b.override); if (ov.length) ov.forEach(b => flag('warn', b.store, `Buyback over the max: ${cents(b.paid)} (max ${cents(b.max)}) · approved by ${staffName(b.override)}`, 'bblog')); }
+  SK.forEach(st => { const old = per[st].awaiting.filter(b => daysOld(b.at) >= 14); if (old.length) flag('warn', st, `${old.length} Atlas box${old.length === 1 ? '' : 'es'} shipped 14+ days ago with no payout recorded`, 'wholesale'); });
   { const nl = leads.filter(l => l.status === 'new').length; if (nl) flag('acc', null, `${nl} new website lead${nl === 1 ? '' : 's'}`, 'inbox'); }
   const lvl = {bad: 0, warn: 1, acc: 2}; F.sort((a, b) => lvl[a.lvl] - lvl[b.lvl]);
 
@@ -6269,7 +6307,7 @@ async function viewOwnerDash(el){
   const tot = {dS: T(p => p.day.sales), dP: T(p => p.day.profit), mS: T(p => p.mon.sales), mP: T(p => p.mon.profit), bbT: T(p => p.bbT), bbT$: T(p => p.bbT$), bbM: T(p => p.bbM), bbM$: T(p => p.bbM$)};
   const rsNote = SK.filter(st => per[st].mon.rsOnly).map(st => STORES[st]);
   const maxMP = Math.max(1, ...SK.map(st => per[st].mon.profit));
-  const mix = n => [['Repairs', n.repairs], ['Accessories', n.acc], ['Phones in store', n.phones], [`Swappa${n.swappaN ? ' (' + n.swappaN + ')' : ''}`, n.swappa]];
+  const mix = n => [['Repairs', n.repairs], ['Accessories', n.acc], ['Phones in store', n.phones], [`Swappa${n.swappaN ? ' (' + n.swappaN + ' · profit ' + money(n.swappaP || 0) + ')' : ''}`, n.swappa], [`Atlas${n.atlasN ? ' (' + n.atlasN + ' · profit ' + money(n.atlasP || 0) + ')' : ''}`, n.atlas || 0]];
 
   const storeCard = st => { const P = per[st], o = !!S0.open[st], rs = P.mon.rsOnly;
     return `<section class="ds ${o ? 'open' : ''}">
@@ -6290,7 +6328,7 @@ async function viewOwnerDash(el){
       </div>
       ${o ? `<div class="ds-more">
         <div class="ds-col"><h4>Sales mix</h4><table class="mini"><tr><th></th><th class="r">Today</th><th class="r">Month</th></tr>
-          ${mix(P.day).map(([l], i) => `<tr><td>${l.replace(/ \(\d+\)$/, '')}</td><td class="r num">${money(mix(P.day)[i][1])}</td><td class="r num">${money(mix(P.mon)[i][1])}</td></tr>`).join('')}
+          ${mix(P.mon).map(([l], i) => `<tr><td>${l}</td><td class="r num">${money(mix(P.day)[i][1])}</td><td class="r num">${money(mix(P.mon)[i][1])}</td></tr>`).join('')}
           <tr class="tot"><td>Total</td><td class="r num">${money(P.day.sales)}</td><td class="r num">${money(P.mon.sales)}</td></tr></table>
           ${rs ? '<p class="small muted" style="margin:6px 0 0">Still on RepairShopr: sales come in as totals only, so the mix and profit fill in once this store is on the POS.</p>' : ''}
           <h4>Pending</h4><ul class="ds-list">
