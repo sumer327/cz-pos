@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794846395";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794856477";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -3568,6 +3568,7 @@ function swappaTodo(devs, ships){
 async function viewSwappaSync(el){
   if (!can(3)) { el.innerHTML = '<div class="banner warn">Owner only.</div>'; return; }
   const [devs, ships] = await Promise.all([Store.devices(), Store.ships()]);
+  await retryPaypalTracking(ships).catch(() => 0);
   const T = swappaTodo(devs, ships);
   window.czSwappaDone = async (kind, id, value, ok, note) => { const r = await Store.swappaSync(S.user, kind, id, value, ok, note); return r; };
   el.innerHTML = `<div class="stack">
@@ -5466,6 +5467,7 @@ async function viewWholesale(el){
 }
 async function viewSwappa(el){
   const W = S.sw; const [all, ships] = await Promise.all([Store.devices(), Store.ships()]);
+  retryPaypalTracking(ships).then(n => { if (n && S.tab === 'swappa') { toast(`Tracking added to ${n} PayPal payment${n === 1 ? '' : 's'}`); viewSwappa(el); } }).catch(() => {});
   if (!can(3)) W.store = 'mine';
   const inS = st => W.store === 'all' || st === (W.store === 'mine' ? S.store : W.store);
   const sw = d => d.swappa || {price: d.listPrice, listedAt: d.updatedAt, drops: [], url: ''};
@@ -5517,7 +5519,7 @@ async function viewSwappa(el){
   if (W.tab === 'ship') body = `
     <p class="muted small" style="margin:0">Sold devices waiting to ship. Pull it, power it off, pack it, then tap <b>Ship · print label</b>: pick the buyer's PayPal payment, pick the box, and the label prints. The tracking number goes on the PayPal payment by itself, and on the Swappa sale at the next sync (every 2 hours, 10 AM–8 PM): look for <b>✓ on Swappa</b>.</p>
     <div class="tbl"><table><thead><tr><th>Device</th><th>Store</th><th>Buyer</th><th>Sold</th><th>Step</th><th></th></tr></thead><tbody>
-    ${myShips.map(x => `<tr><td><b>${esc(x.label)}</b></td><td>${x.store}</td><td class="small">${esc(x.buyer || '—')}${x.shipTo?.city ? `<div class="muted">${esc(x.shipTo.city)}, ${esc(x.shipTo.state || '')}</div>` : ''}${x.paypalTxn && !x.tracking ? '<div style="color:var(--ok)">✓ PayPal payment in</div>' : ''}</td><td class="small">${ago(x.at)}</td><td><span class="pill ${x.status === 'pull' ? 'bad' : 'acc'}">${SHIP[x.status]}</span>${x.tracking ? `<div class="mono small">${esc(x.tracking)}</div>` : ''}${x.tracking && (x.labelBy || x.paypalTxn) ? (x.paypalTrackedAt ? '<div class="small" style="color:var(--ok)">✓ on PayPal</div>' : `<div class="small" style="color:var(--bad)">Not on PayPal yet</div>`) : ''}${x.tracking ? (x.swappaPostedAt ? `<div class="small" style="color:var(--ok)" title="Added ${esc(fmtDate(x.swappaPostedAt))} ${esc(fmtTime(x.swappaPostedAt))}">✓ on Swappa · ${ago(x.swappaPostedAt)}</div>` : x.swappaError ? `<div class="small" style="color:var(--bad)" title="${esc(x.swappaError)}">Swappa: not added yet (retrying) · ${esc(x.swappaError)}</div>` : '<div class="small muted">Swappa: goes on at the next sync (every 2 hrs, 10–8)</div>') : ''}</td>
+    ${myShips.map(x => `<tr><td><b>${esc(x.label)}</b></td><td>${x.store}</td><td class="small">${esc(x.buyer || '—')}${x.shipTo?.city ? `<div class="muted">${esc(x.shipTo.city)}, ${esc(x.shipTo.state || '')}</div>` : ''}${x.paypalTxn && !x.tracking ? '<div style="color:var(--ok)">✓ PayPal payment in</div>' : ''}</td><td class="small">${ago(x.at)}</td><td><span class="pill ${x.status === 'pull' ? 'bad' : 'acc'}">${SHIP[x.status]}</span>${x.tracking ? `<div class="mono small">${esc(x.tracking)}</div>` : ''}${x.tracking && (x.labelBy || x.paypalTxn) ? (x.paypalTrackedAt ? '<div class="small" style="color:var(--ok)">✓ on PayPal</div>' : ppWaiting(x.paypalError) || !x.paypalError ? `<div class="small" style="color:var(--warn,#b45309)">PayPal: waiting for PayPal to post the payment (up to 3 hrs) · goes on automatically</div>` : `<div class="small" style="color:var(--bad)" title="${esc(x.paypalError)}">Not on PayPal yet · ${esc(x.paypalError)}</div>`) : ''}${x.tracking ? (x.swappaPostedAt ? `<div class="small" style="color:var(--ok)" title="Added ${esc(fmtDate(x.swappaPostedAt))} ${esc(fmtTime(x.swappaPostedAt))}">✓ on Swappa · ${ago(x.swappaPostedAt)}</div>` : x.swappaError ? `<div class="small" style="color:var(--bad)" title="${esc(x.swappaError)}">Swappa: not added yet (retrying) · ${esc(x.swappaError)}</div>` : '<div class="small muted">Swappa: goes on at the next sync (every 2 hrs, 10–8)</div>') : ''}</td>
       <td class="r" style="white-space:nowrap">${x.status === 'pull' ? `<button class="primary" data-shiplbl="${x.id}" ${btn}>Ship · print label</button> <button data-packed="${x.id}" ${btn}>Have tracking already</button>`
         : `${x.labelUrl ? `<a class="small" href="${esc(x.labelUrl)}" target="_blank" rel="noopener">Label PDF</a> ` : ''}${x.tracking && (x.labelBy || x.paypalTxn) && !x.paypalTrackedAt ? `<button data-pptrack="${x.id}" ${btn}>Send to PayPal</button> ` : ''}<button class="primary" data-shipped="${x.id}" ${btn}>Shipped</button>`}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">Nothing waiting to ship.</td></tr>'}
     </tbody></table></div>`;
@@ -5557,7 +5559,7 @@ async function viewSwappa(el){
   el.querySelectorAll('[data-pptrack]').forEach(b => b.onclick = () => { const x = myShips.find(y => y.id === b.dataset.pptrack); paypalPickSheet(x, all.find(d => d.id === x.deviceId), async pay => {
     const pid = ppIds(pay);
     try { const r = await Store.ship({action: 'paypal_track', paypalTxn: pid[0], paypalAlt: pid.slice(1), tracking: x.tracking}); await Store.shipPaypal(S.user, S.store, x.id, r.txn || pid[0], true); toast('Tracking added to the PayPal payment'); }
-    catch (e) { await Store.shipPaypal(S.user, S.store, x.id, pid[0], false, e.message).catch(() => {}); toast('PayPal: ' + e.message); } again(); }); });
+    catch (e) { await Store.shipPaypal(S.user, S.store, x.id, pid[0], false, e.message).catch(() => {}); toast(ppWaiting(e.message) ? "PayPal hasn't posted this payment yet (it can take up to 3 hours). The POS adds the tracking automatically once it shows up, nothing else to do." : 'PayPal: ' + e.message); } again(); }); });
 }
 /* ---------- Swappa shipping: label from the POS (Shippo) + tracking onto the buyer's PayPal payment ----------
    SHIP_LIVE false = labels are test labels (free, not real) until we've checked one end to end. */
@@ -5580,6 +5582,22 @@ async function paypalRecent(force){ if (!force && PP_CACHE && Date.now() - PP_CA
   PP_CACHE = {at: Date.now(), list}; return list; }
 /* the payment's total includes the buyer's sales tax: match on the item price when PayPal gives it */
 const ppIds = p => { if (!p) return []; const all = [p.sellerId, p.id, ...(p.ids || [])].filter(Boolean); return [...new Set(all)]; };
+/* PayPal only accepts tracking on the SELLER's transaction ID, which PayPal's lookup can take up to ~3 hours to show for a new payment.
+   Until then the label's tracking can't go on PayPal ("not a seller transaction"). This retries quietly whenever the Swappa page
+   (or the Mac mini's Swappa sync page) opens: once PayPal shows the seller ID for that buyer, the tracking goes on. */
+let PP_RETRY_AT = 0;
+async function retryPaypalTracking(ships){
+  const due = ships.filter(x => x.tracking && x.paypalTxn && !x.paypalTrackedAt && x.status !== 'pull' && Date.now() - new Date(x.labelAt || x.at) < 10 * 864e5);
+  if (!due.length || Date.now() - PP_RETRY_AT < 10 * 60e3 || !S.user || Store.mode === 'demo') return 0;
+  PP_RETRY_AT = Date.now(); let n = 0;
+  const list = await paypalRecent(true).catch(() => []);
+  for (const x of due) { const pay = list.find(p => (p.ids || []).includes(x.paypalTxn) || p.id === x.paypalTxn);
+    if (!pay?.sellerId) continue;
+    try { const r = await Store.ship({action: 'paypal_track', paypalTxn: pay.sellerId, paypalAlt: ppIds(pay).filter(i => i !== pay.sellerId), tracking: x.tracking}); await Store.shipPaypal(S.user, x.store, x.id, r.txn || pay.sellerId, true); n++; }
+    catch (e) { await Store.shipPaypal(S.user, x.store, x.id, x.paypalTxn, false, e.message).catch(() => {}); } }
+  return n;
+}
+const ppWaiting = err => /not a seller transaction|INVALID_TRANSACTION|not found/i.test(err || '');
 const ppHit = (p, sold) => !!sold && [p.itemPrice, p.amount].some(v => v && Math.abs(v - sold) < 1);
 const ppRow = (p, hit) => `<button data-pp="${esc(p.id)}" style="display:block;width:100%;text-align:left;${hit ? 'border-color:var(--accent);border-width:2px' : ''}">
   <div class="row" style="justify-content:space-between"><b>${esc(p.payer || p.to?.name || p.email || 'PayPal payment')}</b><b class="num">${cents(p.amount)}</b></div>${p.itemPrice && Math.abs(p.itemPrice - p.amount) > 0.01 ? `<div class="small muted" style="text-align:right">item ${cents(p.itemPrice)} + tax</div>` : ''}
@@ -5652,7 +5670,7 @@ function shipLabelSheet(x, d, after){
         sheet(`<div class="row" style="justify-content:space-between"><h3>${st.test ? 'Test label made' : 'Label bought'}</h3><button data-close>Done</button></div>
           <div class="stack" style="gap:6px"><div>Tracking <b class="mono">${esc(r.tracking)}</b></div>
           <div>${printed ? '✓ Sent to ' + printed : r.labelUrl ? 'Opened the label PDF to print' : 'No label file (demo)'}${r.labelUrl ? ` · <a href="${esc(r.labelUrl)}" target="_blank" rel="noopener">Label PDF</a>` : ''}</div>
-          <div>${pp?.ok ? '<span style="color:var(--ok)">✓ Tracking added to the buyer\'s PayPal payment</span>' : st.test ? '<span class="muted">Test label: nothing sent to PayPal.</span>' : st.pay ? `<span style="color:var(--bad)">PayPal didn't take the tracking: ${esc(pp?.error || '')}</span>. Tap <b>Send to PayPal</b> on the row to try again.` : '<span style="color:var(--bad)">No PayPal payment picked.</span> Tap <b>Send to PayPal</b> on the row once the payment shows up.'}</div>
+          <div>${pp?.ok ? '<span style="color:var(--ok)">✓ Tracking added to the buyer\'s PayPal payment</span>' : st.test ? '<span class="muted">Test label: nothing sent to PayPal.</span>' : st.pay ? (ppWaiting(pp?.error) ? `<span style="color:var(--warn,#b45309)">PayPal hasn't posted this payment yet (new payments can take up to 3 hours). The tracking goes on automatically once it does; nothing to do.</span>` : `<span style="color:var(--bad)">PayPal didn't take the tracking: ${esc(pp?.error || '')}</span>. Tap <b>Send to PayPal</b> on the row to try again.`) : '<span style="color:var(--bad)">No PayPal payment picked.</span> Tap <b>Send to PayPal</b> on the row once the payment shows up.'}</div>
           <div class="small muted">Tape the label on, hand it to USPS, then tap <b>Shipped</b>.</div></div>`, () => {});
         after && after();
       } catch (e) { err(e.message); if (st.rates) drawRates(); else btn.textContent = 'Get price'; }
