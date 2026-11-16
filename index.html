@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794803741";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794804237";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -773,7 +773,7 @@ const DemoStore = {
     this.log(d, emp.id, store, 'Shipped to Atlas', `Batch #${b.number} · ${devs.length} devices · cost ${money(b.costTotal)}`); this.save(d); return b;
   },
   async atlasPayoutLines(emp, id, lines, other){ if (RANK[emp.role] < 2) throw new Error('Manager only.'); const d = this.db(); const b = d.atlasBatches.find(x => x.id === id);
-    lines.forEach(l => { const dv = d.devices.find(x => x.id === l.id); if (dv) dv.soldPrice = +l.price; }); Object.assign(b, {payout: lines.reduce((a, l) => a + +l.price, 0) + (+other || 0), paidAt: now(), paidBy: emp.id}); this.log(d, emp.id, b.store, 'Atlas payout', `Batch #${b.number} · ${lines.length} devices`); this.save(d); return b; },
+    lines.forEach(l => { const dv = d.devices.find(x => x.id === l.id); if (dv) dv.soldPrice = +l.price; }); b.adjust = (+b.adjust || 0) + (+other || 0); Object.assign(b, {payout: d.devices.filter(x => b.deviceIds.includes(x.id) && x.soldPrice != null).reduce((a, x) => a + +x.soldPrice, 0) + b.adjust, paidAt: now(), paidBy: emp.id}); this.log(d, emp.id, b.store, 'Atlas payout', `Batch #${b.number} · ${lines.length} devices`); this.save(d); return b; },
   async atlasPayout(emp, id, amount){
     if (RANK[emp.role] < 2) throw new Error('A manager records the Atlas payout.'); if (!(amount >= 0)) throw new Error('Enter what Atlas paid for this batch.');
     const d = this.db(); const b = d.atlasBatches.find(x => x.id === id); Object.assign(b, {payout: amount, paidAt: now(), paidBy: emp.id});
@@ -3483,6 +3483,69 @@ async function mismatchReport(box, parts, counts, again){
     catch (e) { b.disabled = false; toast(e.message); } });
 }
 
+/* ---------- Atlas payout upload: read the statement (PDF / Excel / CSV / pasted text), match each line to a device sent to Atlas by IMEI or serial,
+   take the price on that line, preview by box, then save. Only devices in "Sent to Atlas" are matched. ---------- */
+const XLSX_JS = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js', PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js', PDFJS_W = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+async function fileText(f){
+  const n = f.name.toLowerCase();
+  if (/\.(xlsx|xls)$/.test(n)) { if (!window.XLSX) await loadScript(document, XLSX_JS); const wb = XLSX.read(await f.arrayBuffer()); return wb.SheetNames.map(k => XLSX.utils.sheet_to_csv(wb.Sheets[k], {FS: '  '})).join('\n'); }
+  if (/\.pdf$/.test(n)) { if (!window.pdfjsLib) await loadScript(document, PDFJS); pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_W;
+    const pdf = await pdfjsLib.getDocument({data: await f.arrayBuffer()}).promise; const out = [];
+    for (let i = 1; i <= pdf.numPages; i++) { const c = await (await pdf.getPage(i)).getTextContent(); const rows = {};
+      c.items.forEach(it => { const y = Math.round(it.transform[5] / 3); (rows[y] = rows[y] || []).push([it.transform[4], it.str]); });
+      Object.keys(rows).sort((a, b) => b - a).forEach(y => out.push(rows[y].sort((a, b) => a[0] - b[0]).map(x => x[1]).join('  '))); }
+    return out.join('\n'); }
+  return f.text();
+}
+function atlasMatch(txt, cands){
+  const norm = x => String(x || '').toUpperCase().replace(/[^A-Z0-9]/g, ''), M = [];
+  txt.split(/\n/).forEach(line => { const toks = line.toUpperCase().match(/[A-Z0-9]{8,}/g) || [];
+    const dv = cands.find(d => { const im = norm(d.imei); return im && toks.some(t => t === im || (im.length >= 10 && t.length >= 10 && (t.endsWith(im.slice(-10)) || im.endsWith(t.slice(-10))))); });
+    if (!dv || M.some(m => m.d.id === dv.id)) return;
+    const rest = line.replace(/[A-Z0-9]{8,}/gi, ' ');
+    const dollars = (rest.match(/\$\s*-?[\d,]+(?:\.\d{1,2})?/g) || []).map(x => parseFloat(x.replace(/[$,\s]/g, '')));
+    const nums = (rest.match(/-?\d{1,5}(?:,\d{3})*\.\d{2}\b|\b\d{1,4}\b/g) || []).map(x => parseFloat(x.replace(/,/g, ''))).filter(v => v >= 0 && v < 5000);
+    const price = dollars.length ? dollars[dollars.length - 1] : nums.length ? nums[nums.length - 1] : null;
+    M.push({d: dv, price: price != null && !isNaN(price) && price >= 0 ? price : null, line: line.trim()}); });
+  return M;
+}
+function atlasUploadSheet(all, batches, again){
+  const sent = all.filter(d => d.status === 'atlas'), bOf = id => batches.find(b => (b.deviceIds || []).includes(id));
+  let M = [];
+  sheet(`<div class="row" style="justify-content:space-between"><h3>Upload Atlas payout</h3><button data-close>Close</button></div>
+    <p class="small muted" style="margin:0">Pick the statement Atlas sent (PDF, Excel or CSV), or copy the rows and paste them below. Each device is matched by IMEI / serial; the price on its line is what Atlas paid after deductions. Check the preview, fix any price, then save.</p>
+    <div class="row" style="gap:8px"><input type="file" id="au-f" accept=".pdf,.csv,.txt,.xlsx,.xls" style="max-width:340px"><span class="small muted" id="au-fs"></span></div>
+    <div class="field"><label class="label" for="au-t">…or paste it</label><textarea id="au-t" rows="4" placeholder="356680115573361  iPhone 12 Pro 256GB  Grade B  $185.00"></textarea></div>
+    <div id="au-prev"></div>
+    <div class="field" style="max-width:320px"><label class="label" for="au-o">Fees / adjustments not tied to a phone (− or +)</label><input id="au-o" inputmode="decimal" placeholder="0.00"></div>
+    <div class="err" id="au-e" role="alert"></div><button class="primary" id="au-go" disabled>Save prices</button>`,
+    (L, close) => {
+      const draw = () => {
+        const groups = {}; M.forEach(m => { const b = bOf(m.d.id); const k = b ? b.id : 'none'; (groups[k] = groups[k] || []).push(m); });
+        const tot = M.reduce((a, m) => a + (+m.price || 0), 0), cost = M.reduce((a, m) => a + (+m.d.cost || 0) + (+m.d.partsCost || 0), 0);
+        L.querySelector('#au-prev').innerHTML = !M.length ? (L.querySelector('#au-t').value.trim() ? '<div class="banner warn small">No device sent to Atlas was found in this statement. Check it has IMEIs / serials.</div>' : '') :
+          Object.entries(groups).map(([k, ms]) => { const b = batches.find(x => x.id === k);
+            return `<div class="small" style="margin-top:6px"><b>${b ? `Box #${b.number} · ${STORES[b.store]} · shipped ${fmtDate(b.at)}` : 'Not in a box'}</b></div><div class="tbl"><table><tbody>
+            ${ms.map(m => { const c = (+m.d.cost || 0) + (+m.d.partsCost || 0), i = M.indexOf(m); return `<tr><td class="num">#${m.d.stockNo}</td><td>${esc(m.d.model)} ${esc(m.d.storage || '')}${m.d.soldPrice != null ? ` <span class="pill warn">was ${cents(m.d.soldPrice)}</span>` : ''}</td>
+              <td class="r num small">cost ${cents(c)}</td><td class="r"><input data-aup="${i}" inputmode="decimal" value="${m.price ?? ''}" style="width:90px;min-height:32px;text-align:right" aria-label="Atlas price #${m.d.stockNo}"></td>
+              <td class="r num" style="color:${(m.price ?? 0) - c >= 0 ? 'var(--ok)' : 'var(--bad)'}">${m.price != null ? cents(m.price - c) : '—'}</td></tr>`; }).join('')}</tbody></table></div>`; }).join('') +
+          `<div class="row" style="justify-content:space-between;margin-top:8px"><b>${M.length} device${M.length === 1 ? '' : 's'} · Atlas paid ${cents(tot)} · cost ${cents(cost)}</b><b style="color:${tot - cost >= 0 ? 'var(--ok)' : 'var(--bad)'}">Profit ${cents(tot - cost)}</b></div>`;
+        L.querySelectorAll('[data-aup]').forEach(i => i.onchange = () => { const v = parseFloat(i.value.replace(/[$,\s]/g, '')); M[+i.dataset.aup].price = isNaN(v) ? null : v; draw(); });
+        L.querySelector('#au-go').disabled = !M.length || M.some(m => m.price == null);
+        L.querySelector('#au-go').textContent = M.some(m => m.price == null) ? 'Enter a price for every device' : `Save prices for ${M.length} device${M.length === 1 ? '' : 's'}`;
+      };
+      const run = txt => { M = atlasMatch(txt, sent); draw(); };
+      L.querySelector('#au-t').oninput = e => run(e.target.value);
+      L.querySelector('#au-f').onchange = async e => { const f = e.target.files[0]; if (!f) return; const fs = L.querySelector('#au-fs'); fs.textContent = 'Reading…';
+        try { const t = await fileText(f); fs.textContent = `${f.name} read`; L.querySelector('#au-t').value = t.slice(0, 20000); run(t); } catch (x) { fs.textContent = "Couldn't read that file: " + x.message + '. Copy the rows and paste them instead.'; } };
+      L.querySelector('#au-go').onclick = async () => { const btn = L.querySelector('#au-go'), e = L.querySelector('#au-e'); btn.disabled = true; e.textContent = '';
+        const byB = {}; M.forEach(m => { const b = bOf(m.d.id); if (b) (byB[b.id] = byB[b.id] || []).push({id: m.d.id, price: +m.price}); });
+        const other = parseFloat(L.querySelector('#au-o').value) || 0, ks = Object.keys(byB); const big = ks.sort((a, b) => byB[b].length - byB[a].length)[0];
+        try { for (const k of ks) await Store.atlasPayoutLines(S.user, k, byB[k], k === big ? other : 0); close(); toast(`Atlas prices saved for ${M.length} device${M.length === 1 ? '' : 's'}`); again(); }
+        catch (x) { e.textContent = x.message; btn.disabled = false; } };
+    });
+}
+
 /* ---------------- SWAPPA SYNC (owner) ----------------
    The to-do list for the scheduled Claude task on the Mac mini: tracking numbers to add to Swappa sales and
    rep-entered price drops to apply to live listings. The task reads #czsync (JSON) and checks items off with czSwappaDone(). */
@@ -5344,6 +5407,7 @@ async function viewWholesale(el){
         <td><span class="${age >= 14 ? 'pill bad' : age >= 7 ? 'pill warn' : 'small'}">${age}d</span></td>${W.store === 'all' ? `<td>${d.store}</td>` : ''}</tr>`; }).join('') || `<tr><td colspan="8" class="muted">Nothing in wholesale${shipStore ? ' at ' + STORES[shipStore] : ''}. After a buy, tap "Wholesale" on the buy-complete screen, or move any device here from its page.</td></tr>`}
       </tbody></table></div>
     </div>` : `
+    <div class="panel row" style="justify-content:space-between;gap:10px;flex-wrap:wrap"><span class="small"><b>Atlas paid?</b> Upload their payout statement (PDF, Excel or CSV) or paste it. Every device on it gets the price Atlas actually paid, after deductions, and the profit shows on the store dashboard.</span>${can(2) ? '<button class="primary" id="ws-up">⬆ Upload Atlas payout</button>' : ''}</div>
     <div class="stack">${bs.map(b => { const margin = b.payout != null ? b.payout - b.costTotal : null; return `<div class="panel stack" style="gap:8px">
       <div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap"><b>Batch #${b.number} · ${STORES[b.store]} · ${fmtDate(b.at)} ${fmtTime(b.at)}</b>
         <span class="row" style="gap:6px">${b.payout != null ? `<span class="pill ${margin >= 0 ? 'ok' : 'bad'}">Atlas paid ${money(b.payout)} · ${margin >= 0 ? '+' : ''}${money(margin)}</span>` : '<span class="pill warn">Waiting on Atlas payout</span>'}
@@ -5360,6 +5424,7 @@ async function viewWholesale(el){
     <table><thead><tr><th>#</th><th>Stock #</th><th>Device</th><th>Carrier</th><th>IMEI / serial</th></tr></thead><tbody>${b.devices.map((x, i) => `<tr><td>${i + 1}</td><td>${x.stockNo}</td><td>${esc(x.model)} ${esc(x.storage || '')}</td><td>${esc(x.carrier || '')}</td><td>${esc(x.imei || '')}</td></tr>`).join('')}</tbody></table>`,
     '@page{size:letter;margin:12mm}body{font:12px Arial,sans-serif}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #999;padding:4px 6px;text-align:left}');
   el.querySelectorAll('[data-bprint]').forEach(b => b.onclick = () => packing(bs.find(x => x.id === b.dataset.bprint)));
+  $('#ws-up') && ($('#ws-up').onclick = () => atlasUploadSheet(all, batches, () => viewWholesale(el)));
   el.querySelectorAll('[data-pay]').forEach(btn => btn.onclick = () => { const b = bs.find(x => x.id === btn.dataset.pay); const devsB = b.devices.map(x => all.find(d => d.id === x.id) || x);
     sheet(`<div class="row" style="justify-content:space-between"><h3>Atlas payout · batch #${b.number}</h3><button data-close>Close</button></div>
       <div class="small muted">${b.devices.length} devices · ${money(b.costTotal)} cost. Paste Atlas's payout breakdown (from the email or their portal: select the rows, copy, paste). Each device is matched by its IMEI / serial and gets the price Atlas paid for it.</div>
@@ -6204,6 +6269,15 @@ const DASH_SWAPPA_NET = 0.87;   /* old flat estimate, kept for the Swappa tab's 
    else phones $11 ($27 over $675), tablets/computers $18 ($33 over $675). */
 let DASH_SHIP = {};
 const swappaNet = d => { const p = +d.soldPrice || 0, big = p > 675, tab = ['ipad', 'mac'].includes(devKind(d)); const sh = DASH_SHIP[d.id] ?? (tab ? (big ? 33 : 18) : (big ? 27 : 11)); return p * 0.884375 - sh; };
+/* Atlas (wholesale) profit for a store in a period: only devices Atlas has priced (from their payout statement), in the period the payout was recorded */
+function atlasProfit(batches, devs, st, from, to){
+  const dvm = Object.fromEntries(devs.map(d => [d.id, d]));
+  const bs = batches.filter(b => (!st || b.store === st) && b.payout != null && b.paidAt && new Date(b.paidAt) >= from && new Date(b.paidAt) < to);
+  let n = 0, rev = 0, cost = 0;
+  bs.forEach(b => { (b.deviceIds || []).forEach(id => { const d = dvm[id]; if (!d || d.soldPrice == null) return; n++; rev += +d.soldPrice; cost += (+d.cost || 0) + (+d.partsCost || 0); }); rev += +b.adjust || 0; });
+  return {n, rev, profit: rev - cost};
+}
+const atlasWaiting = (batches, devs, st) => { const dvm = Object.fromEntries(devs.map(d => [d.id, d])); return batches.filter(b => b.store === st).reduce((a, b) => a + (b.deviceIds || []).filter(id => dvm[id] && dvm[id].soldPrice == null).length, 0); };
 const SHIFT_K = 'czpos-shift-start';
 const shiftStart = st => (ls.get(SHIFT_K, {}) || {})[st] || '10:00';
 const dashRanges = () => { const d0 = new Date(new Date().toDateString()), d1 = new Date(d0); d1.setDate(d1.getDate() + 1);
@@ -6256,10 +6330,9 @@ async function viewOwnerDash(el){
     const iv = invs.filter(i => i.store === st), so = soldM.filter(d => d.store === st);
     const day = dashNums(iv.filter(i => isToday(i.at)), so.filter(d => isToday(d.soldAt)), dv, pr, tk), mon = dashNums(iv, so, dv, pr, tk);
     /* Atlas: counted in the month the payout is recorded (that's when we know what Atlas paid) */
-    const ab = atlasB.filter(b => b.store === st && b.payout != null && b.paidAt && new Date(b.paidAt) >= R.m0 && new Date(b.paidAt) < R.d1);
-    const atl = {n: ab.reduce((a, b) => a + (b.deviceIds || b.devices || []).length, 0), rev: ab.reduce((a, b) => a + (+b.payout || 0), 0), profit: ab.reduce((a, b) => a + (+b.payout || 0) - (+b.costTotal || 0), 0)};
+    const atl = atlasProfit(atlasB, devs, st, R.m0, R.d1), atlT = atlasProfit(atlasB, devs, st, R.d0, R.d1);
     Object.assign(mon, {sales: mon.sales + atl.rev, profit: mon.profit + atl.profit, atlas: atl.rev, atlasN: atl.n, atlasP: atl.profit});
-    const abT = ab.filter(b => isToday(b.paidAt)); if (abT.length) { const r = abT.reduce((a, b) => a + (+b.payout || 0), 0), pf = abT.reduce((a, b) => a + (+b.payout || 0) - (+b.costTotal || 0), 0); Object.assign(day, {sales: day.sales + r, profit: day.profit + pf, atlas: r, atlasN: abT.length, atlasP: pf}); }
+    if (atlT.n) Object.assign(day, {sales: day.sales + atlT.rev, profit: day.profit + atlT.profit, atlas: atlT.rev, atlasN: atlT.n, atlasP: atlT.profit});
     const awaiting = atlasB.filter(b => b.store === st && b.payout == null);
     const bb = bbM.filter(b => b.store === st), bbT = bb.filter(b => isToday(b.at));
     const open = tix.filter(t => t.store === st && t.status !== 'resolved');
@@ -6389,11 +6462,14 @@ async function viewRepDash(el){
   const [invM, bbM, devs, prods, tix, ships, porders, parts, custs, revs] = await Promise.all([Store.invoices(R.m0, R.d1), Store.buybacks(R.m0, R.d1).catch(() => []), Store.devices(),
     Store.products().catch(() => []), Store.tickets(), Store.ships().catch(() => []), Store.partOrders().catch(() => []), Store.parts().catch(() => []), Store.customers().catch(() => []),
     Store.reviewLinks(R.m0).catch(() => [])]);
+  const atlasB = await Store.atlasBatches().catch(() => []);
   const C = custById(custs);
   const dv = Object.fromEntries(devs.map(d => [d.id, d])), pr = Object.fromEntries(prods.map(p => [p.id, p])), tk = Object.fromEntries(tix.map(t => [t.id, t]));
   const isToday = d => d && new Date(d) >= R.d0;
   const paid = invM.filter(i => i.paid !== false), soldM = devs.filter(d => d.status === 'sold' && d.soldAt && new Date(d.soldAt) >= R.m0);
   const storeDay = dashNums(paid.filter(i => i.store === st && isToday(i.at)), soldM.filter(d => d.store === st && isToday(d.soldAt)), dv, pr, tk);
+  const storeMon = dashNums(paid.filter(i => i.store === st), soldM.filter(d => d.store === st), dv, pr, tk);
+  const wsM = atlasProfit(atlasB, devs, st, R.m0, R.d1), wsWait = atlasWaiting(atlasB, devs, st), wsHere = devs.filter(d => d.store === st && d.status === 'wholesale');
   const mine = paid.filter(i => i.by === me);
   const day = dashNums(mine.filter(i => isToday(i.at)), [], dv, pr, tk), mon = dashNums(mine, [], dv, pr, tk);
   const bbS = bbM.filter(b => b.store === st), bbSt = bbS.filter(b => isToday(b.at)), myBB = bbM.filter(b => b.by === me);
@@ -6450,6 +6526,13 @@ async function viewRepDash(el){
           <div><span class="dk-l">Buybacks at ${STORES[st]}</span><b class="num">${bbSt.length} <small>today</small></b><span class="dk-s">${bbS.length} this month · ${myBB.length} by you</span></div>
           <div><span class="dk-l">Review links sent</span><b class="num">${myRev.length}</b><span class="dk-s">by you this month</span></div>
         </div></div></section>
+    <section class="dp"><header><h3>${STORES[st]} resale profit · ${new Date().toLocaleDateString('en-US', {month: 'long'})}</h3><span class="small muted">Buy low, sell right: this is what the phones we bought made</span></header>
+      <div class="mine" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
+        <div><span class="dk-l">Wholesale (Atlas) profit</span><b class="num" style="color:${wsM.profit >= 0 ? 'var(--ok)' : 'var(--bad)'}">${money(wsM.profit)}</b><span class="dk-s">${wsM.n} device${wsM.n === 1 ? '' : 's'} paid · ${money(wsM.rev)} from Atlas</span></div>
+        <div><span class="dk-l">Swappa profit</span><b class="num" style="color:${(storeMon.swappaP || 0) >= 0 ? 'var(--ok)' : 'var(--bad)'}">${money(storeMon.swappaP || 0)}</b><span class="dk-s">${storeMon.swappaN} sold · ${money(storeMon.swappa)} in sales</span></div>
+        <div><span class="dk-l">Waiting on Atlas</span><b class="num">${wsWait}</b><span class="dk-s">shipped, not paid yet</span></div>
+        <div><span class="dk-l">In wholesale now</span><b class="num">${wsHere.length}</b><span class="dk-s">${money(wsHere.reduce((a, d) => a + (+d.cost || 0) + (+d.partsCost || 0), 0))} cost · ship it</span></div>
+      </div></section>
     <div class="rem"><span>${rem[0]} ${esc(rem[1])}</span><span>${rem2[0]} ${esc(rem2[1])}</span></div>
     <section class="dp"><header><h3>Needs attention</h3><span class="small muted">Tap a box to see the list</span></header>
       <div class="cats">${CATS.map(c => `<button class="cat ${c.hot ? 'hot' : c.n ? '' : 'zero'} ${D.open === c.k ? 'on' : ''}" data-cat="${c.k}" aria-expanded="${D.open === c.k}">
