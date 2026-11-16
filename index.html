@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794804237";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794846395";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -1098,6 +1098,7 @@ const DemoStore = {
   },
   async updatePO(actor, id, patch){
     const d = this.db(); const po = d.pos.find(x => x.id === id);
+    if (patch.status === 'cancel') { if (po.status !== 'draft') throw new Error('Only a draft can be cancelled.'); d.partOrders.forEach(r => { if (r.poId === po.id && r.status === 'needed') r.poId = null; }); d.pos = d.pos.filter(x => x.id !== id); this.save(d); return {ok: true}; }
     if (patch.status === 'placed') { if (RANK[actor.role] < 2) throw new Error('A manager places part orders.'); if (!patch.orderNo?.trim()) throw new Error('Enter the Sentrix order number.');
       po.lines.forEach(l => (l.requestIds || []).forEach(rid => { const r = d.partOrders.find(x => x.id === rid); if (r) { r.status = 'ordered'; r.ref = 'Sentrix #' + patch.orderNo; r.orderedAt = now();
         if (r.forType === 'device') { const dv = d.devices.find(x => x.id === r.forId); if (dv) { dv.repairStatus = 'ordered'; dv.log.unshift({at: now(), who: actor.id, text: `Part ordered: ${r.name} · Sentrix #${patch.orderNo}`}); } } } }));
@@ -1335,8 +1336,8 @@ const LiveStore = {
   async createTransfer(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
   async receiveTransfer(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
   async pos(){ const {data, error} = await this.sb.from('sentrix_orders_v').select('*').order('orderedAt', {ascending: false}).limit(60); if (error) return []; return data; },
-  async createPO(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
-  async updatePO(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
+  async createPO(actor, store, lines){ return this.rpc('pos_po_create', {p_pin: this.pinFor(actor), p_store: store, p_lines: lines.filter(l => l.qty > 0).map(l => ({name: l.name, partId: l.partId || null, qty: l.qty, cost: l.cost || null, requestIds: l.requestIds || []}))}); },
+  async updatePO(actor, id, patch){ return this.rpc('pos_po_update', {p_pin: this.pinFor(actor), p_id: id, p_patch: patch}); },
   async receivePOLine(emp, store, id, idx, qty){ return this.rpc('pos_po_receive', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_idx: idx, p_qty: qty}); },
   async linkPOLine(emp, store, id, idx, partId){ return this.rpc('pos_po_link', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_idx: idx, p_part: partId || null}); },
   async leads(){ const {data, error} = await this.sb.from('web_leads_v').select('*').gte('at', new Date(Date.now() - 60 * 864e5).toISOString()).order('at', {ascending: false}).limit(300); if (error) return []; return data.map(l => ({...l, notes: l.notes || []})); },
@@ -5980,7 +5981,7 @@ function viewOrders(box, parts, reqs, pos, re){
         return `<tr><td>${esc(l.name)}${l.requestIds?.length ? ' <span class="pill acc">special</span>' : ''}<div class="small muted">${pt ? '→ ' + esc(pt.name) + ` (${pt.qty?.[p.store] ?? 0} on shelf)` : 'Not a stocked part (supplies)'}${l.cost ? ' · ' + cents(l.cost) + ' each' : ''}</div>
           ${open && !rec ? `<select data-plink="${p.id}:${i}" aria-label="Stocked part for ${esc(l.name)}" style="min-height:30px;margin-top:4px;max-width:320px"><option value="">Not a stocked part</option>${parts.map(x => `<option value="${x.id}" ${x.id === l.partId ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>` : ''}</td><td class="r num">${rec}/${l.qty}</td>
         <td class="r">${open ? `<button data-rl="${p.id}:${i}" style="min-height:32px;padding:2px 10px">Received ${l.qty - rec}</button>` : rec >= l.qty ? '<span class="pill ok">✓</span>' : ''}</td></tr>`; }).join('')}</tbody></table></div>
-      <div class="row">${['placed','partial'].includes(p.status) && p.store === S.store && p.lines.some(l => (+l.received || 0) < l.qty) ? `<button class="primary" data-rall="${p.id}">Everything arrived: receive all</button>` : ''}${p.status === 'draft' && can(2) ? `<button class="primary" data-place="${p.id}">Mark placed</button>` : ''}${['placed','partial'].includes(p.status) && can(2) ? `<button data-track="${p.id}">${p.tracking ? 'Change' : 'Add'} tracking #</button>` : ''}</div>
+      <div class="row">${['placed','partial'].includes(p.status) && p.store === S.store && p.lines.some(l => (+l.received || 0) < l.qty) ? `<button class="primary" data-rall="${p.id}">Everything arrived: receive all</button>` : ''}${p.status === 'draft' && can(2) ? `<button class="primary" data-place="${p.id}">Mark placed</button> <button data-pcancel="${p.id}">Delete draft</button>` : ''}${['placed','partial'].includes(p.status) && can(2) ? `<button data-track="${p.id}">${p.tracking ? 'Change' : 'Add'} tracking #</button>` : ''}</div>
     </div>`).join('') || '<p class="muted small">No orders yet.</p>'}</div></div>`;
   $('#po-st') && ($('#po-st').onchange = e => { S.poStore = e.target.value; re(); });
   box.querySelectorAll('[data-sq]').forEach(i => i.onchange = () => { sug[+i.dataset.sq].qty = Math.max(0, parseInt(i.value) || 0); });
@@ -5989,6 +5990,7 @@ function viewOrders(box, parts, reqs, pos, re){
   box.querySelectorAll('[data-place]').forEach(b => b.onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Mark placed</h3><button data-close>Close</button></div>
     <div class="field"><label class="label" for="pl-no">Sentrix order #</label><input id="pl-no" placeholder="108772203"></div><div class="err" id="pl-e" role="alert"></div><button class="primary" id="pl-go">Mark placed</button>`,
     (L, close) => L.querySelector('#pl-go').onclick = async () => { try { await Store.updatePO(S.user, b.dataset.place, {status: 'placed', orderNo: L.querySelector('#pl-no').value.trim()}); close(); toast('Placed. The store has been alerted.'); re(); } catch (e) { L.querySelector('#pl-e').textContent = e.message; } }));
+  box.querySelectorAll('[data-pcancel]').forEach(b => b.onclick = async () => { if (!confirm('Delete this draft order? Special requests on it go back to the waiting list.')) return; try { await Store.updatePO(S.user, b.dataset.pcancel, {status: 'cancel'}); toast('Draft deleted'); re(); } catch (e) { toast(e.message); } });
   box.querySelectorAll('[data-track]').forEach(b => b.onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Tracking number</h3><button data-close>Close</button></div>
     <div class="field"><label class="label" for="tk-no">Tracking #</label><input id="tk-no" placeholder="1Z..."></div><button class="primary" id="tk-go">Save</button>`,
     (L, close) => L.querySelector('#tk-go').onclick = async () => { const v = L.querySelector('#tk-no').value.trim(); if (!v) return; await Store.updatePO(S.user, b.dataset.track, {tracking: v}); close(); toast('Tracking saved. The store can see it.'); re(); }));
