@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794858812";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794864400";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -1650,7 +1650,7 @@ const HELP_KB = [
  {t: 'Ship wholesale devices to Atlas', k: 'wholesale atlas ship box pack tracking packing list', s: [
   'Go to **Wholesale**.',
   'Tick the devices going in the box (or **Tick all**) and tap **Ship to Atlas**.',
-  'Add the tracking number and tap **Clear wholesale and ship**. Print the packing list for the box.']},
+  'Add the tracking number and tap **Clear wholesale and ship**. Print the packing list for the box.', 'To see a shipped box later, open **Shipped to Atlas** and tap **Details** on the batch: every IMEI and cost, with **Export to CSV**.']},
  {t: 'Use a part on a ticket', k: 'use part parts used part inventory ticket part oled lcd pull part stock', s: [
   'You don\'t need to: adding the repair charge pulls its part from stock automatically.',
   'Warranty or rework with no charge? Open **Pull a part without a charge** under Parts pulled from stock.',
@@ -5415,7 +5415,7 @@ async function viewWholesale(el){
     <div class="stack">${bs.map(b => { const margin = b.payout != null ? b.payout - b.costTotal : null; return `<div class="panel stack" style="gap:8px">
       <div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap"><b>Batch #${b.number} · ${STORES[b.store]} · ${fmtDate(b.at)} ${fmtTime(b.at)}</b>
         <span class="row" style="gap:6px">${b.payout != null ? `<span class="pill ${margin >= 0 ? 'ok' : 'bad'}">Atlas paid ${money(b.payout)} · ${margin >= 0 ? '+' : ''}${money(margin)}</span>` : '<span class="pill warn">Waiting on Atlas payout</span>'}
-        ${can(2) ? `<button data-pay="${b.id}" style="min-height:32px;padding:2px 10px">${b.payout != null ? 'Edit payout' : 'Record payout'}</button>` : ''}<button data-bprint="${b.id}" style="min-height:32px;padding:2px 10px">Print packing list</button></span></div>
+        ${can(2) ? `<button data-pay="${b.id}" style="min-height:32px;padding:2px 10px">${b.payout != null ? 'Edit payout' : 'Record payout'}</button>` : ''}<button class="primary" data-bdet="${b.id}" style="min-height:32px;padding:2px 10px">Details</button><button data-bprint="${b.id}" style="min-height:32px;padding:2px 10px">Print packing list</button></span></div>
       <div class="small muted">${b.devices.length} devices · ${money(b.costTotal)} cost · shipped by ${esc(staffName(b.by))}${b.tracking ? ' · tracking ' + esc(b.tracking) : ''}${b.notes ? ' · ' + esc(b.notes) : ''}</div>
       <div class="small">${b.devices.map(x => `#${x.stockNo} ${esc(x.model)} ${esc(x.storage || '')}`).join(' · ')}</div></div>`; }).join('') || '<p class="muted">No boxes shipped to Atlas yet.</p>'}</div>`}
   </div>`;
@@ -5428,6 +5428,23 @@ async function viewWholesale(el){
     <table><thead><tr><th>#</th><th>Stock #</th><th>Device</th><th>Carrier</th><th>IMEI / serial</th></tr></thead><tbody>${b.devices.map((x, i) => `<tr><td>${i + 1}</td><td>${x.stockNo}</td><td>${esc(x.model)} ${esc(x.storage || '')}</td><td>${esc(x.carrier || '')}</td><td>${esc(x.imei || '')}</td></tr>`).join('')}</tbody></table>`,
     '@page{size:letter;margin:12mm}body{font:12px Arial,sans-serif}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #999;padding:4px 6px;text-align:left}');
   el.querySelectorAll('[data-bprint]').forEach(b => b.onclick = () => packing(bs.find(x => x.id === b.dataset.bprint)));
+  /* batch details: every device in the box with IMEI, cost and (once Atlas pays) what Atlas paid; exports to CSV */
+  const batchRows = b => b.devices.map(x => { const d = all.find(v => v.id === x.id) || {}; const c = (x.cost != null ? +x.cost : +d.cost || 0) + (+d.partsCost || 0);
+    const paid = d.soldPrice != null && b.payout != null ? +d.soldPrice : null; return {x, d, c, paid}; });
+  const batchDetails = b => { const R = batchRows(b), tc = R.reduce((a, r) => a + r.c, 0), anyPaid = R.some(r => r.paid != null), tp = R.reduce((a, r) => a + (r.paid || 0), 0);
+    sheet(`<div class="row" style="justify-content:space-between"><h3>Atlas batch #${b.number} · ${STORES[b.store]}</h3><button data-close>Close</button></div>
+      <div class="small muted">Shipped ${fmtDate(b.at)} ${fmtTime(b.at)} by ${esc(staffName(b.by))} · ${b.devices.length} devices${b.tracking ? ' · tracking ' + esc(b.tracking) : ''}${b.notes ? ' · ' + esc(b.notes) : ''}</div>
+      <div class="tbl" style="max-height:55vh;overflow:auto"><table><thead><tr><th>#</th><th>Stock #</th><th>Device</th><th>Carrier</th><th>IMEI / serial</th><th class="r">Cost</th>${anyPaid ? '<th class="r">Atlas paid</th><th class="r">Profit</th>' : ''}</tr></thead><tbody>
+      ${R.map((r, i) => `<tr><td class="muted">${i + 1}</td><td class="num">${r.x.stockNo}</td><td>${esc(r.x.model)} ${esc(r.x.storage || '')}</td><td class="small">${esc(r.x.carrier || '')}</td><td class="mono small">${esc(r.x.imei || '—')}</td><td class="r num">${cents(r.c)}</td>
+        ${anyPaid ? `<td class="r num">${r.paid != null ? cents(r.paid) : '<span class="muted">—</span>'}</td><td class="r num" style="color:${r.paid == null ? 'inherit' : r.paid - r.c >= 0 ? 'var(--ok)' : 'var(--bad)'}">${r.paid != null ? cents(r.paid - r.c) : ''}</td>` : ''}</tr>`).join('')}
+      <tr><td></td><td></td><td colspan="3"><b>Total · ${R.length} devices</b></td><td class="r num"><b>${cents(tc)}</b></td>${anyPaid ? `<td class="r num"><b>${cents(tp)}</b></td><td class="r num"><b>${cents(tp - R.filter(r => r.paid != null).reduce((a, r) => a + r.c, 0))}</b></td>` : ''}</tr></tbody></table></div>
+      ${b.payout != null ? `<div class="small muted">Atlas paid ${money(b.payout)} for the box${+b.adjust ? ` (incl. ${cents(b.adjust)} fees/bonus lines)` : ''}.</div>` : '<div class="small muted">Atlas hasn\'t paid this box yet. Their price per device shows here once the payout is uploaded.</div>'}
+      <div class="row" style="gap:8px;flex-wrap:wrap"><button class="primary" id="bd-csv">⬇ Export to CSV</button><button id="bd-print">Print packing list</button></div>`,
+    (L) => { L.querySelector('#bd-print').onclick = () => packing(b);
+      L.querySelector('#bd-csv').onclick = () => { const head = ['Batch', 'Store', 'Shipped', 'Stock #', 'Device', 'Storage', 'Carrier', 'IMEI / serial', 'Cost'].concat(anyPaid ? ['Atlas paid', 'Profit'] : []);
+        rpCsv(`Atlas batch ${b.number} ${b.store} ${new Date(b.at).toISOString().slice(0, 10)}`, [head, ...R.map(r => [b.number, STORES[b.store], new Date(b.at).toLocaleDateString('en-US'), r.x.stockNo, r.x.model, r.x.storage || '', r.x.carrier || '', r.x.imei || '', r.c.toFixed(2)].concat(anyPaid ? [r.paid != null ? r.paid.toFixed(2) : '', r.paid != null ? (r.paid - r.c).toFixed(2) : ''] : [])),
+          ['', '', '', '', 'Total', '', '', R.length + ' devices', tc.toFixed(2)].concat(anyPaid ? [tp.toFixed(2), ''] : [])]); toast('CSV downloaded'); }; }); };
+  el.querySelectorAll('[data-bdet]').forEach(b => b.onclick = () => batchDetails(bs.find(x => x.id === b.dataset.bdet)));
   $('#ws-up') && ($('#ws-up').onclick = () => atlasUploadSheet(all, batches, () => viewWholesale(el)));
   el.querySelectorAll('[data-pay]').forEach(btn => btn.onclick = () => { const b = bs.find(x => x.id === btn.dataset.pay); const devsB = b.devices.map(x => all.find(d => d.id === x.id) || x);
     sheet(`<div class="row" style="justify-content:space-between"><h3>Atlas payout · batch #${b.number}</h3><button data-close>Close</button></div>
