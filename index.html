@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794785573";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794790497";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -3825,6 +3825,7 @@ async function viewEod(el){
   /* same order as the shelf / the Parts Inventory sheet */
   const shelf = n => /ipad/i.test(n) ? 'iPad' : /iphone/i.test(n) ? (/aq7/i.test(n) ? 'iPhone AQ7' : /oled|xo7|x07/i.test(n) ? 'iPhone OLED (XO7)' : 'iPhone older + LCD') : /galaxy|^s\d|note|^a\d|samsung|^z /i.test(n) ? 'Samsung' : 'Other';
   const pg = []; L.parts.slice().sort((a, b) => (a.sort ?? 9999) - (b.sort ?? 9999) || a.name.localeCompare(b.name)).forEach(p => { const k = shelf(p.name); let g = pg.find(x => x[0] === k); if (!g) pg.push(g = [k, []]); g[1].push(p); });   /* incell is LCD: it counts with the LCD screens */
+  pg.forEach(g => { const inc = g[1].filter(p => /incell/i.test(p.name)); if (inc.length) g[1] = [...g[1].filter(p => !/incell/i.test(p.name)), ...inc.sort((a, b) => a.name.length - b.name.length || a.name.localeCompare(b.name))]; });   /* 17 / 17 Pro / 17 Pro Max incell go at the bottom of the LCD group */
   const nP = L.phones.length, nC = L.phones.filter(d => E.checked.has(d.id)).length, nS = L.parts.length, nE = L.parts.filter(p => E.parts[p.id] !== undefined && E.parts[p.id] !== '').length;
   const binsOk = E.rma !== '' && E.refurb !== '';
   const lbl = d => `<b class="num">#${d.stockNo}</b> ${esc([d.model, d.storage, d.color].filter(Boolean).join(' '))}${d.imei ? ` <span class="small muted num">…${esc(String(d.imei).slice(-4))}</span>` : ''}`;
