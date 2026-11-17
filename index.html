@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794879556";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794879704";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -1351,7 +1351,7 @@ const LiveStore = {
   async swappaList(emp, store, id, price, url, code){ return this.rpc('pos_swappa_list', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_price: price, p_url: url || '', p_code: code || ''}); },
   async swappaDrop(emp, store, id, price){ return this.rpc('pos_swappa_drop', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_price: price}); },
   async swappaSold(emp, store, id, price, buyer){ return this.rpc('pos_swappa_sold', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_price: price, p_buyer: buyer || ''}); },
-  async ships(){ const {data, error} = await this.sb.from('ships_v').select('*').order('at', {ascending: false}).limit(300); if (error) throw error; return data; },
+  async ships(){ const {data, error} = await this.sb.from('ships_v').select('*').order('at', {ascending: false}).limit(1000); if (error) throw error; return data; },
   async swappaSync(emp, kind, id, value, ok, note){ return this.rpc('pos_swappa_sync', {p_pin: this.pinFor(emp), p_kind: kind, p_id: id, p_value: String(value ?? ''), p_ok: !!ok, p_note: note || ''}); },
   async swappaSkip(emp, store, id, reason){ return this.rpc('pos_swappa_skip', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_reason: reason || null}); },
   async ppEmails(){ const {data, error} = await this.sb.from('paypal_payments_v').select('*').gt('at', new Date(Date.now() - 21 * 864e5).toISOString()).order('at', {ascending: false}).limit(60); if (error) throw error; return data || []; },
@@ -5549,14 +5549,30 @@ async function viewSwappa(el){
       <td class="r" style="white-space:nowrap">${x.status === 'pull' ? `<button class="primary" data-shiplbl="${x.id}" ${btn}>Ship · print label</button> <button data-packed="${x.id}" ${btn}>Have tracking already</button>`
         : `${x.labelUrl ? `<a class="small" href="${esc(x.labelUrl)}" target="_blank" rel="noopener">Label PDF</a> ` : ''}${x.tracking && (x.labelBy || x.paypalTxn) && !x.paypalTrackedAt ? `<button data-pptrack="${x.id}" ${btn}>Send to PayPal</button> ` : ''}<button class="primary" data-shipped="${x.id}" ${btn}>Shipped</button>`}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">Nothing waiting to ship.</td></tr>'}
     </tbody></table></div>`;
+  const shippedAll = ships.filter(x => x.status === 'shipped' && inS(x.store)).sort((a, b) => new Date(b.shippedAt || b.labelAt || b.at) - new Date(a.shippedAt || a.labelAt || a.at));
+  const trackUrl = t => { t = String(t || '').replace(/\s/g, ''); return /^1Z/i.test(t) ? 'https://www.ups.com/track?tracknum=' + t : /^\d{12}$|^\d{15}$/.test(t) ? 'https://www.fedex.com/fedextrack/?trknbr=' + t : 'https://tools.usps.com/go/TrackConfirmAction?tLabels=' + t; };
+  if (W.tab === 'shipped') { const q = (W.shq || '').trim().toLowerCase();
+    const list = shippedAll.filter(x => { if (!q) return true; const d = all.find(v => v.id === x.deviceId) || {}; return [x.label, x.buyer, x.tracking, d.stockNo, d.imei, d.swappa?.code].join(' ').toLowerCase().includes(q); });
+    body = `
+    <div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap"><p class="muted small" style="margin:0">Every Swappa sale that's gone out, newest first. Tap a tracking number to see where the package is.</p>
+      <input id="sw-shq" placeholder="Search model, buyer, stock #, IMEI, tracking" value="${esc(W.shq || '')}" style="max-width:340px"></div>
+    <div class="tbl"><table><thead><tr><th>Shipped</th><th>Device</th>${W.store === 'all' ? '<th>Store</th>' : ''}<th>Buyer</th><th class="r">Sold for</th><th>Tracking</th><th>Swappa / PayPal</th></tr></thead><tbody>
+    ${list.slice(0, 150).map(x => { const d = all.find(v => v.id === x.deviceId) || {}; return `<tr><td class="small">${fmtDate(x.shippedAt || x.labelAt || x.at)}</td>
+      <td><b>${esc(x.label)}</b>${d.stockNo ? `<div class="small muted">#${d.stockNo}${d.swappa?.code ? ' · ' + esc(d.swappa.code) : ''}</div>` : ''}</td>${W.store === 'all' ? `<td>${x.store}</td>` : ''}
+      <td class="small">${esc(x.buyer || '—')}${x.shipTo?.city ? `<div class="muted">${esc(x.shipTo.city)}, ${esc(x.shipTo.state || '')}</div>` : ''}</td>
+      <td class="r num">${d.soldPrice ? cents(d.soldPrice) : '—'}</td>
+      <td class="small">${x.tracking ? `<a href="${trackUrl(x.tracking)}" target="_blank" rel="noopener" class="mono">${esc(x.tracking)}</a>` : '<span class="muted">none</span>'}${x.service ? `<div class="muted">${esc(x.service)}</div>` : ''}${x.labelUrl ? `<div><a href="${esc(x.labelUrl)}" target="_blank" rel="noopener">Label PDF</a></div>` : ''}</td>
+      <td class="small">${x.swappaPostedAt ? '<span style="color:var(--ok)">✓ on Swappa</span>' : x.swappaError ? `<span style="color:var(--bad)">Swappa: ${esc(x.swappaError)}</span>` : x.tracking ? '<span class="muted">Swappa: waiting for sync</span>' : ''}<div>${x.paypalTrackedAt ? '<span style="color:var(--ok)">✓ on PayPal</span>' : x.paypalError ? `<span style="color:var(--bad)">PayPal: ${esc(x.paypalError)}</span>` : ''}</div></td></tr>`; }).join('') || `<tr><td colspan="7" class="muted">${q ? 'Nothing matches.' : 'Nothing shipped yet.'}</td></tr>`}
+    </tbody></table></div>${list.length > 150 ? `<p class="small muted">Showing the newest 150 of ${list.length}. Search to find older ones.</p>` : ''}`; }
   el.innerHTML = `<div class="stack">
     <div class="row" style="justify-content:space-between"><h2>Swappa listings</h2>${storeSel}</div>
     <div class="grid ${cardStores.length > 1 ? 'g3' : ''}">${cardStores.map(card).join('')}</div>
-    <div class="statusbar" role="group" aria-label="Swappa section"><button data-swt="listed" aria-pressed="${W.tab === 'listed'}">On Swappa (${listed.length})</button><button data-swt="ready" aria-pressed="${W.tab === 'ready'}">Ready to list (${ready.length})</button><button data-swt="skip" aria-pressed="${W.tab === 'skip'}">Not listing (${skipped.length})</button><button data-swt="ship" aria-pressed="${W.tab === 'ship'}">Sold · to ship${myShips.length ? ` (${myShips.length})` : ''}</button></div>
+    <div class="statusbar" role="group" aria-label="Swappa section"><button data-swt="listed" aria-pressed="${W.tab === 'listed'}">On Swappa (${listed.length})</button><button data-swt="ready" aria-pressed="${W.tab === 'ready'}">Ready to list (${ready.length})</button><button data-swt="skip" aria-pressed="${W.tab === 'skip'}">Not listing (${skipped.length})</button><button data-swt="ship" aria-pressed="${W.tab === 'ship'}">Sold · to ship${myShips.length ? ` (${myShips.length})` : ''}</button><button data-swt="shipped" aria-pressed="${W.tab === 'shipped'}">Shipped (${shippedAll.length})</button></div>
     ${body}</div>`;
   const again = () => viewSwappa(el);
   $('#sw-store') && ($('#sw-store').value = W.store, $('#sw-store').onchange = e => { W.store = e.target.value; again(); });
   el.querySelectorAll('[data-swt]').forEach(b => b.onclick = () => { W.tab = b.dataset.swt; again(); });
+  $('#sw-shq') && ($('#sw-shq').onchange = e => { W.shq = e.target.value; again(); });
   el.querySelectorAll('[data-swf]').forEach(b => b.onclick = () => { W.f = b.dataset.swf; again(); });
   el.querySelectorAll('[data-list]').forEach(b => b.onclick = () => { const d = ready.find(x => x.id === b.dataset.list);
     sheet(`<div class="row" style="justify-content:space-between"><h3>Listed on Swappa · #${d.stockNo}</h3><button data-close>Close</button></div><p class="muted small" style="margin:0">${esc(d.model)} ${esc(d.storage)} · ${esc(d.carrier)} · cost ${money((+d.cost || 0) + (+d.partsCost || 0))}</p>
