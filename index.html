@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794953435";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794956604";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -2056,7 +2056,7 @@ async function viewTicket(el){
       </div>
       <div class="panel stack">
         <div class="row" style="justify-content:space-between"><h3>Customer</h3><button id="t-cust">Open customer</button></div>
-        <dl class="kv"><dt>Name</dt><dd>${esc(c.name || '—')}</dd><dt>Phone</dt><dd class="num">${fmtPhone(c.phone)} ${c.phone ? '<button id="t-copyph" style="min-height:30px;padding:2px 8px">Copy</button>' : ''}</dd>${c.email ? `<dt>Email</dt><dd>${esc(c.email)}</dd>` : ''}</dl>
+        <dl class="kv"><dt>Name</dt><dd>${esc(c.name || '—')}</dd><dt>Phone</dt><dd class="num">${fmtPhone(c.phone)} ${c.phone ? '<button id="t-copyph" style="min-height:30px;padding:2px 8px">Copy</button>' : ''}</dd>${t.callback ? `<dt>Call back</dt><dd class="num"><a href="tel:${esc(t.callback)}" style="color:var(--accent);font-weight:600">${fmtPhone(t.callback)}</a> <span class="small muted">use this one</span></dd>` : ''}${c.email ? `<dt>Email</dt><dd>${esc(c.email)}</dd>` : ''}</dl>
       </div>
       <div class="panel stack">
         <div class="row" style="justify-content:space-between"><h3>Parts pulled from stock</h3>${can(2) ? `<span class="muted small">${money(partsCost)} part cost</span>` : ''}</div>
@@ -2325,6 +2325,7 @@ async function viewNewTicket(el){
         ${+D.estimate > 0 ? `<div class="field"><span class="label">From the quote</span><div class="small" style="padding-top:8px"><b>${cents(+D.estimate)}</b> is added to the ticket's charges</div></div>` : ''}
         <div class="field"><label class="label" for="nt-imei">IMEI / serial</label><input id="nt-imei" value="${esc(D.imei || '')}" autocomplete="off"></div>
       </div>
+      <div class="field"><label class="label" for="nt-cb">Call-back number <span class="muted" style="font-weight:400">(optional)</span></label><input id="nt-cb" inputmode="tel" value="${esc(D.callback || '')}" placeholder="Only if different from the number on the account" autocomplete="off"></div>
       <div class="field"><span class="label">Passcode, so the tech can test it</span><div id="nt-pcbox" class="stack" style="gap:8px"></div></div>
       <div class="field"><label class="label" for="nt-sub">Subject</label><input id="nt-sub" value="${esc(D.subject || '')}" placeholder="iPhone 15 Pro lcd replacement"></div>
       <div class="field"><label class="label" for="nt-notes">Notes for the tech</label><textarea id="nt-notes" rows="2" placeholder="Face ID works before repair. Small dent top left.">${esc(D.notes || '')}</textarea></div>
@@ -2339,7 +2340,7 @@ async function viewNewTicket(el){
       <div class="field"><label class="label" for="nt-tn">Test notes</label><input id="nt-tn" value="${esc(D.testNote || '')}" placeholder="Back glass cracked, Face ID didn't work before"></div>
     </div>
   </form>`;
-  const keep = () => { if (!$('#nt-dev')) return; Object.assign(D, {device: $('#nt-dev').value, issue: $('#nt-iss').value, imei: $('#nt-imei').value, subject: $('#nt-sub').value, notes: $('#nt-notes').value}); };
+  const keep = () => { if (!$('#nt-dev')) return; Object.assign(D, {device: $('#nt-dev').value, issue: $('#nt-iss').value, imei: $('#nt-imei').value, callback: $('#nt-cb').value, subject: $('#nt-sub').value, notes: $('#nt-notes').value}); };
   $('#back').onclick = () => go('tickets');
   pcField('nt-pc', D.passcode || '', v => { D.passcode = v; }).mount($('#nt-pcbox'));
   bindTestGrid($('#nt-tg'), D.tests); $('#nt-tn').oninput = e => { D.testNote = e.target.value; };
@@ -2355,11 +2356,12 @@ async function viewNewTicket(el){
   $('#nt-dev').oninput = () => { if (!$('#nt-iss').dataset.touched) { const g = issueGuess($('#nt-dev').value); if (g) $('#nt-iss').value = g; } $('#nt-testp').hidden = !testable($('#nt-dev').value); };
   $('#nt').onsubmit = async e => {
     e.preventDefault(); keep();
-    const err = !D.customerId ? 'Pick or add the customer first.' : !D.device.trim() ? 'Enter the device.' : !D.issue ? 'Pick the issue.' : !D.subject.trim() ? 'Enter a subject.'
+    const cbd = (D.callback || '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
+    const err = !D.customerId ? 'Pick or add the customer first.' : cbd && cbd.length !== 10 ? 'The call-back number should be 10 digits (or leave it blank).' : !D.device.trim() ? 'Enter the device.' : !D.issue ? 'Pick the issue.' : !D.subject.trim() ? 'Enter a subject.'
       : '';
     $('#nt-err').textContent = err; if (err) return;
     const t = await Store.createTicket(S.user, S.store, {customerId: D.customerId, device: D.device.trim(), issue: D.issue, subject: D.subject.trim(),
-      estimate: null, imei: D.imei.trim(), passcode: (D.passcode || '').trim(), techId: $('#nt-tech').value || null, notes: D.notes.trim()});
+      estimate: null, imei: D.imei.trim(), passcode: (D.passcode || '').trim(), callback: cbd || null, techId: $('#nt-tech').value || null, notes: D.notes.trim()});
     /* a price carried over from the Quote tool goes straight on as the first charge (no separate "quoted price" to keep in sync) */
     if (+D.estimate > 0) { try { await Store.ticketCharge(S.user, S.store, t.id, {desc: D.subject.trim(), cat: /diag/i.test(D.subject) ? 'Diagnostic' : /console/i.test(D.issue) ? 'Console repair' : 'Repair', price: +D.estimate}); } catch (e) { toast("Ticket made, but the quoted charge didn't save: " + e.message); } }
     if (testable(D.device) && testsDone(D.tests)) { try { await Store.saveTicketTest(S.user, S.store, t.id, 'checkin', D.tests, (D.testNote || '').trim()); } catch (e) { toast("Ticket made, but the check-in test didn't save: " + e.message); } }
@@ -4052,7 +4054,7 @@ async function viewTechboard(el){
       <div class="stack" style="gap:6px;flex:1;min-width:0">
         <div class="row" style="justify-content:space-between;gap:8px"><span><a data-tk="${t.id}" style="color:var(--accent);cursor:pointer;font-weight:700">#${t.number}</a> <b>${esc(t.device || '')}</b></span>${due(t)}</div>
         <div>${esc(t.subject || '')}</div>
-        <div class="small muted">${esc((c.name || 'Walk-in').split(' ')[0])}${c.phone ? ` · <a href="tel:${esc(String(c.phone).replace(/\D/g, ''))}" class="num" style="color:inherit;font-weight:600">${fmtPhone(c.phone)}</a>` : ''} · in ${fmtDate(t.createdAt)} ${fmtTime(t.createdAt)}${S.tbTech === 'all' ? ' · ' + esc(t.techId ? staffName(t.techId) : 'unassigned') : ''}</div>
+        <div class="small muted">${esc((c.name || 'Walk-in').split(' ')[0])}${(t.callback || c.phone) ? ` · <a href="tel:${esc(String(t.callback || c.phone).replace(/\D/g, ''))}" class="num" style="color:inherit;font-weight:600">${t.callback ? 'call back ' : ''}${fmtPhone(t.callback || c.phone)}</a>` : ''} · in ${fmtDate(t.createdAt)} ${fmtTime(t.createdAt)}${S.tbTech === 'all' ? ' · ' + esc(t.techId ? staffName(t.techId) : 'unassigned') : ''}</div>
         ${rf ? '<div class="banner warn small" style="padding:6px 10px">Original screen goes in the <b>refurb bin</b></div>' : ''}
         <div class="row" style="gap:6px">
           <select data-st="${t.id}" aria-label="Status" style="width:auto;min-height:36px">${TSTATUS.filter(([k]) => ['new', 'progress', 'board', 'parts', 'customer'].includes(k)).map(([k, l]) => `<option value="${k}" ${t.status === k ? 'selected' : ''}>${k === 'customer' ? 'Done · ready for pickup' : l}</option>`).join('')}</select>
@@ -6624,7 +6626,7 @@ async function viewRepDash(el){
   const myRev = revs.filter(r => r.by === me);
   const open = tix.filter(t => t.store === st && t.status !== 'resolved');
   const lineup = open.filter(t => ['new', 'progress', 'board', 'reply'].includes(t.status)).sort((a, b) => (a.status === 'board') - (b.status === 'board') || new Date(a.createdAt) - new Date(b.createdAt));
-  const cName = t => esc(C[t.customerId]?.name || 'Customer'), callBtn = t => { const p = C[t.customerId]?.phone; return p ? `<a class="chip acc" href="tel:${esc(p)}" onclick="event.stopPropagation()">📞 ${fmtPhone(p)}</a>` : ''; };
+  const cName = t => esc(C[t.customerId]?.name || 'Customer'), callBtn = t => { const p = t.callback || C[t.customerId]?.phone; return p ? `<a class="chip acc" href="tel:${esc(p)}" onclick="event.stopPropagation()">📞 ${fmtPhone(p)}</a>` : ''; };
   const tRow = (t, d, hot, what) => `<li data-act="t:${t.id}" class="${hot ? 'hot' : ''}"><span class="chip ${hot ? 'bad' : ''}">${d}d</span><span class="grow">#${t.number} ${cName(t)} · ${esc(t.subject || '')}${what ? ` <span class="muted small">${what}</span>` : ''}</span>${callBtn(t)}</li>`;
   const dRow = (d, hot, what, act) => `<li data-act="${act || 'r:' + d.id}" class="${hot ? 'hot' : ''}"><span class="chip ${hot ? 'bad' : ''}">#${d.stockNo}</span><span class="grow">${esc(d.model)} ${esc(d.storage || '')}${what ? ` <span class="muted small">${what}</span>` : ''}</span></li>`;
 
