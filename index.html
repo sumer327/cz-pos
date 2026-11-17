@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794879704";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794880571";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -2764,9 +2764,10 @@ async function chargeSheet(t, c, after, opts = {}){
         L.querySelectorAll('[data-da]').forEach(b => b.onclick = () => { const i = +b.dataset.da; const [d, cat] = opts[i]; add({desc: d, cat, price: parseFloat(L.querySelector(`[data-dp="${i}"]`).value)}, b); });
       } else if (tab === 'items') {
         if (!S.prods || Date.now() - S.prodsAt > 120000) { B.innerHTML = '<p class="muted">Loading inventory…</p>'; S.prods = await Store.products().catch(() => []); S.prodsAt = Date.now(); }
-        const iq = (S.chq || '').trim(); const hits = iq ? S.prods.filter(p => prodMatch(p, iq)).sort((a, b) => (b.qty?.[S.store] || 0) - (a.qty?.[S.store] || 0)).slice(0, 12) : [];
+        const iq = (S.chq || '').trim(); const repHit = iq && S.prods.some(p => repProd(p) && prodMatch(p, iq)); const hits = iq ? S.prods.filter(p => !repProd(p) && prodMatch(p, iq)).sort((a, b) => (b.qty?.[S.store] || 0) - (a.qty?.[S.store] || 0)).slice(0, 12) : [];
         B.innerHTML = `<div class="field"><label class="label" for="cs-i">Scan or search (${S.prods.length} items)</label><input id="cs-i" value="${esc(iq)}" placeholder="Scan the barcode, or type: clear case 15 pro" autocomplete="off"></div>
           <div class="row" style="gap:6px"><button data-gq="regular">Tempered glass… (pick model)</button><button data-gq="privacy">Privacy glass… (pick model)</button></div>
+          ${repHit ? `<div class="banner warn small">Charging a repair? Use <b>Repair price list</b> instead, so the screen or part comes off the shelf count and its cost shows on the ticket.</div>` : ''}
           ${hits.length ? `<div class="tbl"><table><tbody>${hits.map(p => `<tr data-pi="${p.id}" style="cursor:pointer"><td>${esc(p.name)}<div class="small muted">${esc(p.category || '')}</div></td><td class="r num">${p.qty?.[S.store] ?? 0} at ${S.store}</td><td class="r num"><b>${cents(/tempered|glass protector|screen protector/i.test(p.name) ? GLASS[/privacy/i.test(p.name) ? 'privacy' : 'regular'] : p.price)}</b></td></tr>`).join('')}</tbody></table></div>` : iq ? '<p class="muted small">Nothing matches.</p>' : ''}`;
         const inp = L.querySelector('#cs-i'); let tm; inp.oninput = () => { clearTimeout(tm); tm = setTimeout(() => { S.chq = inp.value; body().then(() => { const n = L.querySelector('#cs-i'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 200); };
         L.querySelectorAll('[data-gq]').forEach(b => b.onclick = () => glassPicker(b.dataset.gq, t.device, line => chargeSheet(t, c, after, {...opts, tab: 'items', pendingAdd: line})));
@@ -3180,6 +3181,7 @@ function retailPrice(d){
   return v || null;
 }
 /* old RepairShopr "products" named like a phone (iPhone 16 Pro Max 256GB Unlocked, $899.99) aren't real stock: phones are sold from phone stock by stock # / IMEI */
+const repProd = p => ['Repair', 'Diagnostic', 'Console repair'].includes(prodCat(p));   /* old RepairShopr repair "products": charge repairs as a Repair so the part comes off the shelf */
 /* what kind of sale an old RepairShopr product is: only real accessories count toward the accessories goal */
 const prodCat = p => { const c = p?.category || '', n = p?.name || '';
   if (/accessor/i.test(c)) return 'Accessory';
@@ -3211,7 +3213,7 @@ async function viewRegister(el){
   const set = await Store.settings();
   if (!S.prods || Date.now() - S.prodsAt > 120000) { S.prods = await Store.products().catch(() => []); S.prodsAt = Date.now(); }
   const pq = (S.rgq || '').trim(); const exact = pq && S.prods.find(p => p.upc && p.upc === pq);
-  const hits = pq ? S.prods.filter(p => p.category !== 'Phone Sale' && !phoneProd(p) && prodMatch(p, pq)).sort((a, b) => (b.qty?.[S.store] || 0) - (a.qty?.[S.store] || 0)).slice(0, 15) : [];
+  const hits = pq ? S.prods.filter(p => p.category !== 'Phone Sale' && !phoneProd(p) && !repProd(p) && prodMatch(p, pq)).sort((a, b) => (b.qty?.[S.store] || 0) - (a.qty?.[S.store] || 0)).slice(0, 15) : [];
   /* phones in this store's stock can be sold here too: search by stock #, IMEI or model */
   if (pq && (!S.rgDevs || Date.now() - S.rgDevsAt > 60000)) { S.rgDevs = (await Store.devices().catch(() => [])).filter(d => d.store === S.store && SELLABLE.includes(d.status) && !d.transferId); S.rgDevsAt = Date.now(); }
   const pql = pq.toLowerCase().replace(/^#/, '');
@@ -4280,7 +4282,7 @@ async function viewInvoice(el){
   const hits = $('#iv-hits'); let tm;
   const drawHits = async q => { if (!q.trim()) { hits.innerHTML = ''; return; }
     if (!S.prods || Date.now() - (S.prodsAt || 0) > 120000) { S.prods = await Store.products().catch(() => []); S.prodsAt = Date.now(); }
-    const hs = S.prods.filter(p => !phoneProd(p) && prodMatch(p, q)).sort((a, b) => (b.qty?.[S.store] || 0) - (a.qty?.[S.store] || 0)).slice(0, 8);
+    const hs = S.prods.filter(p => !phoneProd(p) && !repProd(p) && prodMatch(p, q)).sort((a, b) => (b.qty?.[S.store] || 0) - (a.qty?.[S.store] || 0)).slice(0, 8);
     if (!S.rgDevs || Date.now() - (S.rgDevsAt || 0) > 60000) { S.rgDevs = (await Store.devices().catch(() => [])).filter(d => d.store === S.store && SELLABLE.includes(d.status) && !d.transferId); S.rgDevsAt = Date.now(); }
     const dh = S.rgDevs.filter(d => !L.some(l => l.deviceId === d.id) && devMatch(d, q)).slice(0, 8);
     hits.innerHTML = (dh.length ? `<div class="stack" style="gap:4px;margin-bottom:6px"><span class="label">Phones in stock</span><div class="tbl"><table><tbody>${dh.map(d => devRowHTML(d, 'data-idv')).join('')}</tbody></table></div></div>` : '') + (hs.length || !dh.length ? (hs.length ? `<div class="tbl"><table><tbody>${hs.map(p => `<tr data-ip="${p.id}" style="cursor:pointer"><td>${esc(p.name)}<div class="small muted">${esc(p.category || '')}</div></td><td class="r small">${p.qty?.[S.store] ?? 0} at ${S.store}</td><td class="r num"><b>${cents(p.price)}</b></td></tr>`).join('')}</tbody></table></div>` : '<span class="small muted">Nothing in inventory matches. Use + Custom item.</span>') : '');
