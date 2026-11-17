@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794952281";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794953435";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -339,7 +339,7 @@ const partBrand = n => /^iphone/i.test(n) ? 'iPhone' : /^(galaxy|samsung|s\d|not
 const isSmallPart = p => !(p.kind === 'Screen' || isScreenPart(p) && !/batter|charg|port|camera|lens|flex/i.test(p.name));
 const isScreenPart = p => /screen|lcd|oled|xo7|x07|aq7|incell|digitizer|display/i.test(p.name + ' ' + (p.kind || ''));
 const isGlassOnly = txt => /glass only/i.test(txt || '');
-const needsBH = t => /iphone/i.test(t.issue + ' ' + t.device) && t.type !== 'buycheck';
+const needsBH = () => false;   // battery health is optional on tickets (Sam, Nov 17): record it if you have it, never required
 const DEFAULT_SETTINGS = {
   reviewLink: 'https://cellularzonesa.com/customer-review/', reviewDelayH: 24,
   reviewMsg: 'Hi {first}, thank you for choosing Cellular Zone {store}! If we took good care of your {device}, would you leave us a quick 5-star review? {link}',
@@ -1590,7 +1590,6 @@ const HELP_KB = [
  {t: 'Customer picks up: take payment and close the ticket', k: 'pickup pick up checkout check out pay close ticket done resolved payment finish repair battery health', s: [
   'Open the ticket and tap **Make invoice**. Add glass or an accessory on the invoice if they want one.',
   'Leave all charges ticked and **Repair is done: close the ticket** checked.',
-  'iPhone? Type the battery health %.',
   'Pick how they paid. Square: run the card on the Square iPad first.',
   'Tap **Record payment**, then print, text or email the receipt.']},
  {t: 'Ring up a walk-in sale (accessories, glass)', k: 'register sale sell accessory case charger cable walk in ring up cash out record sale', s: [
@@ -2040,7 +2039,7 @@ async function viewTicket(el){
         ${TT?.checkin || TT?.after ? `<div class="tbl"><table><thead><tr><th>Test</th><th>Check-in</th><th>After repair</th></tr></thead><tbody>${TCHECKS.map(([k, l]) => { const a = TT?.checkin?.[k], b = TT?.after?.[k]; const worse = a === 'pass' && b === 'fail', fixed = a === 'fail' && b === 'pass';
           const cell = v => v ? `<span class="pill ${v === 'pass' ? 'ok' : v === 'fail' ? 'bad' : ''}">${TRES[v]}</span>` : '<span class="muted small">—</span>';
           return `<tr ${worse ? 'style="background:var(--bad-soft)"' : ''}><td>${esc(l)}${worse ? ' <b style="color:var(--bad)">· worked at check-in!</b>' : fixed ? ' <span class="small" style="color:var(--ok)">· fixed</span>' : ''}</td><td>${cell(a)}</td><td>${cell(b)}</td></tr>`; }).join('')}</tbody></table></div>
-          <div class="small muted">${TT?.checkin ? `Check-in by ${esc(staffName(TT.checkinBy))} · ${fmtDate(TT.checkinAt)}${TT.checkinNote ? ' · ' + esc(TT.checkinNote) : ''}` : 'No check-in test.'}${TT?.after ? `<br>After repair by ${esc(staffName(TT.afterBy))} · ${fmtDate(TT.afterAt)}${TT.afterNote ? ' · ' + esc(TT.afterNote) : ''}` : TT?.checkin ? '<br><b>Run the after-repair test before this ticket can be closed.</b>' : ''}</div>`
+          <div class="small muted">${TT?.checkin ? `Check-in by ${esc(staffName(TT.checkinBy))} · ${fmtDate(TT.checkinAt)}${TT.checkinNote ? ' · ' + esc(TT.checkinNote) : ''}` : 'No check-in test.'}${TT?.after ? `<br>After repair by ${esc(staffName(TT.afterBy))} · ${fmtDate(TT.afterAt)}${TT.afterNote ? ' · ' + esc(TT.afterNote) : ''}` : ''}</div>`
           : `<p class="small muted" style="margin:0">No check-in test on this ticket.${isOpen ? ' Run it now if the customer is still here.' : ''}</p>`}
       </div>` : ''}
       <div class="panel stack" id="t-charges">
@@ -2278,7 +2277,7 @@ function testSheet(t, kind, prev, after){
       try { await Store.saveTicketTest(S.user, S.store, t.id, kind, res, L.querySelector('#ts-n').value.trim()); close(); toast('Test saved'); after && after(); } catch (e) { L.querySelector('#ts-e').textContent = e.message; } }; });
 }
 /* true when this ticket has a check-in test but no after-repair test yet (so it can't be closed) */
-async function needsAfterTest(t){ if (!t) return false; const x = await Store.ticketTests(t.id).catch(() => null); return !!(x?.checkin && !x?.after); }
+async function needsAfterTest(){ return false; }   // device tests are optional (Sam, Nov 17): never block creating or closing a ticket
 
 /* ---------------- RMA / REFURB LABELS ----------------
    Same DYMO roll as device labels: big RMA or REFURB, what it is, which ticket, date, who. Barcode = ticket # (scan it to open the ticket). */
@@ -2334,7 +2333,7 @@ async function viewNewTicket(el){
       <button class="primary" type="submit">Create ticket</button>
     </div>
     <div class="panel stack" id="nt-testp" ${testable(D.device) ? '' : 'hidden'}>
-      <h3>3 · Check-in test</h3>
+      <h3>3 · Check-in test <span class="small muted" style="font-weight:400">(optional)</span></h3>
       <p class="small muted" style="margin:0">Test it with the customer at the counter, before we touch it. Anything already broken gets marked Fail so it's on record.</p>
       <div id="nt-tg">${testGridHTML(D.tests || (D.tests = {}))}</div>
       <div class="field"><label class="label" for="nt-tn">Test notes</label><input id="nt-tn" value="${esc(D.testNote || '')}" placeholder="Back glass cracked, Face ID didn't work before"></div>
@@ -2357,7 +2356,7 @@ async function viewNewTicket(el){
   $('#nt').onsubmit = async e => {
     e.preventDefault(); keep();
     const err = !D.customerId ? 'Pick or add the customer first.' : !D.device.trim() ? 'Enter the device.' : !D.issue ? 'Pick the issue.' : !D.subject.trim() ? 'Enter a subject.'
-      : testable(D.device) && !testsDone(D.tests) ? 'Finish the check-in test (3): mark every line Pass, Fail or N/A. Dead phone? Tap "Won\'t power on".' : '';
+      : '';
     $('#nt-err').textContent = err; if (err) return;
     const t = await Store.createTicket(S.user, S.store, {customerId: D.customerId, device: D.device.trim(), issue: D.issue, subject: D.subject.trim(),
       estimate: null, imei: D.imei.trim(), passcode: (D.passcode || '').trim(), techId: $('#nt-tech').value || null, notes: D.notes.trim()});
