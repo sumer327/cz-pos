@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794958164";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794958641";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -2024,8 +2024,8 @@ async function viewTicket(el){
             <button id="pc-edit" style="min-height:30px;padding:2px 8px;margin-left:4px">${t.passcode ? 'Change' : 'Add'}</button></dd>
           <dt>Charges</dt><dd class="num">${tQuote(t) ? cents(tQuote(t)) + ' <span class="small muted">+ tax</span>' : '<span class="muted">none yet: add them under Charges</span>'}</dd>
           <dt>Pickup time</dt><dd>${dueText(t) ? `<b${t.waiting || (t.dueAt && new Date(t.dueAt) < new Date() && t.status !== 'resolved') ? ' style="color:var(--bad)"' : ''}>${esc(dueText(t))}</b> ` : '<span class="muted">Not set</span> '}${t.status !== 'resolved' ? `<button id="t-due" style="min-height:32px;padding:2px 10px">${dueText(t) ? 'Change' : 'Set'}</button>` : ''}</dd>
-          <dt>Battery health</dt><dd>${t.bh ? `<b>BH ${t.bh}%</b>` : t.bhSkip ? `<span class="muted">${t.bhSkip === 'N/A' ? 'N/A' : "Couldn't read: " + esc(t.bhSkip)}</span>` : needsBH(t) ? '<span class="pill bad">Needed before resolving</span>' : '<span class="muted">—</span>'}
-            ${t.status !== 'resolved' ? '<button id="t-bh" style="min-height:30px;padding:2px 8px;margin-left:6px">Record</button>' : ''}</dd>
+          ${t.bh || t.bhSkip || bhAtCheckin(t.device, t.issue) ? `<dt>Battery health</dt><dd>${t.bh ? `<b>BH ${t.bh}%</b>` : t.bhSkip ? `<span class="muted">${t.bhSkip === 'N/A' ? 'N/A' : "Couldn't read: " + esc(t.bhSkip)}</span>` : needsBH(t) ? '<span class="pill bad">Needed before resolving</span>' : '<span class="muted">—</span>'}
+            ${t.status !== 'resolved' ? '<button id="t-bh" style="min-height:30px;padding:2px 8px;margin-left:6px">Record</button>' : ''}</dd>` : ''}
           <dt>Store</dt><dd>${STORES[t.store]}</dd>
           <dt>Checked in</dt><dd>${new Date(t.createdAt).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})} by ${esc(staffName(t.by))}</dd>
         </dl>
@@ -2041,10 +2041,11 @@ async function viewTicket(el){
       </div>` : ''}
       ${TT || testable(t.device) ? `<div class="panel stack" id="t-tests">
         <div class="row" style="justify-content:space-between"><h3>Device tests</h3><div class="row" style="gap:6px">${!TT?.checkin && isOpen ? '<button id="tt-in">Check-in test</button>' : ''}${isOpen && (TT?.checkin || TT?.after) ? `<button class="${TT?.after ? '' : 'primary'}" id="tt-after">${TT?.after ? 'Redo after-repair test' : 'After-repair test'}</button>` : ''}${isOpen && !TT?.checkin && !TT?.after ? '' : ''}</div></div>
-        ${TT?.checkin || TT?.after ? `<div class="tbl"><table><thead><tr><th>Test</th><th>Check-in</th><th>After repair</th></tr></thead><tbody>${TCHECKS.map(([k, l]) => { const a = TT?.checkin?.[k], b = TT?.after?.[k]; const worse = a === 'pass' && b === 'fail', fixed = a === 'fail' && b === 'pass';
+        ${TT?.checkin || TT?.after ? `<details class="tt-drop"><summary style="cursor:pointer;font-weight:600;padding:6px 0">${(() => { const fi = TCHECKS.filter(([k]) => TT?.checkin?.[k] === 'fail').length, fa = TCHECKS.filter(([k]) => TT?.after?.[k] === 'fail').length, wr = TCHECKS.filter(([k]) => TT?.checkin?.[k] === 'pass' && TT?.after?.[k] === 'fail').length;
+          return `Show test results <span class="small muted" style="font-weight:400">· check-in ${TT?.checkin ? (fi ? fi + ' failed' : 'all passed') : 'not run'} · after repair ${TT?.after ? (fa ? fa + ' failed' : 'all passed') : 'not run yet'}</span>${wr ? ` <span class="pill bad">${wr} worked at check-in, failing now</span>` : ''}`; })()}</summary><div class="tbl"><table><thead><tr><th>Test</th><th>Check-in</th><th>After repair</th></tr></thead><tbody>${TCHECKS.map(([k, l]) => { const a = TT?.checkin?.[k], b = TT?.after?.[k]; const worse = a === 'pass' && b === 'fail', fixed = a === 'fail' && b === 'pass';
           const cell = v => v ? `<span class="pill ${v === 'pass' ? 'ok' : v === 'fail' ? 'bad' : ''}">${TRES[v]}</span>` : '<span class="muted small">—</span>';
           return `<tr ${worse ? 'style="background:var(--bad-soft)"' : ''}><td>${esc(l)}${worse ? ' <b style="color:var(--bad)">· worked at check-in!</b>' : fixed ? ' <span class="small" style="color:var(--ok)">· fixed</span>' : ''}</td><td>${cell(a)}</td><td>${cell(b)}</td></tr>`; }).join('')}</tbody></table></div>
-          <div class="small muted">${TT?.checkin ? `Check-in by ${esc(staffName(TT.checkinBy))} · ${fmtDate(TT.checkinAt)}${TT.checkinNote ? ' · ' + esc(TT.checkinNote) : ''}` : 'No check-in test.'}${TT?.after ? `<br>After repair by ${esc(staffName(TT.afterBy))} · ${fmtDate(TT.afterAt)}${TT.afterNote ? ' · ' + esc(TT.afterNote) : ''}` : ''}</div>`
+          <div class="small muted">${TT?.checkin ? `Check-in by ${esc(staffName(TT.checkinBy))} · ${fmtDate(TT.checkinAt)}${TT.checkinNote ? ' · ' + esc(TT.checkinNote) : ''}` : 'No check-in test.'}${TT?.after ? `<br>After repair by ${esc(staffName(TT.afterBy))} · ${fmtDate(TT.afterAt)}${TT.afterNote ? ' · ' + esc(TT.afterNote) : ''}` : ''}</div></details>`
           : `<p class="small muted" style="margin:0">No check-in test on this ticket.${isOpen ? ' Run it now if the customer is still here.' : ''}</p>`}
       </div>` : ''}
       <div class="panel stack" id="t-charges">
