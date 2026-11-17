@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794880571";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794880979";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -2764,11 +2764,13 @@ async function chargeSheet(t, c, after, opts = {}){
         L.querySelectorAll('[data-da]').forEach(b => b.onclick = () => { const i = +b.dataset.da; const [d, cat] = opts[i]; add({desc: d, cat, price: parseFloat(L.querySelector(`[data-dp="${i}"]`).value)}, b); });
       } else if (tab === 'items') {
         if (!S.prods || Date.now() - S.prodsAt > 120000) { B.innerHTML = '<p class="muted">Loading inventory…</p>'; S.prods = await Store.products().catch(() => []); S.prodsAt = Date.now(); }
-        const iq = (S.chq || '').trim(); const repHit = iq && S.prods.some(p => repProd(p) && prodMatch(p, iq)); const hits = iq ? S.prods.filter(p => !repProd(p) && prodMatch(p, iq)).sort((a, b) => (b.qty?.[S.store] || 0) - (a.qty?.[S.store] || 0)).slice(0, 12) : [];
+        const iq = (S.chq || '').trim(); const repWords = /\b(oled|lcd|screen|display|incell|glass|battery|charging|port|camera|cam|back|replacement|repair|fix|black|white|blue|frame|speaker|digitizer)\b/gi;
+        const repHit = iq && (S.prods.some(p => repProd(p) && prodMatch(p, iq)) || /\b(oled|lcd|screen|battery|charging port|replacement|repair|digitizer)\b/i.test(iq)); const hits = iq ? S.prods.filter(p => !repProd(p) && prodMatch(p, iq)).sort((a, b) => (b.qty?.[S.store] || 0) - (a.qty?.[S.store] || 0)).slice(0, 12) : [];
         B.innerHTML = `<div class="field"><label class="label" for="cs-i">Scan or search (${S.prods.length} items)</label><input id="cs-i" value="${esc(iq)}" placeholder="Scan the barcode, or type: clear case 15 pro" autocomplete="off"></div>
           <div class="row" style="gap:6px"><button data-gq="regular">Tempered glass… (pick model)</button><button data-gq="privacy">Privacy glass… (pick model)</button></div>
-          ${repHit ? `<div class="banner warn small">Charging a repair? Use <b>Repair price list</b> instead, so the screen or part comes off the shelf count and its cost shows on the ticket.</div>` : ''}
+          ${repHit ? `<div class="banner warn small stack" style="gap:8px;align-items:flex-start"><span>Repairs aren't charged here. The <b>Repair price list</b> pulls the screen or part off the shelf and puts its cost on the ticket.</span><button class="primary" id="cs-torq" style="min-height:34px">Find "${esc(iq.replace(repWords, ' ').replace(/\s+/g, ' ').trim() || iq)}" on the Repair price list ›</button></div>` : ''}
           ${hits.length ? `<div class="tbl"><table><tbody>${hits.map(p => `<tr data-pi="${p.id}" style="cursor:pointer"><td>${esc(p.name)}<div class="small muted">${esc(p.category || '')}</div></td><td class="r num">${p.qty?.[S.store] ?? 0} at ${S.store}</td><td class="r num"><b>${cents(/tempered|glass protector|screen protector/i.test(p.name) ? GLASS[/privacy/i.test(p.name) ? 'privacy' : 'regular'] : p.price)}</b></td></tr>`).join('')}</tbody></table></div>` : iq ? '<p class="muted small">Nothing matches.</p>' : ''}`;
+        L.querySelector('#cs-torq') && (L.querySelector('#cs-torq').onclick = () => { q = iq.replace(repWords, ' ').replace(/\s+/g, ' ').trim() || iq; tab = 'price'; body(); });
         const inp = L.querySelector('#cs-i'); let tm; inp.oninput = () => { clearTimeout(tm); tm = setTimeout(() => { S.chq = inp.value; body().then(() => { const n = L.querySelector('#cs-i'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 200); };
         L.querySelectorAll('[data-gq]').forEach(b => b.onclick = () => glassPicker(b.dataset.gq, t.device, line => chargeSheet(t, c, after, {...opts, tab: 'items', pendingAdd: line})));
         L.querySelectorAll('[data-pi]').forEach(tr => tr.onclick = () => { const p = S.prods.find(x => x.id === tr.dataset.pi);
