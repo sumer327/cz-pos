@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794879377";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794879556";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -5913,8 +5913,8 @@ async function viewAccessories(box, again){
 async function viewParts(el){
   const [parts, reqs, pos] = await Promise.all([Store.parts(), Store.partOrders(), Store.pos()]);
   const low = parts.filter(p => (p.qty[S.store] || 0) < dqOf(p, S.store));
-  const openReq = reqs.filter(o => o.status === 'needed' && !o.poId);
-  const openPOs = pos.filter(p => p.status !== 'received');
+  const openReq = reqs.filter(o => o.status === 'needed' && !o.poId && o.store === S.store);
+  const openPOs = pos.filter(p => p.status !== 'received' && p.store === S.store);
   el.innerHTML = `<div class="stack"><div class="statusbar" role="group" aria-label="Parts section">
       <button data-pt="stock" aria-pressed="${S.pTab === 'stock'}">Stock</button>
       <button data-pt="orders" aria-pressed="${S.pTab === 'orders'}">Sentrix orders${openReq.length || openPOs.length ? ` (${openReq.length + openPOs.length})` : ''}</button>
@@ -6005,11 +6005,11 @@ function suggestOrder(store, parts, reqs, pos){
 }
 const nextOrderDay = () => { const d = new Date(); for (let i = 0; i < 8; i++) { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate() + i, 9); if ((x.getDay() === 1 || x.getDay() === 4) && x > d) return (i === 0 ? 'today' : i === 1 ? 'tomorrow' : x.toLocaleDateString('en-US', {weekday: 'long'})) + ' 9 AM'; } return 'Mon/Thu 9 AM'; };
 function viewOrders(box, parts, reqs, pos, re){
-  const st = S.poStore || S.store; const sug = suggestOrder(st, parts, reqs, pos);
+  const st = S.store; const sug = suggestOrder(st, parts, reqs, pos);   /* this store only: switch stores at the top to see another */
   const PO_LABEL = {draft: 'Waiting for Josh', placed: 'Placed', partial: 'Partly received', received: 'Received'};
-  const mine = pos.filter(p => can(2) || p.store === S.store);
+  const mine = pos.filter(p => p.store === st);
   const waiting = mine.filter(p => p.status === 'draft'), coming = mine.filter(p => ['placed', 'partial'].includes(p.status)), done = mine.filter(p => p.status === 'received');
-  const open = reqs.filter(r => r.status === 'needed' && !r.poId && (can(2) || r.store === S.store));
+  const open = reqs.filter(r => r.status === 'needed' && !r.poId && r.store === st);
   const card = p => `<div class="stack" style="border:1px solid var(--line);border-radius:12px;padding:12px;gap:8px">
       <div class="row" style="justify-content:space-between"><b>${p.orderNo ? "Sentrix #" + esc(p.orderNo) : "PO " + p.number} · ${STORES[p.store]}</b><span class="pill ${p.status === 'received' ? 'ok' : p.status === 'draft' ? '' : 'acc'}">${PO_LABEL[p.status]}</span></div>
       <div class="small muted">${p.orderNo ? 'Sentrix #' + esc(p.orderNo) : 'Not placed yet'}${p.tracking ? ` · ${esc(p.carrier || 'Tracking')} <span class="mono">${esc(p.tracking)}</span>` : ''} · ordered ${fmtDate(p.orderedAt || p.at)}${p.by ? ' by ' + esc(staffName(p.by)) : ''}${p.total ? ` · ${cents(p.total)}` : ''}</div>
@@ -6028,16 +6028,14 @@ function viewOrders(box, parts, reqs, pos, re){
       <div class="row">${['placed','partial'].includes(p.status) && p.store === S.store && p.lines.some(l => (+l.received || 0) < l.qty) ? `<button class="primary" data-rall="${p.id}">Everything arrived: receive all</button>` : ''}${p.status === 'draft' && can(2) ? `<button class="primary" data-place="${p.id}">Mark placed</button> <button data-pcancel="${p.id}">Delete draft</button>` : ''}${['placed','partial'].includes(p.status) && can(2) ? `<button data-track="${p.id}">${p.tracking ? 'Change' : 'Add'} tracking #</button>` : ''}</div>
     </div>`;
   const group = (title, list, empty) => `<div class="stack" style="gap:8px"><h3 style="margin:0">${title} <span class="muted small">(${list.length})</span></h3>${list.map(card).join('') || `<p class="muted small" style="margin:0">${empty}</p>`}</div>`;
-  const preview = ss => { const l = suggestOrder(ss, parts, reqs, pos); return {n: l.length, sp: l.filter(x => x.requestIds?.length).length}; };
   box.innerHTML = `<div class="stack">
     <div class="panel stack" style="gap:10px">
       <div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap"><div><h2 style="margin:0">Sentrix orders</h2>
         <div class="small muted">Next order <b>${nextOrderDay()}</b> · automatic: Claude builds and saves the MobileSentrix carts, Josh places them.</div></div>
         <button id="po-add">+ Special order a part</button></div>
-      ${can(2) ? `<div class="grid g3">${Object.entries(STORES).map(([k, v]) => { const x = preview(k); return `<div class="stat"><span class="label">${v}</span><span class="v">${x.n}</span><span class="small muted">part${x.n === 1 ? '' : 's'} to order${x.sp ? ` · ${x.sp} special` : ''}</span></div>`; }).join('')}</div>
+      ${can(2) ? `<div class="small">${STORES[st]}: <b>${sug.length}</b> part${sug.length === 1 ? '' : 's'} to order${sug.some(x => x.requestIds?.length) ? ` (incl. ${sug.filter(x => x.requestIds?.length).length} special)` : ''} if it ran now.</div>
       <details ${S.poOpen ? 'open' : ''}><summary class="small" style="cursor:pointer">See what goes in the next order</summary>
-        <div class="row" style="margin:8px 0"><select id="po-st" aria-label="Store" style="width:auto">${Object.entries(STORES).map(([k, v]) => `<option value="${k}" ${st === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
-        <div class="tbl"><table><thead><tr><th>Part</th><th>Why</th><th class="r">Order</th></tr></thead><tbody>
+        <div class="tbl" style="margin-top:8px"><table><thead><tr><th>Part</th><th>Why</th><th class="r">Order</th></tr></thead><tbody>
         ${sug.map(l => `<tr><td>${esc(l.name)}${l.requestIds?.length ? ' <span class="pill acc">special</span>' : ''}</td><td class="small muted">${esc(l.why)}</td><td class="r num"><b>${l.qty}</b></td></tr>`).join('') || '<tr><td colspan="3" class="muted">Nothing below its desired quantity.</td></tr>'}</tbody></table></div></details>` : ''}
       ${open.length ? `<div class="stack" style="gap:6px"><div class="label">Special orders waiting for the next order (${open.length})</div><div class="tbl"><table><tbody>${open.map(r => `<tr><td><b>${esc(r.name)}</b> ×${r.qty}${r.example ? ' <span class="pill">example</span>' : ''}</td><td class="small">${esc(r.forLabel || 'Shelf stock')}</td><td>${r.store}</td><td class="small">${fmtDate(r.createdAt)} · ${esc(staffName(r.by))}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
     </div>
@@ -6045,7 +6043,6 @@ function viewOrders(box, parts, reqs, pos, re){
     <div class="panel stack">${group('On the way', coming, 'Nothing on the way.')}</div>
     ${done.length ? `<div class="panel"><details><summary style="cursor:pointer"><b>Received</b> <span class="muted small">(${done.length})</span></summary><div class="stack" style="margin-top:10px">${done.slice(0, 15).map(card).join('')}</div></details></div>` : ''}
   </div>`;
-  $('#po-st') && ($('#po-st').onchange = e => { S.poStore = e.target.value; S.poOpen = true; re(); });
   $('#po-add').onclick = () => orderPartSheet({forType: 'stock', store: S.store}, re);
   box.querySelectorAll('[data-place]').forEach(b => b.onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Mark placed</h3><button data-close>Close</button></div>
     <div class="field"><label class="label" for="pl-no">Sentrix order #</label><input id="pl-no" placeholder="108772203"></div><div class="err" id="pl-e" role="alert"></div><button class="primary" id="pl-go">Mark placed</button>`,
