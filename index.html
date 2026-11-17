@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794864400";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794875883";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -5996,17 +5996,18 @@ function suggestOrder(store, parts, reqs, pos){
   });
   return lines;
 }
+const nextOrderDay = () => { const d = new Date(); for (let i = 0; i < 8; i++) { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate() + i, 9); if ((x.getDay() === 1 || x.getDay() === 4) && x > d) return (i === 0 ? 'today' : i === 1 ? 'tomorrow' : x.toLocaleDateString('en-US', {weekday: 'long'})) + ' 9 AM'; } return 'Mon/Thu 9 AM'; };
 function viewOrders(box, parts, reqs, pos, re){
   const st = S.poStore || S.store; const sug = suggestOrder(st, parts, reqs, pos);
   const PO_LABEL = {draft: 'Draft', placed: 'Placed', partial: 'Partly received', received: 'Received'};
   box.innerHTML = `<div class="stack">
-    ${can(2) ? `<div class="panel stack"><div class="row" style="justify-content:space-between"><h2>Next Sentrix order</h2>
+    ${can(2) ? `<div class="panel stack"><div class="row" style="justify-content:space-between"><h2>Next Sentrix order · ${nextOrderDay()}</h2>
         <select id="po-st" aria-label="Store" style="width:auto">${Object.entries(STORES).map(([k, v]) => `<option value="${k}" ${st === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
-      <p class="muted small" style="margin:0">Built from the system: every part below its desired quantity (minus what's already on order) plus every special request from tickets and repair stock. Adjust the quantities, then tap <b>Create order</b>: it saves a draft and Claude builds the matching MobileSentrix cart on the Mac mini within the hour (9 AM–6 PM, Mon–Sat) and saves it. Josh looks it over, places it, then taps <b>Mark placed</b>.</p>
+      <p class="muted small" style="margin:0"><b>Automatic every Monday and Thursday at 9 AM.</b> Claude takes every part below its desired quantity at each store (minus what's already on order) plus every special request below, puts the full parts count on the <b>POS Parts Order Export</b> Google Sheet, then builds and saves one MobileSentrix cart per store. Josh gets a Slack message, looks the cart over, places the order and taps <b>Mark placed</b> here. Nobody needs to press anything before that. This is a preview of what goes in for ${STORES[st]} if the order ran right now.</p>
       <div class="tbl"><table><thead><tr><th>Part</th><th>Why</th><th class="r">Order</th></tr></thead><tbody>
-      ${sug.map((l, i) => `<tr><td><b>${esc(l.name)}</b></td><td class="small muted">${esc(l.why)}</td><td class="r"><input data-sq="${i}" inputmode="numeric" value="${l.qty}" style="width:70px;min-height:36px;text-align:right" aria-label="Order qty ${esc(l.name)}"></td></tr>`).join('') || '<tr><td colspan="3" class="muted">Nothing needed. Every part is at its desired quantity and there are no requests.</td></tr>'}
+      ${sug.map((l, i) => `<tr><td><b>${esc(l.name)}</b></td><td class="small muted">${esc(l.why)}</td><td class="r num"><b>${l.qty}</b></td></tr>`).join('') || '<tr><td colspan="3" class="muted">Nothing needed. Every part is at its desired quantity and there are no requests.</td></tr>'}
       </tbody></table></div>
-      ${sug.length ? '<button class="primary" id="po-make">Create order</button>' : ''}</div>` : ''}
+      </div>` : ''}
     <div class="panel stack"><div class="row" style="justify-content:space-between"><h3>Special requests waiting for an order</h3><button id="po-add">+ Request a part</button></div>
       <div class="tbl"><table><tbody>${reqs.filter(r => r.status === 'needed' && !r.poId).map(r => `<tr><td><b>${esc(r.name)}</b> ×${r.qty}${r.example ? ' <span class="pill">example</span>' : ''}</td><td class="small">${esc(r.forLabel || 'Shelf stock')}</td><td>${r.store}</td><td class="small">${fmtDate(r.createdAt)} · ${esc(staffName(r.by))}</td></tr>`).join('') || '<tr><td class="muted">None.</td></tr>'}</tbody></table></div></div>
     <div class="panel stack"><h3>Orders</h3>
@@ -6016,25 +6017,22 @@ function viewOrders(box, parts, reqs, pos, re){
       ${p.status === 'draft' ? (() => { const cs = p.cartStatus, nIn = p.lines.filter(l => l.inCart).length, miss = p.lines.filter(l => cs === 'ready' && !l.inCart);
         return `<div class="banner ${cs === 'ready' ? (miss.length ? 'warn' : 'ok') : cs === 'failed' ? 'bad' : ''} small">${
           cs === 'ready' ? `<b>MobileSentrix cart ready:</b> "${esc(p.cartName || '')}" · ${nIn} of ${p.lines.length} lines in the cart${p.subtotal ? ` · about ${cents(p.subtotal)}` : ''}. Josh: open MobileSentrix › Saved carts, look it over, add it to the cart and place the order, then tap <b>Mark placed</b> here.${p.cartNote ? `<div style="margin-top:4px">${esc(p.cartNote)}</div>` : ''}`
-          : cs === 'failed' ? `<b>Couldn't build the MobileSentrix cart.</b> ${esc(p.cartNote || '')}`
+          : cs === 'failed' ? `<b>Couldn't build the MobileSentrix cart.</b> ${esc(p.cartNote || '')} Josh can build it by hand from the lines below, or delete this draft and the next Mon/Thu run makes a new one.`
           : cs === 'building' ? '<b>Claude is building the MobileSentrix cart now…</b>'
-          : cs === 'requested' ? `<b>Cart requested ${ago(p.cartAt)}.</b> Claude builds it on the Mac mini within the hour (9 AM–6 PM, Mon–Sat).`
-          : 'Draft only: no MobileSentrix cart requested yet.'}</div>`; })() : ''}
+          : cs === 'requested' ? `<b>Waiting for the MobileSentrix cart</b> (built ${ago(p.cartAt)} by the Mon/Thu order run). If it's still waiting after 10 AM, tell Sam.`
+          : 'Draft made by hand: build the MobileSentrix cart by hand, or delete it and let the Mon/Thu run order it.'}</div>`; })() : ''}
       ${['placed','partial'].includes(p.status) && p.store === S.store ? '<p class="small muted" style="margin:0">Check each part off as you unpack it. Stocked parts go straight onto the shelf count and the part cost updates to what we paid. Anything missing or broken, leave it unchecked and tell a manager.</p>' : ''}
       <div class="tbl"><table><tbody>${p.lines.map((l, i) => { const pt = l.partId && parts.find(x => x.id === l.partId); const rec = +l.received || 0; const open = ['placed','partial'].includes(p.status) && p.store === S.store && rec < l.qty;
         return `<tr><td>${esc(l.name)}${l.requestIds?.length ? ' <span class="pill acc">special</span>' : ''}<div class="small muted">${pt ? '→ ' + esc(pt.name) + ` (${pt.qty?.[p.store] ?? 0} on shelf)` : 'Not a stocked part (supplies)'}${l.cost ? ' · ' + cents(l.cost) + ' each' : ''}${p.status === 'draft' && p.cartStatus === 'ready' ? (l.inCart ? `<div style="color:var(--ok)">✓ in cart${l.sxTitle ? ': ' + esc(l.sxTitle) : ''}${l.sxPrice ? ' · ' + cents(l.sxPrice) : ''}</div>` : `<div style="color:var(--bad)">Not in the cart${l.cartWhy ? ': ' + esc(l.cartWhy) : ''}. Josh adds it by hand.</div>`) : ''}</div>
           ${open && !rec ? `<select data-plink="${p.id}:${i}" aria-label="Stocked part for ${esc(l.name)}" style="min-height:30px;margin-top:4px;max-width:320px"><option value="">Not a stocked part</option>${parts.map(x => `<option value="${x.id}" ${x.id === l.partId ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>` : ''}</td><td class="r num">${rec}/${l.qty}</td>
         <td class="r">${open ? `<button data-rl="${p.id}:${i}" style="min-height:32px;padding:2px 10px">Received ${l.qty - rec}</button>` : rec >= l.qty ? '<span class="pill ok">✓</span>' : ''}</td></tr>`; }).join('')}</tbody></table></div>
-      <div class="row">${['placed','partial'].includes(p.status) && p.store === S.store && p.lines.some(l => (+l.received || 0) < l.qty) ? `<button class="primary" data-rall="${p.id}">Everything arrived: receive all</button>` : ''}${p.status === 'draft' && can(2) ? `<button class="primary" data-place="${p.id}">Mark placed</button> <button data-pcart="${p.id}">${p.cartStatus ? 'Rebuild MobileSentrix cart' : 'Build MobileSentrix cart'}</button> <button data-pcancel="${p.id}">Delete draft</button>` : ''}${['placed','partial'].includes(p.status) && can(2) ? `<button data-track="${p.id}">${p.tracking ? 'Change' : 'Add'} tracking #</button>` : ''}</div>
+      <div class="row">${['placed','partial'].includes(p.status) && p.store === S.store && p.lines.some(l => (+l.received || 0) < l.qty) ? `<button class="primary" data-rall="${p.id}">Everything arrived: receive all</button>` : ''}${p.status === 'draft' && can(2) ? `<button class="primary" data-place="${p.id}">Mark placed</button> <button data-pcancel="${p.id}">Delete draft</button>` : ''}${['placed','partial'].includes(p.status) && can(2) ? `<button data-track="${p.id}">${p.tracking ? 'Change' : 'Add'} tracking #</button>` : ''}</div>
     </div>`).join('') || '<p class="muted small">No orders yet.</p>'}</div></div>`;
   $('#po-st') && ($('#po-st').onchange = e => { S.poStore = e.target.value; re(); });
-  box.querySelectorAll('[data-sq]').forEach(i => i.onchange = () => { sug[+i.dataset.sq].qty = Math.max(0, parseInt(i.value) || 0); });
-  $('#po-make') && ($('#po-make').onclick = async () => { try { const r = await Store.createPO(S.user, st, sug); await Store.poCartRequest(S.user, r.id).catch(() => null); toast(`PO ${r.number} saved. Claude builds the MobileSentrix cart within the hour; Josh reviews it and places the order.`); re(); } catch (e) { toast(e.message); } });
   $('#po-add').onclick = () => orderPartSheet({forType: 'stock', store: S.store}, re);
   box.querySelectorAll('[data-place]').forEach(b => b.onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Mark placed</h3><button data-close>Close</button></div>
     <div class="field"><label class="label" for="pl-no">Sentrix order #</label><input id="pl-no" placeholder="108772203"></div><div class="err" id="pl-e" role="alert"></div><button class="primary" id="pl-go">Mark placed</button>`,
     (L, close) => L.querySelector('#pl-go').onclick = async () => { try { await Store.updatePO(S.user, b.dataset.place, {status: 'placed', orderNo: L.querySelector('#pl-no').value.trim()}); close(); toast('Placed. The store has been alerted.'); re(); } catch (e) { L.querySelector('#pl-e').textContent = e.message; } }));
-  box.querySelectorAll('[data-pcart]').forEach(b => b.onclick = async () => { try { await Store.poCartRequest(S.user, b.dataset.pcart); toast('Requested. Claude builds the MobileSentrix cart within the hour.'); re(); } catch (e) { toast(e.message); } });
   box.querySelectorAll('[data-pcancel]').forEach(b => b.onclick = async () => { if (!confirm('Delete this draft order? Special requests on it go back to the waiting list.')) return; try { await Store.updatePO(S.user, b.dataset.pcancel, {status: 'cancel'}); toast('Draft deleted'); re(); } catch (e) { toast(e.message); } });
   box.querySelectorAll('[data-track]').forEach(b => b.onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Tracking number</h3><button data-close>Close</button></div>
     <div class="field"><label class="label" for="tk-no">Tracking #</label><input id="tk-no" placeholder="1Z..."></div><button class="primary" id="tk-go">Save</button>`,
