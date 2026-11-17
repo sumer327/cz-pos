@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794880979";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794882722";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -2059,7 +2059,7 @@ async function viewTicket(el){
         ${t.partsUsed.length ? `<ul style="margin:0;padding-left:18px">${t.partsUsed.map(p => `<li>${esc(p.name)} <span class="muted small">· ${cents(+p.cost || 0)} · ${p.chargeId ? 'with its charge' : 'no charge'} · ${esc(staffName(p.by))}</span>${p.damaged ? ` <span class="pill bad">damaged${p.damagedBy ? ' · ' + esc(staffName(p.damagedBy)) : ''}</span>${p.damagedNote ? `<div class="small muted">${esc(p.damagedNote)}</div>` : ''}` : t.status !== 'resolved' && !p.defective ? ` <button data-dmg="${t.partsUsed.indexOf(p)}" style="min-height:26px;padding:0 8px;font-size:12px">Damaged?</button>` : ''}${p.rma ? ` <button data-rmal="${t.partsUsed.indexOf(p)}" style="min-height:26px;padding:0 8px;font-size:12px">RMA label</button>` : ''}${p.rma ? ' <span class="pill warn">old part → RMA</span>' : ''}${p.defective ? ` <span class="pill bad">defective → RMA</span> <span class="small muted">${esc(p.defectReason || '')}</span> <button data-rmad="${esc(p.at)}" style="min-height:26px;padding:0 8px;font-size:12px">RMA label</button>` : ''}${p.replaces ? ' <span class="pill">replacement · $0 to this ticket</span>' : ''}${p.partId && !p.defective && !p.damaged && !p.replaces && t.status !== 'resolved' ? ` <button data-defect="${esc(p.at)}" style="min-height:26px;padding:0 8px;font-size:12px">Defective → RMA</button>` : ''}${!p.chargeId && !p.damaged && !p.defective && t.status !== 'resolved' ? ` <button data-tprm="${esc(p.at)}" title="Added by mistake? Take it off. It goes back on the shelf." style="min-height:26px;padding:0 8px;font-size:12px">✕ Remove</button>` : ''}</li>`).join('')}</ul>` : '<span class="muted small">None yet. Adding a repair charge pulls its part from this store\'s stock automatically.</span>'}
         ${t.status !== 'resolved' ? `<div class="row"><button id="t-order">+ Special order a part</button></div>
           <details><summary class="small muted" style="cursor:pointer">Pull a part without a charge (warranty, rework, or a part damaged during the repair)</summary>
-          <div class="row" style="margin-top:8px"><select id="t-part" aria-label="Part to use" style="flex:1;min-width:0"><option value="">Pick a part…</option>${parts.map(p => `<option value="${p.id}" ${(p.qty[t.store] || 0) < 1 ? 'disabled' : ''}>${esc(p.name)} (${p.qty[t.store] || 0} at ${t.store})</option>`).join('')}</select><button id="t-usepart">Use part</button></div></details>` : ''}
+          <div class="row" style="margin-top:8px;align-items:flex-start">${partPickHTML('t-part', 'Type the part, e.g. 13 pro screen')}<button id="t-usepart">Use part</button></div></details>` : ''}
         ${myOrders.length ? `<div class="stack" style="gap:6px"><span class="label">Special orders</span>${myOrders.map(o => `<div class="row" style="justify-content:space-between;gap:8px"><span>${esc(o.name)}${o.cost ? ` <span class="small muted">· ${cents(o.cost)}</span>` : ''}${o.rush ? ' <span class="pill bad">rush</span>' : ''}</span><span class="row" style="gap:6px"><span class="pill ${o.status === 'received' ? 'ok' : o.status === 'ordered' ? 'acc' : 'warn'}">${PO_ST[o.status]}${o.ref ? ' · ' + esc(o.ref) : ''}</span>${poEditBtns(o)}</span></div>`).join('')}</div>` : ''}
       </div>
     </div>
@@ -2175,6 +2175,7 @@ async function viewTicket(el){
       <div class="err" id="dm-e" role="alert"></div><button class="primary" id="dm-go">Mark damaged</button>`, (L, close) => {
       L.querySelector('#dm-go').onclick = async () => { const note = L.querySelector('#dm-n').value.trim(); if (note.length < 4) { L.querySelector('#dm-e').textContent = 'Write what happened.'; return; }
         try { await Store.partDamaged(S.user, S.store, t.id, i, L.querySelector('#dm-w').value, note); close(); toast('Marked damaged'); viewTicket(el); } catch (e) { L.querySelector('#dm-e').textContent = e.message; } }; }); });
+  partPick(el, 't-part', parts, t.store, t.device);
   $('#t-usepart') && ($('#t-usepart').onclick = async () => { const p = $('#t-part').value; if (!p) { toast('Pick a part first.'); return; }
     const use = async rma => { try { await Store.useTicketPart(S.user, S.store, t.id, p, {rma, reason: `Ticket #${t.number} rework`}); toast(rma ? 'Part logged · defective part added to RMA' : 'Part logged'); await viewTicket(el);
       if (rma) binLabelSheet('RMA', {name: (parts.find(x => x.id === p) || {}).name || 'Part', device: t.device, reason: 'Rework · defective', ticket: t.number, store: t.store, by: S.user.id}); } catch (e) { toast(e.message); } };
@@ -5296,6 +5297,23 @@ async function viewRepairs(el){
   el.querySelectorAll('[data-rst]').forEach(sel => { sel.onclick = e => e.stopPropagation(); sel.onchange = async () => { await Store.repairUpdate(S.user, S.store, sel.dataset.rst, {repairStatus: sel.value}); toast('Repair status: ' + REPAIR_LABEL[sel.value]); viewRepairs(el); }; });
   el.querySelectorAll('tr[data-d]').forEach(tr => { const o = e => { if (e.target.closest('select')) return; go('repair', {deviceId: tr.dataset.d}); }; tr.onclick = o; tr.onkeydown = e => { if (e.key === 'Enter') o(e); }; });
 }
+/* type-ahead part picker: type what you're using, matches show underneath. The chosen part id lands in a hidden input with the given id. */
+const partPickHTML = (id, ph) => `<div class="pp" style="flex:1;min-width:0;position:relative"><input id="${id}-q" placeholder="${esc(ph)}" autocomplete="off" aria-label="${esc(ph)}"><input type="hidden" id="${id}"><div id="${id}-res" class="stack" style="gap:2px;margin-top:4px"></div></div>`;
+function partPick(root, id, parts, store, hint = ''){
+  const q = root.querySelector('#' + id + '-q'), hid = root.querySelector('#' + id), res = root.querySelector('#' + id + '-res'); if (!q) return;
+  const norm = x => String(x || '').toLowerCase().replace(/[()]/g, ' ').replace(/\s+/g, ' ').trim();
+  const draw = () => { const words = norm(q.value).split(' ').filter(Boolean);
+    const hw = norm(hint).replace(/\b(unlocked|at&t|att|t-mobile|verizon|cricket|wifi|gps|\d+\s*(gb|tb)|cellular)\b/g, ' ').split(' ').filter(w => w.length > 1);
+    let list = words.length ? parts.filter(p => words.every(w => norm(p.name).includes(w)))
+      : hw.length ? parts.filter(p => hw.every(w => norm(p.name).includes(w))) : [];
+    list = list.sort((a, b) => ((b.qty?.[store] || 0) > 0) - ((a.qty?.[store] || 0) > 0) || a.name.localeCompare(b.name)).slice(0, 8);
+    res.innerHTML = list.map(p => { const n = p.qty?.[store] || 0; return `<button type="button" data-ppid="${p.id}" ${n ? '' : 'disabled'} style="display:flex;width:100%;gap:10px;justify-content:space-between;text-align:left;min-height:38px;${hid.value === p.id ? 'border-color:var(--accent);background:var(--acc-bg,#eef4ff)' : ''}"><span>${esc(p.name)}</span><span class="small ${n ? '' : 'muted'}" style="white-space:nowrap">${n} at ${store}${p.cost ? ' · ' + cents(p.cost) : ''}</span></button>`; }).join('')
+      || (words.length ? '<div class="small muted">No part matches. Try fewer words, e.g. "13 pro battery".</div>' : '');
+    res.querySelectorAll('[data-ppid]').forEach(b => b.onclick = () => { const p = parts.find(x => x.id === b.dataset.ppid); hid.value = p.id; q.value = p.name; draw(); }); };
+  q.oninput = () => { hid.value = ''; draw(); };
+  q.onkeydown = e => { if (e.key === 'Enter') { const b = res.querySelector('[data-ppid]:not([disabled])'); if (b) { e.preventDefault(); b.click(); } } };
+  draw();
+}
 async function viewRepair(el){
   const [devs, parts, orders] = await Promise.all([Store.devices(), Store.parts(), Store.partOrders()]);
   const d = devs.find(x => x.id === S.deviceId); if (!d) return go('repairs');
@@ -5324,7 +5342,7 @@ async function viewRepair(el){
         <h3>Parts</h3>
         ${d.partsUsed?.length ? `<div class="tbl"><table><tbody>${d.partsUsed.map(p => `<tr><td>${esc(p.name)}<div class="small muted">${p.outside ? 'outside part' : 'from stock'} · ${esc(staffName(p.by))}</div></td><td class="r num">${cents(p.cost)}</td><td class="r"><button data-prm="${esc(p.at)}" aria-label="Take ${esc(p.name)} off" title="Logged by mistake? Take it off${p.partId ? ' (goes back on the shelf)' : ''}" style="min-height:30px;padding:2px 8px">✕</button></td></tr>`).join('')}<tr><td><b>Parts total</b></td><td class="r num"><b>${cents(d.partsCost || 0)}</b></td><td></td></tr></tbody></table></div>` : '<span class="small muted">No parts logged yet.</span>'}
         ${po.length ? `<div class="tbl"><table><tbody>${po.map(o => `<tr><td>${esc(o.name)} ×${o.qty}</td><td><span class="pill ${o.status === 'received' ? 'ok' : o.status === 'ordered' ? 'acc' : 'bad'}">${PO_ST[o.status]}</span>${o.ref ? ` <span class="small muted">${esc(o.ref)}</span>` : ''}</td><td class="r">${poEditBtns(o)}</td></tr>`).join('')}</tbody></table></div>` : ''}
-        ${d.status === 'repair' ? `<div class="row"><select id="r-part" aria-label="Part from stock" style="flex:1;min-width:0"><option value="">Use a part from ${d.store} stock…</option>${parts.map(p => `<option value="${p.id}" ${(p.qty[d.store] || 0) < 1 ? 'disabled' : ''}>${esc(p.name)} (${p.qty[d.store] || 0} left · ${cents(p.cost)})</option>`).join('')}</select><button id="r-use">Use part</button></div>
+        ${d.status === 'repair' ? `<div class="row" style="align-items:flex-start">${partPickHTML('r-part', 'Type the part you\'re using, e.g. 13 pro battery')}<button id="r-use">Use part</button></div>
         <div class="row" style="gap:6px"><input id="r-xn" placeholder="Part not in stock (e.g. Battery from Sentrix)" style="flex:2;min-width:160px"><input id="r-xc" inputmode="decimal" placeholder="Cost $" style="flex:1;min-width:80px;max-width:110px"><button id="r-xadd">Add cost</button></div>
         <button id="r-order">+ Order a part for this device</button>` : ''}
       </div>
@@ -5348,6 +5366,7 @@ async function viewRepair(el){
   el.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => up({needs: d.needs.filter((_, i) => i !== +b.dataset.rm)}));
   $('#r-addneed').onclick = () => { const v = $('#r-need').value.trim(); if (!v) return; up({needs: [...(d.needs || []), v]}); };
   $('#r-addnote').onclick = () => { const v = $('#r-note').value.trim(); if (!v) { toast('Type the note first.'); return; } up({}, v, 'Note added'); };
+  partPick(el, 'r-part', parts, d.store, d.model);
   $('#r-use') && ($('#r-use').onclick = async () => { const p = $('#r-part').value; if (!p) { toast('Pick a part first.'); return; } try { await Store.deviceUsePart(S.user, S.store, d.id, p); toast('Part logged'); viewRepair(el); } catch (e) { toast(e.message); } });
   $('#r-order') && ($('#r-order').onclick = () => specialOrderSheet({forType: 'device', forId: d.id, forLabel: `Stock #${d.stockNo} ${d.model}`, store: d.store, device: d.model, part: (d.needs || [])[0] || ''}, () => viewRepair(el)));
   wirePoEdit(el, po, {forType: 'device', forId: d.id, forLabel: `Stock #${d.stockNo} ${d.model}`, store: d.store, device: d.model}, () => viewRepair(el));
