@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794875883";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794879377";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -2773,7 +2773,7 @@ async function chargeSheet(t, c, after, opts = {}){
         L.querySelectorAll('[data-pi]').forEach(tr => tr.onclick = () => { const p = S.prods.find(x => x.id === tr.dataset.pi);
           const gl = /tempered|glass protector|screen protector/i.test(p.name) ? (/privacy/i.test(p.name) ? 'privacy' : 'regular') : null;
           if (!(gl ? GLASS[gl] : p.price > 0)) { toast(`${p.name} has no price in inventory. Use Custom.`); return; }
-          add(gl ? {desc: p.name + ' (lifetime warranty)', cat: 'Tempered glass', price: GLASS[gl], productId: p.id, glass: gl} : {desc: p.name, cat: 'Accessory', price: p.price, productId: p.id}); S.chq = ''; body(); });
+          add(gl ? {desc: p.name + ' (lifetime warranty)', cat: 'Tempered glass', price: GLASS[gl], productId: p.id, glass: gl} : {desc: p.name, cat: prodCat(p), price: p.price, productId: p.id}); S.chq = ''; body(); });
       } else {
         B.innerHTML = `<div class="field"><label class="label" for="cs-d">What is it</label><input id="cs-d" placeholder="Water damage cleaning"></div>
           <div class="grid g3"><div class="field"><label class="label" for="cs-c">Category</label><select id="cs-c">${LINE_CATS.map(x => `<option>${x}</option>`).join('')}</select></div>
@@ -3180,6 +3180,13 @@ function retailPrice(d){
   return v || null;
 }
 /* old RepairShopr "products" named like a phone (iPhone 16 Pro Max 256GB Unlocked, $899.99) aren't real stock: phones are sold from phone stock by stock # / IMEI */
+/* what kind of sale an old RepairShopr product is: only real accessories count toward the accessories goal */
+const prodCat = p => { const c = p?.category || '', n = p?.name || '';
+  if (/accessor/i.test(c)) return 'Accessory';
+  if (/phone sale/i.test(c) || phoneProd(p)) return 'Phone sale';
+  if (/console/i.test(c)) return 'Console repair';
+  if (/repair/i.test(c) || /repair|replacement|backup|recovery|transfer|diagnos|reset|unlock|install|setup|labor|cleaning|service/i.test(n)) return /diagnos/i.test(n) ? 'Diagnostic' : 'Repair';
+  return 'Accessory'; };
 const phoneProd = p => (!p.category || /phone sale/i.test(p.category)) && /\b(iphone|galaxy|pixel|ipad|moto|samsung)\b/i.test(p.name) && /\d+\s*(gb|tb)\b/i.test(p.name) && !/case|glass|screen|battery|port|camera|replacement|repair/i.test(p.name);
 const SELLABLE = ['hot', 'tolist', 'swappa', 'testing'];
 const devCost = d => (+d.cost || 0) + (+d.partsCost || 0);
@@ -3278,7 +3285,7 @@ async function viewRegister(el){
     glassReplaceSheet(S.cartPhone || '', line => { S.cart.push(line); if (line.phone && !S.cartPhone) S.cartPhone = line.phone; viewRegister(el); }); });
   const addProd = p => {
     const gl = /tempered|glass protector|screen protector/i.test(p.name) ? (/privacy/i.test(p.name) ? 'privacy' : 'regular') : null;
-    S.cart.push(gl ? {desc: p.name + ' (lifetime warranty)', price: GLASS[gl], cat: 'Tempered glass', productId: p.id, glass: gl} : {desc: p.name, price: p.price, cat: 'Accessory', productId: p.id}); S.rgq = ''; viewRegister(el).then(() => $('#rg-q').focus()); };
+    S.cart.push(gl ? {desc: p.name + ' (lifetime warranty)', price: GLASS[gl], cat: 'Tempered glass', productId: p.id, glass: gl} : {desc: p.name, price: p.price, cat: prodCat(p), productId: p.id}); S.rgq = ''; viewRegister(el).then(() => $('#rg-q').focus()); };
   el.querySelectorAll('[data-prod]').forEach(tr => tr.onclick = () => addProd(S.prods.find(p => p.id === tr.dataset.prod)));
   el.querySelectorAll('[data-dev]').forEach(tr => tr.onclick = () => { const d = S.rgDevs.find(x => x.id === tr.dataset.dev); const cost = (+d.cost || 0) + (+d.partsCost || 0);
     sheet(`<div class="row" style="justify-content:space-between"><h3>Sell #${d.stockNo} ${esc(d.model)} ${esc(d.storage || '')}</h3><button data-close>Close</button></div>
@@ -4293,7 +4300,7 @@ async function viewInvoice(el){
     hits.querySelectorAll('[data-ip]').forEach(tr => tr.onclick = () => { const p = S.prods.find(x => x.id === tr.dataset.ip);
       const gl = /tempered|glass protector|screen protector/i.test(p.name) ? (/privacy/i.test(p.name) ? 'privacy' : 'regular') : null;
       if (!(gl ? GLASS[gl] : p.price > 0)) { toast(`${p.name} has no price in inventory. Use + Custom item.`); return; }
-      L.push(gl ? {desc: p.name + ' (lifetime warranty)', cat: 'Tempered glass', price: GLASS[gl], qty: 1, taxable: true, productId: p.id, glass: gl, device: t?.device || ''} : {desc: p.name, cat: 'Accessory', price: p.price, qty: 1, taxable: true, productId: p.id}); save(L); }); };
+      L.push(gl ? {desc: p.name + ' (lifetime warranty)', cat: 'Tempered glass', price: GLASS[gl], qty: 1, taxable: true, productId: p.id, glass: gl, device: t?.device || ''} : {desc: p.name, cat: prodCat(p), price: p.price, qty: 1, taxable: true, productId: p.id}); save(L); }); };
   $('#iv-add').oninput = e => { clearTimeout(tm); tm = setTimeout(() => drawHits(e.target.value), 250); };
   if (S.ivPhone) { S.ivPhone = false; const a = $('#iv-add'); a.placeholder = 'Phone sale: scan or type the stock #, IMEI, buyback ID (BV70002) or model (16 pro max 512)'; a.focus(); toast('Find the phone: stock #, IMEI, buyback ID or model'); }
   else if (!L.length) $('#iv-add').focus();
@@ -4913,10 +4920,10 @@ async function viewReports(el){
   }
 
   if (R.tab === 'acc') {
-    const al = lines.filter(l => /accessory|glass/i.test(l.cat) || l.productId);
+    const al = lines.filter(l => /accessory|glass/i.test(l.cat));
     const g = {}; al.forEach(l => { const k = l.productId && pr[l.productId] ? pr[l.productId].name : l.desc; g[k] = g[k] || {k, cat: l.cat, n: 0, rev: 0, cost: 0}; g[k].n += l.qty; g[k].rev += l.rev; g[k].cost += l.cost || 0; });
     const byRep = {}; al.forEach(l => { const k = l.i.by ? staffName(l.i.by) : 'RepairShopr'; byRep[k] = byRep[k] || {n: 0, rev: 0}; byRep[k].n += l.qty; byRep[k].rev += l.rev; });
-    const repInv = invs.filter(i => !i.rsId && (i.lines || []).some(l => !/accessory|glass|phone sale|discount|refund/i.test(l.cat || '') && !l.productId && !l.deviceId));
+    const repInv = invs.filter(i => !i.rsId && (i.lines || []).some(l => !/accessory|glass|phone sale|discount|refund/i.test(l.cat || '') && !l.deviceId));
     const withGlass = repInv.filter(i => (i.lines || []).some(l => l.glass || /glass/i.test(l.cat || ''))).length;
     body = `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px">${kpi('Accessories & glass sold', `${sum(al, l => l.qty)} · ${cents(sum(al, l => l.rev))}`, `profit ${cents(sum(al, l => l.rev - (l.cost || 0)))}`)}${kpi('Glass add-on rate', rpPct(withGlass, repInv.length), `${withGlass} of ${repInv.length} repair sales had glass`)}</div>
       <h3 style="margin:8px 0 0">By item</h3>${tbl(['Item', 'Category', '#Qty', '$Revenue', '$Cost', '$Profit'], Object.values(g).sort((a, b) => b.rev - a.rev).map(r => `<tr>${td(esc(r.k))}${td(esc(r.cat))}${td(r.n, 1)}${td(cents(r.rev), 1)}${td(cents(r.cost), 1)}${td(cents(r.rev - r.cost), 1)}</tr>`))}
@@ -4954,8 +4961,8 @@ async function viewReports(el){
     const pos = invs.filter(i => !i.rsId && i.by); const g = {};
     pos.forEach(i => { const k = staffName(i.by); const r = g[k] = g[k] || {n: 0, sales: 0, acc: 0, glass: 0, rep: 0, bb: 0, bbPaid: 0, over: 0};
       if (i.total > 0) r.n++; r.sales += i.subtotal ?? i.total; const ls = i.lines || [];
-      r.acc += ls.filter(l => /accessory|glass/i.test(l.cat || '') || l.productId).reduce((a, l) => a + (+l.price || 0) * (+l.qty || 1), 0);
-      const isRep = ls.some(l => !/accessory|glass|phone sale|discount|refund/i.test(l.cat || '') && !l.productId && !l.deviceId); if (isRep) { r.rep++; if (ls.some(l => l.glass || /glass/i.test(l.cat || ''))) r.glass++; } });
+      r.acc += ls.filter(l => /accessory|glass/i.test(l.cat || '')).reduce((a, l) => a + (+l.price || 0) * (+l.qty || 1), 0);
+      const isRep = ls.some(l => !/accessory|glass|phone sale|discount|refund/i.test(l.cat || '') && !l.deviceId); if (isRep) { r.rep++; if (ls.some(l => l.glass || /glass/i.test(l.cat || ''))) r.glass++; } });
     bbs.forEach(b => { const k = staffName(b.by); const r = g[k] = g[k] || {n: 0, sales: 0, acc: 0, glass: 0, rep: 0, bb: 0, bbPaid: 0, over: 0}; r.bb++; r.bbPaid += +b.paid || 0; if (b.max && b.paid > b.max) r.over++; });
     body = tbl(['Rep', '#Sales', '$Sales', '$Avg sale', '$Accessories & glass', '%Glass add-on', '#Buybacks', '$Paid out', '#Over max'], Object.entries(g).sort((a, b) => b[1].sales - a[1].sales).map(([k, r]) => `<tr>${td('<b>' + esc(k) + '</b>')}${td(r.n, 1)}${td(cents(r.sales), 1)}${td(r.n ? cents(r.sales / r.n) : '—', 1)}${td(cents(r.acc), 1)}${td(rpPct(r.glass, r.rep), 1)}${td(r.bb, 1)}${td(cents(r.bbPaid), 1)}${td(r.over || '—', 1)}</tr>`))
       + '<p class="small muted" style="margin:0">Counts sales rung up in this POS (RepairShopr doesn\'t send who rang it up). Glass add-on = repair sales that also had tempered glass.</p>';
@@ -5999,19 +6006,11 @@ function suggestOrder(store, parts, reqs, pos){
 const nextOrderDay = () => { const d = new Date(); for (let i = 0; i < 8; i++) { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate() + i, 9); if ((x.getDay() === 1 || x.getDay() === 4) && x > d) return (i === 0 ? 'today' : i === 1 ? 'tomorrow' : x.toLocaleDateString('en-US', {weekday: 'long'})) + ' 9 AM'; } return 'Mon/Thu 9 AM'; };
 function viewOrders(box, parts, reqs, pos, re){
   const st = S.poStore || S.store; const sug = suggestOrder(st, parts, reqs, pos);
-  const PO_LABEL = {draft: 'Draft', placed: 'Placed', partial: 'Partly received', received: 'Received'};
-  box.innerHTML = `<div class="stack">
-    ${can(2) ? `<div class="panel stack"><div class="row" style="justify-content:space-between"><h2>Next Sentrix order · ${nextOrderDay()}</h2>
-        <select id="po-st" aria-label="Store" style="width:auto">${Object.entries(STORES).map(([k, v]) => `<option value="${k}" ${st === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
-      <p class="muted small" style="margin:0"><b>Automatic every Monday and Thursday at 9 AM.</b> Claude takes every part below its desired quantity at each store (minus what's already on order) plus every special request below, puts the full parts count on the <b>POS Parts Order Export</b> Google Sheet, then builds and saves one MobileSentrix cart per store. Josh gets a Slack message, looks the cart over, places the order and taps <b>Mark placed</b> here. Nobody needs to press anything before that. This is a preview of what goes in for ${STORES[st]} if the order ran right now.</p>
-      <div class="tbl"><table><thead><tr><th>Part</th><th>Why</th><th class="r">Order</th></tr></thead><tbody>
-      ${sug.map((l, i) => `<tr><td><b>${esc(l.name)}</b></td><td class="small muted">${esc(l.why)}</td><td class="r num"><b>${l.qty}</b></td></tr>`).join('') || '<tr><td colspan="3" class="muted">Nothing needed. Every part is at its desired quantity and there are no requests.</td></tr>'}
-      </tbody></table></div>
-      </div>` : ''}
-    <div class="panel stack"><div class="row" style="justify-content:space-between"><h3>Special requests waiting for an order</h3><button id="po-add">+ Request a part</button></div>
-      <div class="tbl"><table><tbody>${reqs.filter(r => r.status === 'needed' && !r.poId).map(r => `<tr><td><b>${esc(r.name)}</b> ×${r.qty}${r.example ? ' <span class="pill">example</span>' : ''}</td><td class="small">${esc(r.forLabel || 'Shelf stock')}</td><td>${r.store}</td><td class="small">${fmtDate(r.createdAt)} · ${esc(staffName(r.by))}</td></tr>`).join('') || '<tr><td class="muted">None.</td></tr>'}</tbody></table></div></div>
-    <div class="panel stack"><h3>Orders</h3>
-    ${pos.filter(p => can(2) || p.store === S.store).map(p => `<div class="stack" style="border:1px solid var(--line);border-radius:12px;padding:12px;gap:8px">
+  const PO_LABEL = {draft: 'Waiting for Josh', placed: 'Placed', partial: 'Partly received', received: 'Received'};
+  const mine = pos.filter(p => can(2) || p.store === S.store);
+  const waiting = mine.filter(p => p.status === 'draft'), coming = mine.filter(p => ['placed', 'partial'].includes(p.status)), done = mine.filter(p => p.status === 'received');
+  const open = reqs.filter(r => r.status === 'needed' && !r.poId && (can(2) || r.store === S.store));
+  const card = p => `<div class="stack" style="border:1px solid var(--line);border-radius:12px;padding:12px;gap:8px">
       <div class="row" style="justify-content:space-between"><b>${p.orderNo ? "Sentrix #" + esc(p.orderNo) : "PO " + p.number} · ${STORES[p.store]}</b><span class="pill ${p.status === 'received' ? 'ok' : p.status === 'draft' ? '' : 'acc'}">${PO_LABEL[p.status]}</span></div>
       <div class="small muted">${p.orderNo ? 'Sentrix #' + esc(p.orderNo) : 'Not placed yet'}${p.tracking ? ` · ${esc(p.carrier || 'Tracking')} <span class="mono">${esc(p.tracking)}</span>` : ''} · ordered ${fmtDate(p.orderedAt || p.at)}${p.by ? ' by ' + esc(staffName(p.by)) : ''}${p.total ? ` · ${cents(p.total)}` : ''}</div>
       ${p.status === 'draft' ? (() => { const cs = p.cartStatus, nIn = p.lines.filter(l => l.inCart).length, miss = p.lines.filter(l => cs === 'ready' && !l.inCart);
@@ -6022,13 +6021,31 @@ function viewOrders(box, parts, reqs, pos, re){
           : cs === 'requested' ? `<b>Waiting for the MobileSentrix cart</b> (built ${ago(p.cartAt)} by the Mon/Thu order run). If it's still waiting after 10 AM, tell Sam.`
           : 'Draft made by hand: build the MobileSentrix cart by hand, or delete it and let the Mon/Thu run order it.'}</div>`; })() : ''}
       ${['placed','partial'].includes(p.status) && p.store === S.store ? '<p class="small muted" style="margin:0">Check each part off as you unpack it. Stocked parts go straight onto the shelf count and the part cost updates to what we paid. Anything missing or broken, leave it unchecked and tell a manager.</p>' : ''}
-      <div class="tbl"><table><tbody>${p.lines.map((l, i) => { const pt = l.partId && parts.find(x => x.id === l.partId); const rec = +l.received || 0; const open = ['placed','partial'].includes(p.status) && p.store === S.store && rec < l.qty;
+      <details ${["placed","partial"].includes(p.status) && p.store === S.store ? "open" : ""}><summary class="small" style="cursor:pointer">${p.lines.length} part${p.lines.length === 1 ? "" : "s"}${p.lines.some(l => l.requestIds?.length) ? " · includes special orders" : ""}</summary><div class="tbl" style="margin-top:6px"><table><tbody>${p.lines.map((l, i) => { const pt = l.partId && parts.find(x => x.id === l.partId); const rec = +l.received || 0; const open = ['placed','partial'].includes(p.status) && p.store === S.store && rec < l.qty;
         return `<tr><td>${esc(l.name)}${l.requestIds?.length ? ' <span class="pill acc">special</span>' : ''}<div class="small muted">${pt ? '→ ' + esc(pt.name) + ` (${pt.qty?.[p.store] ?? 0} on shelf)` : 'Not a stocked part (supplies)'}${l.cost ? ' · ' + cents(l.cost) + ' each' : ''}${p.status === 'draft' && p.cartStatus === 'ready' ? (l.inCart ? `<div style="color:var(--ok)">✓ in cart${l.sxTitle ? ': ' + esc(l.sxTitle) : ''}${l.sxPrice ? ' · ' + cents(l.sxPrice) : ''}</div>` : `<div style="color:var(--bad)">Not in the cart${l.cartWhy ? ': ' + esc(l.cartWhy) : ''}. Josh adds it by hand.</div>`) : ''}</div>
           ${open && !rec ? `<select data-plink="${p.id}:${i}" aria-label="Stocked part for ${esc(l.name)}" style="min-height:30px;margin-top:4px;max-width:320px"><option value="">Not a stocked part</option>${parts.map(x => `<option value="${x.id}" ${x.id === l.partId ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>` : ''}</td><td class="r num">${rec}/${l.qty}</td>
-        <td class="r">${open ? `<button data-rl="${p.id}:${i}" style="min-height:32px;padding:2px 10px">Received ${l.qty - rec}</button>` : rec >= l.qty ? '<span class="pill ok">✓</span>' : ''}</td></tr>`; }).join('')}</tbody></table></div>
+        <td class="r">${open ? `<button data-rl="${p.id}:${i}" style="min-height:32px;padding:2px 10px">Received ${l.qty - rec}</button>` : rec >= l.qty ? '<span class="pill ok">✓</span>' : ''}</td></tr>`; }).join('')}</tbody></table></div></details>
       <div class="row">${['placed','partial'].includes(p.status) && p.store === S.store && p.lines.some(l => (+l.received || 0) < l.qty) ? `<button class="primary" data-rall="${p.id}">Everything arrived: receive all</button>` : ''}${p.status === 'draft' && can(2) ? `<button class="primary" data-place="${p.id}">Mark placed</button> <button data-pcancel="${p.id}">Delete draft</button>` : ''}${['placed','partial'].includes(p.status) && can(2) ? `<button data-track="${p.id}">${p.tracking ? 'Change' : 'Add'} tracking #</button>` : ''}</div>
-    </div>`).join('') || '<p class="muted small">No orders yet.</p>'}</div></div>`;
-  $('#po-st') && ($('#po-st').onchange = e => { S.poStore = e.target.value; re(); });
+    </div>`;
+  const group = (title, list, empty) => `<div class="stack" style="gap:8px"><h3 style="margin:0">${title} <span class="muted small">(${list.length})</span></h3>${list.map(card).join('') || `<p class="muted small" style="margin:0">${empty}</p>`}</div>`;
+  const preview = ss => { const l = suggestOrder(ss, parts, reqs, pos); return {n: l.length, sp: l.filter(x => x.requestIds?.length).length}; };
+  box.innerHTML = `<div class="stack">
+    <div class="panel stack" style="gap:10px">
+      <div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap"><div><h2 style="margin:0">Sentrix orders</h2>
+        <div class="small muted">Next order <b>${nextOrderDay()}</b> · automatic: Claude builds and saves the MobileSentrix carts, Josh places them.</div></div>
+        <button id="po-add">+ Special order a part</button></div>
+      ${can(2) ? `<div class="grid g3">${Object.entries(STORES).map(([k, v]) => { const x = preview(k); return `<div class="stat"><span class="label">${v}</span><span class="v">${x.n}</span><span class="small muted">part${x.n === 1 ? '' : 's'} to order${x.sp ? ` · ${x.sp} special` : ''}</span></div>`; }).join('')}</div>
+      <details ${S.poOpen ? 'open' : ''}><summary class="small" style="cursor:pointer">See what goes in the next order</summary>
+        <div class="row" style="margin:8px 0"><select id="po-st" aria-label="Store" style="width:auto">${Object.entries(STORES).map(([k, v]) => `<option value="${k}" ${st === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+        <div class="tbl"><table><thead><tr><th>Part</th><th>Why</th><th class="r">Order</th></tr></thead><tbody>
+        ${sug.map(l => `<tr><td>${esc(l.name)}${l.requestIds?.length ? ' <span class="pill acc">special</span>' : ''}</td><td class="small muted">${esc(l.why)}</td><td class="r num"><b>${l.qty}</b></td></tr>`).join('') || '<tr><td colspan="3" class="muted">Nothing below its desired quantity.</td></tr>'}</tbody></table></div></details>` : ''}
+      ${open.length ? `<div class="stack" style="gap:6px"><div class="label">Special orders waiting for the next order (${open.length})</div><div class="tbl"><table><tbody>${open.map(r => `<tr><td><b>${esc(r.name)}</b> ×${r.qty}${r.example ? ' <span class="pill">example</span>' : ''}</td><td class="small">${esc(r.forLabel || 'Shelf stock')}</td><td>${r.store}</td><td class="small">${fmtDate(r.createdAt)} · ${esc(staffName(r.by))}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
+    </div>
+    ${can(2) || waiting.length ? `<div class="panel stack">${group('Waiting for Josh', waiting, 'No carts waiting. The next one is built ' + nextOrderDay() + '.')}</div>` : ''}
+    <div class="panel stack">${group('On the way', coming, 'Nothing on the way.')}</div>
+    ${done.length ? `<div class="panel"><details><summary style="cursor:pointer"><b>Received</b> <span class="muted small">(${done.length})</span></summary><div class="stack" style="margin-top:10px">${done.slice(0, 15).map(card).join('')}</div></details></div>` : ''}
+  </div>`;
+  $('#po-st') && ($('#po-st').onchange = e => { S.poStore = e.target.value; S.poOpen = true; re(); });
   $('#po-add').onclick = () => orderPartSheet({forType: 'stock', store: S.store}, re);
   box.querySelectorAll('[data-place]').forEach(b => b.onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Mark placed</h3><button data-close>Close</button></div>
     <div class="field"><label class="label" for="pl-no">Sentrix order #</label><input id="pl-no" placeholder="108772203"></div><div class="err" id="pl-e" role="alert"></div><button class="primary" id="pl-go">Mark placed</button>`,
@@ -6336,7 +6353,7 @@ function dashNums(invs, sold, dv, pr, tk){
   const known = lines.filter(l => l.cost !== null && !l.i.rsId);
   const other = sold.filter(d => !onInv.has(d.id));
   const otherRev = sum(other, d => d.soldPrice), otherProfit = sum(other, d => (d.channel === 'Swappa' ? swappaNet(d) : (+d.soldPrice || 0)) - (+d.cost || 0) - (+d.partsCost || 0));
-  const isAcc = l => /accessory|glass/i.test(l.cat || '') || l.productId;
+  const isAcc = l => /accessory|glass/i.test(l.cat || '');
   return {
     sales: sum(invs, i => i.subtotal ?? i.total - (i.tax || 0)) + otherRev,
     profit: sum(known, l => l.rev - l.cost) + otherProfit,
