@@ -232,7 +232,7 @@ button.qa[data-qa=customer]{background:#2563eb}button.qa[data-qa=ticket]{backgro
 :root[data-theme="dark"] .st-new{background:#1c2a4a;color:#9cc0ff}:root[data-theme="dark"] .st-prog{background:#3a2a10;color:#f6c27a}:root[data-theme="dark"] .st-parts{background:#3d1a18;color:#ff9d94}
 :root[data-theme="dark"] .st-cust{background:#2e1f42;color:#d0aaf5}:root[data-theme="dark"] .st-board{background:#123532;color:#7fe0d4}:root[data-theme="dark"] .st-res{background:#2a2d33;color:#b8bec8}
 :root[data-theme="dark"] .st-appr{background:#3a3210;color:#f2d66b}:root[data-theme="dark"] .st-dev{background:#262b34;color:#b6c0d0}:root[data-theme="dark"] .st-sched{background:#132c45;color:#8fc8ff}:root[data-theme="dark"] .st-reply{background:#3d1630;color:#ff9fd0}
-.st-new{background:#e0ecff;color:#1849a9}.st-prog{background:#fff0d6;color:#8a4b00}.st-parts{background:#fde2e1;color:#a4231b}
+.st-new{background:#e0ecff;color:#1849a9}.st-order{background:#ffe6cc;color:#9a3d00}:root[data-theme="dark"] .st-order{background:#3d2410;color:#ffb877}.st-prog{background:#fff0d6;color:#8a4b00}.st-parts{background:#fde2e1;color:#a4231b}
 .st-cust{background:#efe3fb;color:#6b2bb0}.st-board{background:#dff5f3;color:#0b6b62}.st-res{background:#ececec;color:#555}
 .st-appr{background:#fff4c2;color:#7a5a00}.st-dev{background:#e8eaef;color:#3d4757}.st-sched{background:#dcefff;color:#0d5c99}.st-reply{background:#ffe1f0;color:#a0195c}
 select.stsel{appearance:none;-webkit-appearance:none;border:0;border-radius:4px;font-size:12px;font-weight:600;min-height:28px;padding:3px 22px 3px 9px;width:auto;cursor:pointer;background-image:linear-gradient(45deg,transparent 50%,currentColor 50%),linear-gradient(135deg,currentColor 50%,transparent 50%);background-position:calc(100% - 11px) 12px,calc(100% - 7px) 12px;background-size:4px 4px;background-repeat:no-repeat}
@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794956604";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794958164";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -292,8 +292,8 @@ const sessClear = () => { try { localStorage.removeItem(SESS_K); } catch {} };
 const COST_OPEN = true;   /* TEMPORARY (Nov 11): reps can enter device cost while the counted phones get filled in. Set false to lock again (and re-lock pos_update_device). */
 const GLASS = {regular: 29.99, privacy: 34.99, replace: 5};   /* tempered glass: any model; lifetime warranty = $5 replacement */
 /* Same statuses, issue types and priorities as Cellular Zone's RepairShopr account (checked Nov 9 2026) */
-const TSTATUS = [['new','New','st-new'],['progress','In Progress','st-prog'],['approval','Awaiting Approval','st-appr'],['device','Awaiting Device','st-dev'],
-  ['scheduled','Scheduled','st-sched'],['parts','Waiting for Parts','st-parts'],['customer','Waiting on Customer','st-cust'],['reply','Customer Reply','st-reply'],
+const TSTATUS = [['new','New','st-new'],['progress','In Progress','st-prog'],['approval','Waiting on Approval','st-appr'],['device','Awaiting Device','st-dev'],
+  ['scheduled','Scheduled','st-sched'],['order','Part Pending Order','st-order'],['parts','Waiting for Parts','st-parts'],['customer','Ready for Pickup','st-cust'],['reply','Customer Reply','st-reply'],
   ['board','Board Level','st-board'],['resolved','Resolved','st-res']];
 const PRIORITIES = [[0,'0 Urgent'],[1,'1 High'],[2,'2 Normal'],[3,'3 Low']];
 const issueGuess = d => /iphone/i.test(d) ? 'iPhone Repair' : /ipad/i.test(d) ? 'iPad Repair' : /macbook|imac|mac\b/i.test(d) ? 'Macbook Repair' : /ps[2345]|playstation|xbox|switch|console/i.test(d) ? 'Game Console Repair' : /galaxy|samsung|pixel|moto|note|s2\d/i.test(d) ? 'Smartphone Repair' : /tab|surface/i.test(d) ? 'Tablet Repair' : /laptop|pc|computer|dell|hp|lenovo/i.test(d) ? 'Computer Repair' : '';
@@ -339,6 +339,7 @@ const partBrand = n => /^iphone/i.test(n) ? 'iPhone' : /^(galaxy|samsung|s\d|not
 const isSmallPart = p => !(p.kind === 'Screen' || isScreenPart(p) && !/batter|charg|port|camera|lens|flex/i.test(p.name));
 const isScreenPart = p => /screen|lcd|oled|xo7|x07|aq7|incell|digitizer|display/i.test(p.name + ' ' + (p.kind || ''));
 const isGlassOnly = txt => /glass only/i.test(txt || '');
+const bhAtCheckin = (dev, iss) => iss === 'iPhone Repair' || /iphone/i.test(dev || '');   // iPhone repair tickets: BH % (or N/A) at check-in
 const needsBH = () => false;   // battery health is optional on tickets (Sam, Nov 17): record it if you have it, never required
 const DEFAULT_SETTINGS = {
   reviewLink: 'https://cellularzonesa.com/customer-review/', reviewDelayH: 24,
@@ -595,7 +596,7 @@ const DemoStore = {
     d.partOrders.unshift(row);
     if (o.rush) this.notify(d, null, `RUSH special order for ${STORES[store]}: ${row.name}${o.cost ? ' (' + cents(o.cost) + ')' : ''} · ${row.forLabel || 'stock'}. Needed before the next Mon/Thu order.`, {tab: 'parts'}, 'manager');
     if (o.forType === 'device') { const dv = d.devices.find(x => x.id === o.forId); if (dv) { dv.log.unshift({at: now(), who: emp.id, text: 'Part requested: ' + row.name}); if (['diag','parts'].includes(dv.repairStatus) || !dv.repairStatus) dv.repairStatus = 'parts'; } }
-    if (o.forType === 'ticket') { const t = d.tickets.find(x => x.id === o.forId); if (t) { t.comments.unshift({id: uid(), at: now(), who: emp.id, text: 'Part requested: ' + row.name, pub: false, sys: true}); if (t.status !== 'parts') t.status = 'parts'; t.updatedAt = now(); } }
+    if (o.forType === 'ticket') { const t = d.tickets.find(x => x.id === o.forId); if (t) { t.comments.unshift({id: uid(), at: now(), who: emp.id, text: 'Part requested: ' + row.name, pub: false, sys: true}); if (!['resolved', 'customer'].includes(t.status)) t.status = 'order'; t.updatedAt = now(); } }
     this.log(d, emp.id, store, 'Part requested', `${row.name} for ${row.forLabel || 'stock'}`); this.save(d); return row;
   },
   async partAlert(id){ const d = this.db(); const o = d.partOrders.find(x => x.id === id); if (o) { this.notify(d, null, `Special order ${STORES[o.store]}: ${o.name}${o.url ? ' · ' + o.url : ''} (Slack to Josh in the live POS)`, {tab: 'parts'}, 'manager'); this.save(d); } return {ok: true, demo: true}; },
@@ -1673,7 +1674,7 @@ const HELP_KB = [
   'Tap **Tech board**. Pick the tech at the top (techs see their own).',
   'Lineup = New, In progress and Board level tickets, in order. Use **↑ ↓** or **Move to top** to change the order.',
   '**Pickup time**: when the customer is coming back. "Customer is waiting now" jumps it to the top.',
-  'Change the status right on the card. **Done · ready for pickup** moves it to Waiting on Customer.']},
+  'Change the status right on the card. **Ready for Pickup** when it is done.']},
  {t: 'Count parts or phones', k: 'count parts count phones inventory count daily count fix count check counts', s: [
   'Go to **More → Counts**.',
   'Tap **Start parts count** (Mon, Wed, Fri) or the phones count (every day).',
@@ -1921,8 +1922,8 @@ const fmtPhone = p => { const d = (p || '').replace(/\D/g, ''); return d.length 
 const ago = d => { const m = Math.floor((Date.now() - new Date(d)) / 60000); return m < 1 ? 'just now' : m < 60 ? m + 'm ago' : m < 1440 ? Math.floor(m/60) + 'h ago' : Math.floor(m/1440) + 'd ago'; };
 function ticketFlag(t){
   const age = daysOld(t.updatedAt);
-  if (t.status === 'parts' && daysOld(t.createdAt) >= 5) return ['bad', `${daysOld(t.createdAt)}d waiting on parts`];
-  if (t.status === 'customer' && age >= 3) return ['warn', `Waiting on customer ${age}d`];
+  if (['parts', 'order'].includes(t.status) && daysOld(t.createdAt) >= 5) return ['bad', `${daysOld(t.createdAt)}d waiting on parts`];
+  if (t.status === 'customer' && age >= 3) return ['warn', `Ready for pickup ${age}d`];
   if (t.status === 'reply') return ['bad', 'Customer replied'];
   if (t.status === 'approval' && age >= 1) return ['warn', `Awaiting approval ${age}d`];
   if (t.status === 'new' && Date.now() - new Date(t.createdAt) > 3*3600000) return ['warn', 'Not started'];
@@ -2005,6 +2006,10 @@ async function viewTicket(el){
   <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));align-items:start">
     <div class="stack">
       <div class="panel stack">
+        <div class="row" style="justify-content:space-between"><h3>Customer</h3><button id="t-cust">Open customer</button></div>
+        <dl class="kv"><dt>Name</dt><dd>${esc(c.name || '—')}</dd><dt>Phone</dt><dd class="num">${fmtPhone(c.phone)} ${c.phone ? '<button id="t-copyph" style="min-height:30px;padding:2px 8px">Copy</button>' : ''}</dd>${t.callback ? `<dt>Call back</dt><dd class="num"><a href="tel:${esc(t.callback)}" style="color:var(--accent);font-weight:600">${fmtPhone(t.callback)}</a> <span class="small muted">use this one</span></dd>` : ''}${c.email ? `<dt>Email</dt><dd>${esc(c.email)}</dd>` : ''}</dl>
+      </div>
+      <div class="panel stack">
         <h2>${esc(t.subject)}</h2>
         <div class="grid g2">
           <div class="field"><label class="label" for="t-st">Status</label><select id="t-st">${TSTATUS.map(([k, l]) => `<option value="${k}" ${t.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
@@ -2019,7 +2024,7 @@ async function viewTicket(el){
             <button id="pc-edit" style="min-height:30px;padding:2px 8px;margin-left:4px">${t.passcode ? 'Change' : 'Add'}</button></dd>
           <dt>Charges</dt><dd class="num">${tQuote(t) ? cents(tQuote(t)) + ' <span class="small muted">+ tax</span>' : '<span class="muted">none yet: add them under Charges</span>'}</dd>
           <dt>Pickup time</dt><dd>${dueText(t) ? `<b${t.waiting || (t.dueAt && new Date(t.dueAt) < new Date() && t.status !== 'resolved') ? ' style="color:var(--bad)"' : ''}>${esc(dueText(t))}</b> ` : '<span class="muted">Not set</span> '}${t.status !== 'resolved' ? `<button id="t-due" style="min-height:32px;padding:2px 10px">${dueText(t) ? 'Change' : 'Set'}</button>` : ''}</dd>
-          <dt>Battery health</dt><dd>${t.bh ? `<b>BH ${t.bh}%</b>` : t.bhSkip ? `<span class="muted">Couldn't read: ${esc(t.bhSkip)}</span>` : needsBH(t) ? '<span class="pill bad">Needed before resolving</span>' : '<span class="muted">—</span>'}
+          <dt>Battery health</dt><dd>${t.bh ? `<b>BH ${t.bh}%</b>` : t.bhSkip ? `<span class="muted">${t.bhSkip === 'N/A' ? 'N/A' : "Couldn't read: " + esc(t.bhSkip)}</span>` : needsBH(t) ? '<span class="pill bad">Needed before resolving</span>' : '<span class="muted">—</span>'}
             ${t.status !== 'resolved' ? '<button id="t-bh" style="min-height:30px;padding:2px 8px;margin-left:6px">Record</button>' : ''}</dd>
           <dt>Store</dt><dd>${STORES[t.store]}</dd>
           <dt>Checked in</dt><dd>${new Date(t.createdAt).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})} by ${esc(staffName(t.by))}</dd>
@@ -2053,10 +2058,6 @@ async function viewTicket(el){
         ${rsUnpaid.length ? `<div class="banner warn small stack" style="gap:6px"><b>Not paid yet in RepairShopr</b>${rsUnpaid.map(i => `<span class="row" style="justify-content:space-between;gap:8px"><span class="num">Invoice #${i.number} · ${cents(i.total)} · ${fmtDate(i.at)}${(i.lines || []).length ? ' · ' + esc(i.lines.map(l => l.desc).join(', ')) : ''}</span><span class="pill bad">Unpaid</span></span>`).join('')}
           ${isOpen ? '<span>Tap <b>Make invoice</b> to collect it here: it moves onto this ticket as a charge. Then void it in RepairShopr.</span>' : ''}</div>` : ''}
         ${tInv.length || drafts.length ? `<div class="small stack" style="gap:2px"><span class="label">Invoices on this ticket</span>${drafts.map(i => `<span class="row" style="justify-content:space-between;gap:8px"><span class="num"><a data-oinv="${i.id}" style="color:var(--accent);cursor:pointer;font-weight:700">#${i.number}</a> · ${cents(i.total)} · ${fmtDate(i.at)}</span><span class="pill bad">Not paid</span></span>`).join('')}${tInv.map(i => `<span class="row" style="justify-content:space-between;gap:8px"><span class="num"><a data-oinv="${i.id}" style="color:var(--accent);cursor:pointer;font-weight:700">#${i.number}</a> · ${cents(i.total)} · ${esc(i.payment || '')} · ${fmtDate(i.at)} ${fmtTime(i.at)} · ${esc((i.lines || []).map(l => l.desc).join(', '))}</span><span class="row" style="gap:4px;flex:none"><button data-rcpt="${i.id}" style="min-height:30px;padding:2px 10px">Receipt</button>${i.total > 0 && !i.refundOf ? `<button data-rfnd="${i.id}" style="min-height:30px;padding:2px 10px">Refund</button>` : ''}</span></span>`).join('')}</div>` : ''}
-      </div>
-      <div class="panel stack">
-        <div class="row" style="justify-content:space-between"><h3>Customer</h3><button id="t-cust">Open customer</button></div>
-        <dl class="kv"><dt>Name</dt><dd>${esc(c.name || '—')}</dd><dt>Phone</dt><dd class="num">${fmtPhone(c.phone)} ${c.phone ? '<button id="t-copyph" style="min-height:30px;padding:2px 8px">Copy</button>' : ''}</dd>${t.callback ? `<dt>Call back</dt><dd class="num"><a href="tel:${esc(t.callback)}" style="color:var(--accent);font-weight:600">${fmtPhone(t.callback)}</a> <span class="small muted">use this one</span></dd>` : ''}${c.email ? `<dt>Email</dt><dd>${esc(c.email)}</dd>` : ''}</dl>
       </div>
       <div class="panel stack">
         <div class="row" style="justify-content:space-between"><h3>Parts pulled from stock</h3>${can(2) ? `<span class="muted small">${money(partsCost)} part cost</span>` : ''}</div>
@@ -2098,7 +2099,7 @@ async function viewTicket(el){
   $('#t-tech').onchange = e => up({techId: e.target.value || null});
   $('#t-pri').onchange = e => up({priority: +e.target.value});
   $('#t-due') && ($('#t-due').onclick = () => pickupSheet(t, () => viewTicket(el)));
-  $('#t-ready') && ($('#t-ready').onclick = async () => { await Store.updateTicket(S.user, S.store, t.id, {status: 'customer'}); S.prefillSms = readyMsg; toast('Waiting on Customer · pickup text ready to send'); viewTicket(el); });
+  $('#t-ready') && ($('#t-ready').onclick = async () => { await Store.updateTicket(S.user, S.store, t.id, {status: 'customer'}); S.prefillSms = readyMsg; toast('Ready for Pickup · pickup text ready to send'); viewTicket(el); });
   $('#t-pay') && ($('#t-pay').onclick = () => {
     if (rsUnpaid.length) return moveRs(true);
     if (t.type === 'rework' && !due.length && !tInvAll.length) return checkoutSheet(t, c);
@@ -2326,6 +2327,10 @@ async function viewNewTicket(el){
         <div class="field"><label class="label" for="nt-imei">IMEI / serial</label><input id="nt-imei" value="${esc(D.imei || '')}" autocomplete="off"></div>
       </div>
       <div class="field"><label class="label" for="nt-cb">Call-back number <span class="muted" style="font-weight:400">(optional)</span></label><input id="nt-cb" inputmode="tel" value="${esc(D.callback || '')}" placeholder="Only if different from the number on the account" autocomplete="off"></div>
+      <div class="grid g2" id="nt-bhbox" ${bhAtCheckin(D.device, D.issue) ? '' : 'hidden'}>
+        <div class="field"><label class="label" for="nt-bh">Battery health % <span class="muted" style="font-weight:400">(iPhone: required)</span></label><input id="nt-bh" inputmode="numeric" value="${esc(D.bh || '')}" placeholder="87"><div class="small muted">Settings → Battery → Battery Health</div></div>
+        <div class="field"><label class="label" for="nt-bhs">Or N/A</label><select id="nt-bhs"><option value="">—</option>${["N/A", "Disabled / passcode unknown", "No display / can't see the screen", "Won't turn on", "Boot looping"].map(o => `<option ${D.bhs === o ? 'selected' : ''}>${o}</option>`).join('')}</select></div>
+      </div>
       <div class="field"><span class="label">Passcode, so the tech can test it</span><div id="nt-pcbox" class="stack" style="gap:8px"></div></div>
       <div class="field"><label class="label" for="nt-sub">Subject</label><input id="nt-sub" value="${esc(D.subject || '')}" placeholder="iPhone 15 Pro lcd replacement"></div>
       <div class="field"><label class="label" for="nt-notes">Notes for the tech</label><textarea id="nt-notes" rows="2" placeholder="Face ID works before repair. Small dent top left.">${esc(D.notes || '')}</textarea></div>
@@ -2340,7 +2345,7 @@ async function viewNewTicket(el){
       <div class="field"><label class="label" for="nt-tn">Test notes</label><input id="nt-tn" value="${esc(D.testNote || '')}" placeholder="Back glass cracked, Face ID didn't work before"></div>
     </div>
   </form>`;
-  const keep = () => { if (!$('#nt-dev')) return; Object.assign(D, {device: $('#nt-dev').value, issue: $('#nt-iss').value, imei: $('#nt-imei').value, callback: $('#nt-cb').value, subject: $('#nt-sub').value, notes: $('#nt-notes').value}); };
+  const keep = () => { if (!$('#nt-dev')) return; Object.assign(D, {device: $('#nt-dev').value, issue: $('#nt-iss').value, imei: $('#nt-imei').value, callback: $('#nt-cb').value, bh: $('#nt-bh').value, bhs: $('#nt-bhs').value, subject: $('#nt-sub').value, notes: $('#nt-notes').value}); };
   $('#back').onclick = () => go('tickets');
   pcField('nt-pc', D.passcode || '', v => { D.passcode = v; }).mount($('#nt-pcbox'));
   bindTestGrid($('#nt-tg'), D.tests); $('#nt-tn').oninput = e => { D.testNote = e.target.value; };
@@ -2351,19 +2356,22 @@ async function viewNewTicket(el){
     customerSheet({name: g.name || '', phone: g.phone}, row => { D.customerId = row.id; viewNewTicket(el); }); });
   $('#nt-chg') && ($('#nt-chg').onclick = () => { keep(); D.customerId = null; viewNewTicket(el); });
   $('#nt-newc') && ($('#nt-newc').onclick = () => { keep(); customerSheet({name: /\d/.test(D.cq || '') ? '' : D.cq, phone: /\d/.test(D.cq || '') ? D.cq : ''}, row => { D.customerId = row.id; viewNewTicket(el); }); });
-  $('#nt-iss').onchange = () => { $('#nt-iss').dataset.touched = 1; };
+  const bhShow = () => { $('#nt-bhbox').hidden = !bhAtCheckin($('#nt-dev').value, $('#nt-iss').value); };
+  $('#nt-iss').onchange = () => { $('#nt-iss').dataset.touched = 1; bhShow(); };
   if (D.issue) $('#nt-iss').dataset.touched = 1;
-  $('#nt-dev').oninput = () => { if (!$('#nt-iss').dataset.touched) { const g = issueGuess($('#nt-dev').value); if (g) $('#nt-iss').value = g; } $('#nt-testp').hidden = !testable($('#nt-dev').value); };
+  $('#nt-dev').oninput = () => { if (!$('#nt-iss').dataset.touched) { const g = issueGuess($('#nt-dev').value); if (g) $('#nt-iss').value = g; } $('#nt-testp').hidden = !testable($('#nt-dev').value); bhShow(); };
   $('#nt').onsubmit = async e => {
     e.preventDefault(); keep();
     const cbd = (D.callback || '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
-    const err = !D.customerId ? 'Pick or add the customer first.' : cbd && cbd.length !== 10 ? 'The call-back number should be 10 digits (or leave it blank).' : !D.device.trim() ? 'Enter the device.' : !D.issue ? 'Pick the issue.' : !D.subject.trim() ? 'Enter a subject.'
+    const bhN = bhAtCheckin(D.device, D.issue), bhV = (D.bh || '').trim();
+    const err = !D.customerId ? 'Pick or add the customer first.' : bhN && bhV && !(+bhV >= 1 && +bhV <= 100) ? 'Battery health is a number from 1 to 100.' : bhN && !bhV && !D.bhs ? 'iPhone repair: enter the battery health %, or pick N/A.' : cbd && cbd.length !== 10 ? 'The call-back number should be 10 digits (or leave it blank).' : !D.device.trim() ? 'Enter the device.' : !D.issue ? 'Pick the issue.' : !D.subject.trim() ? 'Enter a subject.'
       : '';
     $('#nt-err').textContent = err; if (err) return;
     const t = await Store.createTicket(S.user, S.store, {customerId: D.customerId, device: D.device.trim(), issue: D.issue, subject: D.subject.trim(),
       estimate: null, imei: D.imei.trim(), passcode: (D.passcode || '').trim(), callback: cbd || null, techId: $('#nt-tech').value || null, notes: D.notes.trim()});
     /* a price carried over from the Quote tool goes straight on as the first charge (no separate "quoted price" to keep in sync) */
     if (+D.estimate > 0) { try { await Store.ticketCharge(S.user, S.store, t.id, {desc: D.subject.trim(), cat: /diag/i.test(D.subject) ? 'Diagnostic' : /console/i.test(D.issue) ? 'Console repair' : 'Repair', price: +D.estimate}); } catch (e) { toast("Ticket made, but the quoted charge didn't save: " + e.message); } }
+    if (bhN && (bhV || D.bhs)) { try { await Store.updateTicket(S.user, S.store, t.id, bhV ? {bh: +bhV} : {bhSkip: D.bhs}); } catch (e) { toast("Ticket made, but the battery health didn't save: " + e.message); } }
     if (testable(D.device) && testsDone(D.tests)) { try { await Store.saveTicketTest(S.user, S.store, t.id, 'checkin', D.tests, (D.testNote || '').trim()); } catch (e) { toast("Ticket made, but the check-in test didn't save: " + e.message); } }
     S.draft = {}; S.justCreated = t.id; go('ticket', {ticketId: t.id});
   };
@@ -4041,7 +4049,7 @@ async function viewTechboard(el){
   const ord = (a, b) => (a.waiting ? 0 : 1) - (b.waiting ? 0 : 1) || (a.queuePos ?? 9999) - (b.queuePos ?? 9999) || (a.dueAt ? new Date(a.dueAt) : Infinity) - (b.dueAt ? new Date(b.dueAt) : Infinity) || new Date(a.createdAt) - new Date(b.createdAt);
   const open = all.filter(t => t.store === S.store && TB_ST.includes(t.status));
   const line = open.filter(mine).sort(ord); const unas = S.tbTech === 'all' || UN ? [] : open.filter(t => !t.techId).sort(ord);
-  const parts = all.filter(t => t.store === S.store && t.status === 'parts' && mine(t)).length;
+  const parts = all.filter(t => t.store === S.store && ['parts', 'order'].includes(t.status) && mine(t)).length;
   const rs = devs.filter(d => d.store === S.store && d.status === 'repair' && mine(d)).sort((a, b) => (a.queuePos ?? 9999) - (b.queuePos ?? 9999) || new Date(a.createdAt) - new Date(b.createdAt));
   const rsUn = S.tbTech === 'all' || UN ? [] : devs.filter(d => d.store === S.store && d.status === 'repair' && !d.techId);
   const due = t => { if (t.waiting) return '<span class="pill bad">Customer waiting</span>'; if (!t.dueAt) return '<span class="pill">No pickup time</span>';
@@ -4057,7 +4065,7 @@ async function viewTechboard(el){
         <div class="small muted">${esc((c.name || 'Walk-in').split(' ')[0])}${(t.callback || c.phone) ? ` · <a href="tel:${esc(String(t.callback || c.phone).replace(/\D/g, ''))}" class="num" style="color:inherit;font-weight:600">${t.callback ? 'call back ' : ''}${fmtPhone(t.callback || c.phone)}</a>` : ''} · in ${fmtDate(t.createdAt)} ${fmtTime(t.createdAt)}${S.tbTech === 'all' ? ' · ' + esc(t.techId ? staffName(t.techId) : 'unassigned') : ''}</div>
         ${rf ? '<div class="banner warn small" style="padding:6px 10px">Original screen goes in the <b>refurb bin</b></div>' : ''}
         <div class="row" style="gap:6px">
-          <select data-st="${t.id}" aria-label="Status" style="width:auto;min-height:36px">${TSTATUS.filter(([k]) => ['new', 'progress', 'board', 'parts', 'customer'].includes(k)).map(([k, l]) => `<option value="${k}" ${t.status === k ? 'selected' : ''}>${k === 'customer' ? 'Done · ready for pickup' : l}</option>`).join('')}</select>
+          <select data-st="${t.id}" aria-label="Status" style="width:auto;min-height:36px">${TSTATUS.filter(([k]) => ['new', 'progress', 'board', 'approval', 'order', 'parts', 'customer'].includes(k)).map(([k, l]) => `<option value="${k}" ${t.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
           ${S.tbTech === 'all' || UN ? `<select data-as="${t.id}" aria-label="Tech" style="width:auto;min-height:36px"><option value="">Unassigned</option>${techs.map(e => `<option value="${e.id}" ${t.techId === e.id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select>` : ''}
           ${t.passcode && t.passcode !== 'None' ? `<button data-pc="${t.id}" style="min-height:36px;padding:2px 10px">Passcode</button>` : ''}
           <button data-due="${t.id}" style="min-height:36px;padding:2px 10px">Pickup time</button>
@@ -4093,7 +4101,7 @@ async function viewTechboard(el){
   el.querySelectorAll('[data-mv]').forEach(b => b.onclick = () => { const [id, d] = b.dataset.mv.split(':'); reorder(line, 'ticket', id, +d); });
   el.querySelectorAll('[data-top]').forEach(b => b.onclick = () => reorder(line, 'ticket', b.dataset.top, 'top'));
   el.querySelectorAll('[data-dmv]').forEach(b => b.onclick = () => { const [id, d] = b.dataset.dmv.split(':'); reorder(rs, 'device', id, +d); });
-  el.querySelectorAll('[data-st]').forEach(s => s.onchange = async () => { try { await Store.updateTicket(S.user, S.store, s.dataset.st, {status: s.value}); toast(s.value === 'customer' ? 'Done · moved to Waiting on Customer' : 'Status updated'); re(); } catch (e) { toast(e.message); re(); } });
+  el.querySelectorAll('[data-st]').forEach(s => s.onchange = async () => { try { await Store.updateTicket(S.user, S.store, s.dataset.st, {status: s.value}); toast(s.value === 'customer' ? 'Done · moved to Ready for Pickup' : 'Status updated'); re(); } catch (e) { toast(e.message); re(); } });
   el.querySelectorAll('[data-as]').forEach(s => s.onchange = async () => { try { await Store.updateTicket(S.user, S.store, s.dataset.as, {techId: s.value || null}); toast('Tech assigned'); re(); } catch (e) { toast(e.message); } });
   el.querySelectorAll('[data-take]').forEach(b => b.onclick = async () => { try { await Store.updateTicket(S.user, S.store, b.dataset.take, {techId: S.tbTech}); re(); } catch (e) { toast(e.message); } });
   el.querySelectorAll('[data-dtake]').forEach(b => b.onclick = async () => { try { await Store.deviceTech(S.user, S.store, b.dataset.dtake, S.tbTech); re(); } catch (e) { toast(e.message); } });
@@ -6488,7 +6496,7 @@ async function viewOwnerDash(el){
     const open = tix.filter(t => t.store === st && t.status !== 'resolved');
     return [st, {st, day, mon, bbT: bbT.length, bbT$: bbT.reduce((a, b) => a + (+b.paid || 0), 0), bbM: bb.length, bbM$: bb.reduce((a, b) => a + (+b.paid || 0), 0),
       open, lineup: open.filter(t => ['new', 'progress', 'board', 'reply'].includes(t.status)).sort((a, b) => (a.status === 'board') - (b.status === 'board') || new Date(a.createdAt) - new Date(b.createdAt)),
-      parts: open.filter(t => t.status === 'parts'), waitCust: open.filter(t => t.status === 'customer'),
+      parts: open.filter(t => ['parts', 'order'].includes(t.status)), waitCust: open.filter(t => t.status === 'customer'),
       pending: devs.filter(d => d.store === st && d.status === 'testing'), repairStock: devs.filter(d => d.store === st && d.status === 'repair'),
       toShip: ships.filter(x => x.store === st && x.status !== 'shipped'), on: punches.filter(p => p.store === st && !p.t_out), awaiting}];
   }));
@@ -6546,7 +6554,7 @@ async function viewOwnerDash(el){
         <div><div class="row" style="justify-content:space-between"><span class="dk-l">Accessories goal</span><span class="small num">${money(P.day.acc)} / ${money(ACC_GOAL)}</span></div>${dashMeter(P.day.acc, ACC_GOAL, P.day.acc >= ACC_GOAL ? 'ok' : 'org')}</div></div>`}
       <div class="ds-pills">
         <span class="chip">${P.open.length} open ticket${P.open.length === 1 ? '' : 's'}</span><span class="chip ${P.parts.some(t => daysOld(t.createdAt) >= 5) ? 'bad' : ''}">${P.parts.length} waiting on parts</span>
-        <span class="chip">${P.waitCust.length} waiting on customer</span><span class="chip">${P.repairStock.length} in repair stock</span>
+        <span class="chip">${P.waitCust.length} ready for pickup</span><span class="chip">${P.repairStock.length} in repair stock</span>
         ${P.pending.length ? `<span class="chip warn">${P.pending.length} pending phone${P.pending.length === 1 ? '' : 's'}</span>` : ''}${P.toShip.length ? `<span class="chip bad">${P.toShip.length} to ship</span>` : ''}
       </div>
       ${o ? `<div class="ds-more">
@@ -6635,7 +6643,7 @@ async function viewRepDash(el){
   const ship = ships.filter(x => x.store === st && x.status !== 'shipped');
   const waitC = by(open.filter(t => t.status === 'customer'), t => t.updatedAt);
   const appr = by(open.filter(t => t.status === 'approval'), t => t.updatedAt);
-  const partsW = by(open.filter(t => t.status === 'parts'), t => t.createdAt);
+  const partsW = by(open.filter(t => ['parts', 'order'].includes(t.status)), t => t.createdAt);
   const pend = devs.filter(d => d.store === st && d.status === 'testing');
   const repair = devs.filter(d => d.store === st && d.status === 'repair').map(d => { const po = porders.filter(o => o.forId === d.id && o.status !== 'received');
     const need = d.repairStatus === 'parts' && !po.length ? ['Order parts', true] : d.repairStatus === 'ready' ? ['Parts are in: repair it', false] : d.repairStatus === 'ordered' ? [`Parts ordered ${daysOld(d.updatedAt)}d ago`, daysOld(d.updatedAt) >= 5]
@@ -6645,7 +6653,7 @@ async function viewRepDash(el){
   const low = parts.filter(p => dqOf(p, st) && (p.qty[st] || 0) < dqOf(p, st));
   const CATS = [
     {k: 'ship', ic: '📦', l: 'Swappa sales to ship', n: ship.length, hot: ship.length, list: ship.map(x => `<li data-act="go:swappa:ship" class="hot"><span class="chip bad">ship</span><span class="grow">${esc(x.label)}${x.status === 'pull' ? ' <span class="muted small">not packed yet</span>' : ''}</span></li>`)},
-    {k: 'cust', ic: '📞', l: 'Waiting on customer', n: waitC.length, hot: waitC.filter(t => daysOld(t.updatedAt) >= 5).length, rule: 'red = 5+ days', list: waitC.map(t => tRow(t, daysOld(t.updatedAt), daysOld(t.updatedAt) >= 5, 'call them'))},
+    {k: 'cust', ic: '📞', l: 'Ready for pickup', n: waitC.length, hot: waitC.filter(t => daysOld(t.updatedAt) >= 5).length, rule: 'red = 5+ days', list: waitC.map(t => tRow(t, daysOld(t.updatedAt), daysOld(t.updatedAt) >= 5, 'call them'))},
     {k: 'appr', ic: '✋', l: 'Awaiting approval', n: appr.length, hot: appr.filter(t => daysOld(t.updatedAt) >= 2).length, rule: 'red = 2+ days', list: appr.map(t => tRow(t, daysOld(t.updatedAt), daysOld(t.updatedAt) >= 2, 'get a yes or no'))},
     {k: 'parts', ic: '⏳', l: 'Waiting on parts', n: partsW.length, hot: partsW.filter(t => daysOld(t.createdAt) >= 5).length, rule: 'red = 5+ days', list: partsW.map(t => tRow(t, daysOld(t.createdAt), daysOld(t.createdAt) >= 5, 'check the order'))},
     {k: 'pend', ic: '❓', l: 'Pending phones', n: pend.length, hot: pend.filter(d => daysOld(d.createdAt) >= 1).length, rule: 'pick where each goes', list: pend.map(d => dRow(d, daysOld(d.createdAt) >= 1, 'pick Inventory, Repair stock or Wholesale', 'go:inventory'))},
@@ -6776,7 +6784,7 @@ async function viewHours(el){
    and writes each page into the POS database through pos_import (owner PIN). Resumable; safe to run again (rows match on RepairShopr id). */
 const RS_API = 'https://cellularzone.repairshopr.com/api/v1/';
 const RS_ST = {'new': 'new', 'in progress': 'progress', 'awaiting approval': 'approval', 'awaiting device': 'device', 'scheduled': 'scheduled', 'waiting for parts': 'parts',
-  'waiting on customer': 'customer', 'customer reply': 'reply', 'board level': 'board', 'resolved': 'resolved'};
+  'waiting on customer': 'customer', 'ready for pickup': 'customer', 'part pending order': 'order', 'customer reply': 'reply', 'board level': 'board', 'resolved': 'resolved'};
 const rsStore = n => /bulverde/i.test(n || '') ? 'BV' : /potranco/i.test(n || '') ? 'PT' : /babcock|zavala|dz/i.test(n || '') ? 'DZ' : null;
 const RSI = {log: [], running: false, stop: false, loc: {1163: 'BV', 1931: 'PT', 1164: 'DZ'}, tally: {}, unknownSt: {}, unknownLoc: {}};   /* RepairShopr location ids (Admin → Locations) */
 function rsiState(){ try { return JSON.parse(localStorage.getItem('czpos-rsimport') || '{}'); } catch { return {}; } }
