@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795027153";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795035973";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -6165,7 +6165,7 @@ function viewOrders(box, parts, reqs, pos, re){
   const waiting = mine.filter(p => p.status === 'draft'), coming = mine.filter(p => ['placed', 'partial'].includes(p.status)), done = mine.filter(p => p.status === 'received');
   const open = reqs.filter(r => r.store === st && r.source !== 'link' && r.status === 'needed' && !r.poId);   /* link orders live on the Special orders tab */
   const card = p => `<div class="stack" style="border:1px solid var(--line);border-radius:12px;padding:12px;gap:8px">
-      <div class="row" style="justify-content:space-between"><b>${p.orderNo ? "Sentrix #" + esc(p.orderNo) : "PO " + p.number} · ${STORES[p.store]}</b><span class="pill ${p.status === 'received' ? 'ok' : p.status === 'draft' ? '' : 'acc'}">${PO_LABEL[p.status]}</span></div>
+      <div class="row" style="justify-content:space-between"><b>${p.orderNo ? "Sentrix #" + esc(p.orderNo) : "PO " + p.number} · ${STORES[p.store]}${p.status !== 'draft' && p.cartNote ? ' · ' + esc(p.cartNote) : ''}</b><span class="pill ${p.status === 'received' ? 'ok' : p.status === 'draft' ? '' : 'acc'}">${PO_LABEL[p.status]}</span></div>
       <div class="small muted">${p.orderNo ? 'Sentrix #' + esc(p.orderNo) : 'Not placed yet'}${p.tracking ? ` · ${esc(p.carrier || 'Tracking')} <span class="mono">${esc(p.tracking)}</span>` : ''} · ordered ${fmtDate(p.orderedAt || p.at)}${p.by ? ' by ' + esc(staffName(p.by)) : ''}${p.total ? ` · ${cents(p.total)}` : ''}</div>
       ${p.status === 'draft' ? (() => { const cs = p.cartStatus, nIn = p.lines.filter(l => l.inCart).length, miss = p.lines.filter(l => cs === 'ready' && !l.inCart);
         return `<div class="banner ${cs === 'ready' ? (miss.length ? 'warn' : 'ok') : cs === 'failed' ? 'bad' : ''} small">${
