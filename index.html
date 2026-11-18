@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795043731";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795043796";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -6862,13 +6862,14 @@ async function viewRepDash(el){
   const rem = REMINDERS[new Date().getDate() % REMINDERS.length], rem2 = REMINDERS[(new Date().getDate() + 1) % REMINDERS.length];
 
   const anns = (await Store.announcements().catch(() => [])).filter(a => !a.stores?.length || a.stores.includes(S.store) || can(3)).sort((a, b) => (b.pinned - a.pinned) || new Date(b.at) - new Date(a.at));
-  const annHTML = `<div class="panel stack" id="ann-box"><div class="row" style="justify-content:space-between"><h3>📣 Announcements</h3>${can(2) ? '<button class="primary" id="ann-new" style="min-height:36px">+ New announcement</button>' : ''}</div>
-    <div class="stack" style="gap:8px;max-height:300px;overflow:auto">${anns.map(a => `<div class="ann ${a.pinned ? 'pin' : ''}"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:nowrap;align-items:flex-start"><span class="small muted">${a.pinned ? '📌 ' : ''}${esc(staffName(a.by))} · ${ago(a.at)}${a.stores?.length ? ' · ' + a.stores.map(x => STORES[x] || x).join(', ') + ' only' : ''}${a.expiresAt ? ' · until ' + fmtDate(a.expiresAt) : ''}</span>${can(2) ? `<button data-annx="${a.id}" aria-label="Remove announcement" style="min-height:26px;padding:0 8px;font-size:12px">✕</button>` : ''}</div><div style="margin-top:4px">${esc(a.text)}</div></div>`).join('') || '<p class="small muted" style="margin:0">No announcements right now.</p>'}</div></div>`;
+  const annHTML = `<div class="panel stack" id="ann-box"><div class="row" style="justify-content:space-between"><h3>📣 Announcements</h3>${can(3) ? '<button class="primary" id="ann-new" style="min-height:36px">+ New announcement</button>' : ''}</div>
+    <div class="stack" style="gap:8px;max-height:300px;overflow:auto">${anns.map(a => `<div class="ann ${a.pinned ? 'pin' : ''}"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:nowrap;align-items:flex-start"><span class="small muted">${a.pinned ? '📌 ' : ''}${esc(staffName(a.by))} · ${ago(a.at)}${a.stores?.length ? ' · ' + a.stores.map(x => STORES[x] || x).join(', ') + ' only' : ''}${a.expiresAt ? ' · until ' + fmtDate(a.expiresAt) : ''}</span>${can(3) ? `<button data-annx="${a.id}" aria-label="Remove announcement" style="min-height:26px;padding:0 8px;font-size:12px">✕</button>` : ''}</div><div style="margin-top:4px">${esc(a.text)}</div></div>`).join('') || '<p class="small muted" style="margin:0">No announcements right now.</p>'}</div></div>`;
   const QA = [['customer', 'New customer', 'Add someone to the system'], ['ticket', 'New ticket', 'Check in a repair'], ['buyback', 'New buyback', 'Test, pay and label a device'],
     ['appraisal', 'New appraisal', 'Price a device for a seller'], ['quote', 'New quote', 'Repair price + phone script']];
   el.innerHTML = `<div class="dash">
     <div class="dh"><div><h2>${greet()}, ${esc(S.user.name.split(' ')[0])}</h2><div class="muted">${STORES[st]} · ${new Date().toLocaleDateString('en-US', {weekday: 'long', month: 'long', day: 'numeric'})}</div></div>
       ${can(3) ? '<button id="od-owner" class="small">← All stores</button>' : ''}</div>
+    ${anns.length || can(3) ? annHTML : ''}
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">${QA.map(([k, l, d]) => `<button class="qa" data-qa="${k}" style="min-height:64px;text-align:left;align-items:flex-start;flex-direction:column;justify-content:center;gap:2px"><b>${l}</b><span class="small muted">${d}</span></button>`).join('')}</div>
     <section class="dp goals"><header><h3>${STORES[st]} today</h3><span class="small muted">Daily goals: ${money(DAILY_GOAL)} profit · ${money(ACC_GOAL)} accessories</span></header>
       <div class="goal-row">${ring(storeDay.profit, DAILY_GOAL, 'Store profit', `you: ${money(day.profit)}`, 'g-blue')}${ring(storeDay.acc, ACC_GOAL, 'Accessories', `you: ${money(day.acc)}`, 'g-orange')}
@@ -6894,7 +6895,6 @@ async function viewRepDash(el){
     <div class="dg">
       <section class="dp"><header><h3>Repair lineup</h3><span class="chip">${lineup.length}</span></header>
         <ul class="ds-list clk">${lineup.slice(0, 14).map(t => `<li data-t="${t.id}">${stPill(t.status)} <span class="grow">#${t.number} ${cName(t)} · ${esc(t.subject || '')}</span> <span class="muted small">${daysOld(t.createdAt)}d${t.techId ? ' · ' + esc(staffName(t.techId).split(' ')[0]) : ''}</span></li>`).join('') || '<li class="muted">Nothing waiting.</li>'}</ul></section>
-      ${annHTML}
     </div>
   </div>`;
   el.querySelectorAll('[data-cat]').forEach(b => b.onclick = () => { D.open = D.open === b.dataset.cat ? null : b.dataset.cat; viewRepDash(el); });
