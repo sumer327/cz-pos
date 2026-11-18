@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795042022";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795042204";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -1056,7 +1056,8 @@ const DemoStore = {
     this.log(d, emp.id, store, 'Register opened', `Drawer ${cents(drawer)} · buyback fund ${cents(fund)}`); this.save(d); return r; },
   async closeRegister(emp, store, c){ const d = this.db(); const r = (d.registers || []).find(x => x.store === store && !x.closedAt); if (!r) throw new Error('Open the register first.');
     if (!(c.drawer >= 0) || !(c.fund >= 0)) throw new Error('Count the drawer and the buyback fund.');
-    const t = this.regTotals(d, store, r.day); const dexp = r.openDrawer + t.cashSales, dep = regDeposit(c.drawer, t.cashSales), fexp = r.openFund - t.cashBuys + dep;
+    const t = this.regTotals(d, store, r.day); const dexp = r.openDrawer + t.cashSales, mx = regDeposit(c.drawer, t.cashSales), dep = c.deposit == null ? mx : Math.round(c.deposit * 100) / 100, fexp = r.openFund - t.cashBuys + dep;
+    if (!(dep >= 0)) throw new Error("The deposit can't be negative."); if (dep > mx + 0.004) throw new Error(`You can move at most ${cents(mx)} into the buyback fund tonight (today's cash, keeping ${cents(DRAWER_KEEP)} in the drawer).`);
     if ((Math.abs(c.drawer - dexp) >= 5 || Math.abs(c.fund - fexp) >= 5) && !(c.notes || '').trim()) throw new Error('Something is over or short by $5 or more. Add a note explaining it.');
     Object.assign(r, t, {closedBy: emp.id, closedAt: now(), drawerExpected: dexp, drawerCounted: c.drawer, deposit: dep, fundExpected: fexp, fundCounted: c.fund, squareApp: c.square, notes: c.notes || ''});
     if (Math.abs(c.drawer - dexp) >= 5 || Math.abs(c.fund - fexp) >= 5) this.notify(d, null, `${STORES[store]} register ${r.day}: drawer ${cents(c.drawer - dexp)} · buyback fund ${cents(c.fund - fexp)} off`, {tab: 'closeout'}, 'manager');
@@ -1388,7 +1389,7 @@ const LiveStore = {
   async registerDays(){ const {data, error} = await this.sb.from('register_days_v').select('*').order('day', {ascending: false}).limit(90); if (error) throw error; return data; },
   async registerToday(store){ const {data, error} = await this.sb.rpc('pos_register_today', {p_store: store}); if (error) throw new Error(error.message); return data; },
   async openRegister(emp, store, drawer, fund){ return this.rpc('pos_register_open', {p_pin: this.pinFor(emp), p_store: store, p_drawer: drawer, p_fund: fund}); },
-  async closeRegister(emp, store, c){ return this.rpc('pos_register_close', {p_pin: this.pinFor(emp), p_store: store, p_drawer: c.drawer, p_fund: c.fund, p_square: c.square, p_notes: c.notes || ''}); },
+  async closeRegister(emp, store, c){ return this.rpc('pos_register_close', {p_pin: this.pinFor(emp), p_store: store, p_drawer: c.drawer, p_fund: c.fund, p_square: c.square, p_notes: c.notes || '', p_deposit: c.deposit ?? null}); },
   async saveCloseout(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
   async partUses(stores){ const {data} = await this.sb.from('audit').select('who,at,store,detail').eq('action', 'Part used').in('store', stores).gte('at', new Date(Date.now() - 45 * 864e5).toISOString()).order('at', {ascending: false}).limit(1500); return data || []; },
   async counts(){ const {data, error} = await this.sb.from('shelf_counts_v').select('*').order('at', {ascending: false}).limit(60); if (error) throw error; return data; },
@@ -1700,7 +1701,7 @@ const HELP_KB = [
   'Count the buyback fund and type it in, then save.']},
  {t: 'Close the register at night', k: 'close register end of day close out drawer deposit night count cash', s: [
   'Go to **Register** (or **More → Close out**) and tap **Close register**.',
-  'Count the drawer and type it in. The deposit goes into the buyback fund.',
+  'Count the drawer and type it in, then type how much you are moving into the buyback fund (an even amount). Change and small bills can stay: they roll into tomorrow.',
   'Count the buyback fund and type it in.',
   'Off by $5 or more? Write a note explaining why.']},
  {t: 'Move a device: hot stock, Swappa, repair stock, wholesale', k: 'move device status hot stock swappa list repair stock wholesale where does it go devices', s: [
@@ -3213,27 +3214,38 @@ async function registerPanel(box, again){
         <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px">${DENOMS.map(([k, v, l]) => `<div class="field" style="margin:0"><label class="label" for="cr-${k}" style="text-transform:none">${l}</label><input id="cr-${k}" data-den="${v}" inputmode="numeric" placeholder="0" autocomplete="off"></div>`).join('')}</div>
         <div class="row" style="justify-content:space-between;align-items:baseline"><span class="small muted">Should be ${cents(dexp)} (started ${cents(open.openDrawer)} + cash sales ${cents(today.cashSales)})</span><span>Drawer total <b class="num" id="cr-dt" style="font-size:22px">$0.00</b></span></div></div>
       <div class="banner acc small" id="cr-dep">Count the drawer first. Only the cash taken in today goes into the buyback fund (the drawer keeps at least ${cents(DRAWER_KEEP)}).</div>
-      <div class="field"><label class="label" for="cr-f" id="cr-fl">2 · Put the deposit in the buyback fund, then count the fund</label><input id="cr-f" inputmode="decimal"></div>
+      <div class="field"><label class="label" for="cr-d">2 · How much are you putting in the buyback fund?</label><input id="cr-d" inputmode="decimal" placeholder="Count the drawer first" disabled>
+        <div class="small muted" id="cr-dx">Use an even amount (bigger bills). Change and small bills can stay in the drawer: whatever you don't move rolls into tomorrow's drawer count.</div></div>
+      <div class="field"><label class="label" for="cr-f" id="cr-fl">3 · Put it in the buyback fund, then count the fund</label><input id="cr-f" inputmode="decimal"></div>
       <div class="small muted" id="cr-fx">Buyback fund: started ${cents(open.openFund)} − cash buybacks ${cents(today.cashBuys)} + tonight's deposit</div>
-      <div class="field"><label class="label" for="cr-s">3 · Square app total for today (POS has ${cents(today.cardSales)})</label><input id="cr-s" inputmode="decimal" placeholder="${today.cardSales.toFixed(2)}"><div class="small" id="cr-sx"></div></div>
+      <div class="field"><label class="label" for="cr-s">4 · Square app total for today (POS has ${cents(today.cardSales)})</label><input id="cr-s" inputmode="decimal" placeholder="${today.cardSales.toFixed(2)}"><div class="small" id="cr-sx"></div></div>
       <div class="field"><label class="label" for="cr-n">Notes (required if anything is $5+ over or short)</label><input id="cr-n"></div>
       ${act.html}
       <div class="err" id="cr-e" role="alert"></div><button class="primary" id="cr-go">Close register</button>`, (L, close) => {
         const ins = [...L.querySelectorAll('[data-den]')];
         const total = () => Math.round(ins.reduce((a, i) => a + (parseInt(i.value, 10) || 0) * +i.dataset.den, 0) * 100) / 100;
+        const dIn = L.querySelector('#cr-d'); let dTouched = false;
+        const chosen = mx => { const v = parseFloat(dIn.value); return dIn.value.trim() === '' || isNaN(v) ? null : Math.round(v * 100) / 100; };
         const upd = () => { const dc = total(); L.querySelector('#cr-dt').textContent = cents(dc); if (!ins.some(i => i.value !== '')) return;
-          const dep = regDeposit(dc, today.cashSales), fexp = fnow + dep, keep = Math.round((dc - dep) * 100) / 100;
-          L.querySelector('#cr-dep').innerHTML = dep > 0 ? `Drawer ${off(dc, dexp)} · <b>Take ${cents(dep)} out and put it in the buyback fund.</b> Leave ${cents(keep)} in the drawer.`
+          const mx = regDeposit(dc, today.cashSales); dIn.disabled = !(mx > 0);
+          if (!dTouched) dIn.value = mx > 0 ? String(Math.floor(mx / 10) * 10) : '0';   /* suggest the even $10 amount under the max; the rep can change it */
+          const c0 = chosen(mx), dep = c0 == null ? 0 : Math.min(Math.max(c0, 0), mx), fexp = fnow + dep, keep = Math.round((dc - dep) * 100) / 100;
+          L.querySelector('#cr-dx').innerHTML = mx > 0 ? `Up to <b>${cents(mx)}</b> can go in (today's cash${dc - mx < DRAWER_KEEP + 0.005 ? `, keeping ${cents(DRAWER_KEEP)} in the drawer` : ''}). Use an even amount; ${c0 != null && c0 < mx ? `the other <b>${cents(Math.round((mx - dep) * 100) / 100)}</b> stays in the drawer and rolls into tomorrow.` : 'whatever you leave stays in the drawer and rolls into tomorrow.'}${c0 != null && c0 > mx + 0.004 ? `<div style="color:var(--bad)">That's more than ${cents(mx)}. Lower it.</div>` : ''}` : 'Nothing goes into the fund tonight.';
+          L.querySelector('#cr-dep').innerHTML = dep > 0 ? `Drawer ${off(dc, dexp)} · <b>Take ${cents(dep)} out and put it in the buyback fund.</b> Leave ${cents(keep)} in the drawer${keep > DRAWER_KEEP + 0.005 ? ' (it carries into tomorrow)' : ''}.`
             : `Drawer ${off(dc, dexp)} · <b>Nothing goes into the buyback fund tonight</b>${today.cashSales > 0 ? '' : ': no cash came in today'}. Leave all ${cents(dc)} in the drawer.${dc > DRAWER_KEEP + 0.005 ? ` <div class="small" style="margin-top:4px">The drawer is over ${cents(DRAWER_KEEP)} because it opened that way, not from today's sales. Don't move that extra into the fund; tell a manager if the float needs fixing.</div>` : ''}`;
-          L.querySelector('#cr-fl').textContent = `2 · Put the ${cents(dep)} in the buyback fund, then count the fund (should be ${cents(fexp)})`; L.querySelector('#cr-f').placeholder = fexp.toFixed(2);
+          L.querySelector('#cr-fl').textContent = `3 · Put the ${cents(dep)} in the buyback fund, then count the fund (should be ${cents(fexp)})`; L.querySelector('#cr-f').placeholder = fexp.toFixed(2);
           L.querySelector('#cr-fx').textContent = `Buyback fund should be ${cents(fexp)}: started ${cents(open.openFund)} − cash buybacks ${cents(today.cashBuys)} + deposit ${cents(dep)}`; };
         ins.forEach(i => i.oninput = () => { i.value = i.value.replace(/\D/g, ''); upd(); });
+        dIn.oninput = () => { dTouched = true; dIn.value = dIn.value.replace(/[^0-9.]/g, ''); upd(); };
         L.querySelector('#cr-s').oninput = e => { const v = parseFloat(e.target.value); L.querySelector('#cr-sx').innerHTML = isNaN(v) ? '' : `Square ${off(v, today.cardSales)}${Math.abs(v - today.cardSales) >= 1 ? ' · check the list below for a card sale that was rung up somewhere else' : ''}`; };
         setTimeout(() => ins[0]?.focus(), 50);
         L.querySelector('#cr-go').onclick = async () => { const drawer = total(), fund = parseFloat(L.querySelector('#cr-f').value), sq = L.querySelector('#cr-s').value === '' ? null : parseFloat(L.querySelector('#cr-s').value);
           if (!ins.some(i => i.value !== '')) { L.querySelector('#cr-e').textContent = 'Count the drawer: type how many of each bill and coin (0 if none).'; return; }
+          const mx = regDeposit(drawer, today.cashSales), dv = dIn.value.trim() === '' ? 0 : parseFloat(dIn.value);
+          if (isNaN(dv) || dv < 0) { L.querySelector('#cr-e').textContent = 'Type how much you are putting in the buyback fund (0 if nothing).'; return; }
+          if (dv > mx + 0.004) { L.querySelector('#cr-e').textContent = `You can move at most ${cents(mx)} into the buyback fund tonight.`; return; }
           if (isNaN(fund)) { L.querySelector('#cr-e').textContent = 'Count the buyback fund.'; return; }
-          try { await Store.closeRegister(S.user, S.store, {drawer, fund, square: sq, notes: L.querySelector('#cr-n').value.trim()}); close(); toast('Register closed'); again(); regReportSheet(open.day); } catch (e) { L.querySelector('#cr-e').textContent = e.message; } }; }); };
+          try { await Store.closeRegister(S.user, S.store, {drawer, fund, square: sq, deposit: Math.round(dv * 100) / 100, notes: L.querySelector('#cr-n').value.trim()}); close(); toast('Register closed'); again(); regReportSheet(open.day); } catch (e) { L.querySelector('#cr-e').textContent = e.message; } }; }); };
     const ab = box.querySelector('#rg-act'); ab && (ab.onclick = () => regReportSheet(open.day));
     return;
   }
