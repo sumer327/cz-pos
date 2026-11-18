@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794962323";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794989190";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -683,6 +683,7 @@ const DemoStore = {
     this.log(d, emp.id, store, 'Customer saved', row.name + (won ? ` · ${won} lead(s) marked won` : '')); this.save(d); return {...row, leadsWon: won};
   },
   async tickets(){ return this.db().tickets; },
+  async loadResolved(){ return 0; },
   async createTicket(emp, store, t){
     const d = this.db();
     const row = {id: uid(), number: d.nextTicket++, store, status: 'new', priority: 2, partsUsed: [], createdAt: now(), updatedAt: now(), by: emp.id, ...t,
@@ -1169,6 +1170,21 @@ function strip(e){ const {pin, ...rest} = e; return rest; }
    function that checks the PIN, so a store computer can't
    change anything without a valid employee PIN.
    ============================================================ */
+/* speed helpers: which database calls only read (they don't make cached screens stale), a cheap change check, and the quiet redraw */
+const RPC_READS = new Set(['pos_verify_pin', 'pos_find_invoices', 'pos_import_summary']);
+const PRODUCT_WRITES = /checkout|product|refund|void|ticket_charge|make_invoice|save_invoice|merge_invoices|import/;   /* writes that can change product stock or prices */
+const swrSig = d => { if (!Array.isArray(d)) return JSON.stringify(d ?? null); let h = d.length; const j = JSON.stringify(d); for (let i = 0; i < j.length; i++) h = (h * 31 + j.charCodeAt(i)) | 0; return d.length + ':' + j.length + ':' + h; };
+let BG_T = 0, CUR_VIEW = null;
+const BG_SKIP_TABS = ['newticket', 'buyback', 'register', 'eod', 'counts', 'closeout', 'quote', 'staff'];   /* screens with forms in progress: don't redraw under the rep */
+function bgRefresh(){ clearTimeout(BG_T); BG_T = setTimeout(() => {
+  if (!S.user || !CUR_VIEW || document.hidden || BG_SKIP_TABS.includes(S.tab)) return;
+  const layer = $('#layer'); if (layer && layer.innerHTML.trim()) return;                       /* a popup is open */
+  const main = $('#main'); if (!main) return;
+  const ae = document.activeElement; if (ae && main.contains(ae) && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return;   /* someone is typing */
+  if ([...main.querySelectorAll('input:not([type=checkbox]):not([type=radio]), textarea')].some(x => x.value !== x.defaultValue)) return;   /* unsaved typing */
+  const y = window.scrollY; Promise.resolve(CUR_VIEW()).then(() => window.scrollTo(0, y)).catch(() => {});
+}, 400); }
+
 const LiveStore = {
   mode: 'live',
   sb: null, pinCache: new Map(),
@@ -1177,7 +1193,22 @@ const LiveStore = {
     const {data} = await this.sb.auth.getSession();
     if (!data.session) throw Object.assign(new Error('signin'), {code: 'signin'});
   },
-  async rpc(fn, args, allowNull){ const {data, error} = await this.sb.rpc(fn, args); if (error) throw new Error(error.message); if (data == null && !allowNull) throw new Error('PIN check failed. Lock the screen and enter your PIN again.'); return data; },
+  async rpc(fn, args, allowNull){ const {data, error} = await this.sb.rpc(fn, args); if (error) throw new Error(error.message);
+    if (!RPC_READS.has(fn)) this.markDirty(fn);   /* a write: everything re-reads fresh next time, so nobody sees old data after their own change */
+    if (data == null && !allowNull) throw new Error('PIN check failed. Lock the screen and enter your PIN again.'); return data; },
+  /* ---- speed: stale-while-revalidate cache (Nov 18 '26). A screen gets what was last loaded right away; if it's more than a few
+     seconds old it refreshes in the background and the screen redraws only if something actually changed. After a write the next
+     read waits for fresh data (small tables) or refreshes in the background (products, ~4,500 rows). ---- */
+  _sw: {}, _tkDirty: false,
+  markDirty(fn){ Object.entries(this._sw).forEach(([k, c]) => { if (k !== 'products' || PRODUCT_WRITES.test(fn || '')) c.dirty = true; }); this._tkDirty = true; },
+  async swr(key, fetch, {fresh = 15000, bgAfterWrite = false} = {}){
+    const c = this._sw[key] || (this._sw[key] = {});
+    const run = bg => c.p || (c.p = (async () => { try { const d = await fetch(); const sig = swrSig(d), changed = c.sig !== undefined && sig !== c.sig;
+      c.data = d; c.sig = sig; c.at = Date.now(); c.dirty = false; if (bg && changed) bgRefresh(); return d; } finally { c.p = null; } })());
+    if (c.data === undefined) return run(false);
+    if (c.dirty && !bgAfterWrite) return run(false);
+    if (c.dirty || Date.now() - c.at > fresh) run(true).catch(() => {});
+    return c.data; },
   pinFor(emp){ return this.pinCache.get(emp.id); },
   async verifyPin(pin){ const e = await this.rpc('pos_verify_pin', {p_pin: pin}, true); if (e) this.pinCache.set(e.id, pin); return e; },
   async changePin(emp, oldPin, newPin){ await this.rpc('pos_change_pin', {p_pin: oldPin, p_new: newPin}); this.pinCache.set(emp.id, newPin); return true; },
@@ -1191,7 +1222,7 @@ const LiveStore = {
     return this.rpc('pos_buyback', {p_pin: this.pinFor(emp), p_override_pin: overrideBy ? this.pinFor(overrideBy) : null, p_store: store, p_b: b});
   },
   async buybacks(from, to){ const {data, error} = await this.sb.from('buybacks_v').select('*').gte('at', from.toISOString()).lt('at', to.toISOString()); if (error) throw error; return data; },
-  async devices(){ const {data, error} = await this.sb.from('devices_v').select('*').order('createdAt', {ascending: false}).limit(2000); if (error) throw error; return data; },
+  async devices(){ return this.swr('devices', async () => { const {data, error} = await this.sb.from('devices_v').select('*').order('createdAt', {ascending: false}).limit(2000); if (error) throw error; return data; }); },
   async buyback(id){ const {data} = await this.sb.from('buybacks_v').select('*').eq('id', id).maybeSingle(); if (data && !data.payoutTo) data.payoutTo = data.seller?.payoutTo || ''; return data; },
   async payoutAlert(id){ const {data, error} = await this.sb.functions.invoke('payout-alert', {body: {buybackId: id}}); if (error) { let m = error.message; try { m = (await error.context.json()).error || m; } catch {} throw new Error(m); } if (data?.error) throw new Error(data.error); return data; },
   async buybackPayTo(emp, store, id, to){ return this.rpc('pos_buyback_payto', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_to: to}); },
@@ -1204,14 +1235,14 @@ const LiveStore = {
   async deviceEdit(emp, store, id, patch){ return this.rpc('pos_device_edit', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_patch: patch}); },
   async deviceExtra(emp, store, id, x){ return this.rpc('pos_device_extra', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_x: x}); },
   async deviceUsePart(emp, store, id, partId){ return this.rpc('pos_device_part', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_part: partId}); },
-  async partOrders(){ const {data, error} = await this.sb.from('part_orders_v').select('*').order('createdAt', {ascending: false}).limit(500); if (error) throw error; return data; },
+  async partOrders(){ return this.swr('partOrders', async () => { const {data, error} = await this.sb.from('part_orders_v').select('*').order('createdAt', {ascending: false}).limit(500); if (error) throw error; return data; }); },
   async orderPart(emp, store, o){ return this.rpc('pos_order_part', {p_pin: this.pinFor(emp), p_store: store, p_o: o}); },
   async partAlert(id){ try { const {data, error} = await this.sb.functions.invoke('part-alert', {body: {id}}); if (error) return {ok: false, error: error.message}; return data || {ok: false}; } catch (e) { return {ok: false, error: e.message}; } },
   async partAlertCheck(){ try { const {data} = await this.sb.functions.invoke('part-alert', {body: {check: true}}); return data; } catch { return null; } },
   async cancelPartOrder(emp, store, id){ return this.rpc('pos_part_order_cancel', {p_pin: this.pinFor(emp), p_store: store, p_id: id}); },
   async updatePartOrder(emp, store, id, status, ref){ return this.rpc('pos_part_order_status', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_status: status, p_ref: ref || null}); },
   async updateDevice(emp, store, id, patch){ return this.rpc('pos_update_device', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_patch: patch}); },
-  async parts(){ const {data, error} = await this.sb.from('parts').select('*').order('name'); if (error) throw error; return data; },
+  async parts(){ return this.swr('parts', async () => { const {data, error} = await this.sb.from('parts').select('*').order('name'); if (error) throw error; return data; }); },
   async adjustPart(emp, store, id, delta, reason){ return this.rpc('pos_adjust_part', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_delta: delta, p_reason: reason}); },
   async savePart(actor, p){ return this.rpc('pos_save_part', {p_actor_pin: this.pinFor(actor), p_part: p}); },
   async audit(limit = 40){ const {data} = await this.sb.from('audit').select('*').order('at', {ascending: false}).limit(limit); return data || []; },
@@ -1222,11 +1253,11 @@ const LiveStore = {
   keep(map, rows){ (rows || []).forEach(r => map.set(r.id, r)); return rows || []; },
   async customers(){
     await (this._tp || this.tickets()).catch(() => {});
-    const since = new Date(Date.now() - 45*86400000).toISOString();
-    const recent = await this.all(() => this.sb.from('customers_v').select('*').gte('createdAt', since).order('createdAt', {ascending: false}), 3000);
-    this.keep(this.cC, recent);
-    const need = [...new Set([...this.cT.values()].map(t => t.customerId).filter(id => id && !this.cC.has(id)))];
-    for (let i = 0; i < need.length; i += 150){ const {data} = await this.sb.from('customers_v').select('*').in('id', need.slice(i, i + 150)); this.keep(this.cC, data); }
+    /* only the customers on the loaded tickets that we don't have yet, fetched in parallel batches (searches load the rest) */
+    const need = [...new Set([...this.cT.values()].map(t => t.customerId).filter(id => id && !this.cC.has(id)))], B = [];
+    for (let i = 0; i < need.length; i += 150) B.push(need.slice(i, i + 150));
+    const res = await Promise.all(B.map(ids => this.sb.from('customers_v').select('*').in('id', ids)));
+    res.forEach(r => this.keep(this.cC, r.data));
     return [...this.cC.values()];
   },
   async search(q){ q = (q || '').trim(); if (q.length < 2) return; const d = q.replace(/\D/g, ''); const like = '%' + q.replace(/[%,()]/g, ' ') + '%';
@@ -1241,15 +1272,30 @@ const LiveStore = {
     this.keep(this.cC, c.data); this.keep(this.cT, t.data); this.keep(this.cI, i.data); },
   async loadTicket(id){ if (this.cT.has(id)) return; const {data} = await this.sb.from('tickets_v').select('*').eq('id', id); this.keep(this.cT, data); if (data?.[0]?.customerId) await this.loadCustomer(data[0].customerId); },
   async customerByPhone(ph){ const {data} = await this.sb.from('customers_v').select('*').eq('phone', ph).order('createdAt', {ascending: false}).limit(1); this.keep(this.cC, data); return data?.[0] || null; },
-  async products(){ return this.all(() => this.sb.from('products_v').select('*').eq('disabled', false).order('name'), 30000); },
+  async products(){ return this.swr('products', () => this.all(() => this.sb.from('products_v').select('*').eq('disabled', false).order('name'), 30000), {fresh: 300000, bgAfterWrite: true}); },   /* ~4,500 rows: loaded once, refreshed quietly */
   async saveProduct(emp, store, p){ return this.rpc('pos_save_product', {p_pin: this.pinFor(emp), p_store: store, p_p: p}); },
   async adjustProduct(emp, store, id, qty, reason){ return this.rpc('pos_adjust_product', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_qty: qty, p_reason: reason}); },
   async importRows(emp, kind, rows){ return this.rpc('pos_import', {p_pin: this.pinFor(emp), p_kind: kind, p_rows: rows}); },
   async importSummary(emp){ return this.rpc('pos_import_summary', {p_pin: this.pinFor(emp)}); },
   async saveCustomer(emp, store, c){ const r = await this.rpc('pos_save_customer', {p_pin: this.pinFor(emp), p_store: store, p_c: c}); this.keep(this.cC, [r]); return r; },
-  async tickets(){ this._tp = (async () => { const since = new Date(Date.now() - 45*86400000).toISOString();
-    const rows = await this.all(() => this.sb.from('tickets_v').select('*').or(`status.neq.resolved,updatedAt.gte.${since}`).order('number', {ascending: false}), 20000);
-    this.keep(this.cT, rows); return [...this.cT.values()].sort((a, b) => b.number - a.number); })(); return this._tp; },
+  async tickets(){
+    const list = () => [...this.cT.values()].sort((a, b) => b.number - a.number);
+    const sync = rows => { for (const r of rows || []) { const u = new Date(r.updatedAt).getTime(); if (u > (this._tkSync || 0)) this._tkSync = u; } };
+    const full = async () => { const since = new Date(Date.now() - 14*86400000).toISOString();   /* open tickets + resolved in the last 14 days */
+      const rows = await this.all(() => this.sb.from('tickets_v').select('*').or(`status.neq.resolved,updatedAt.gte.${since}`).order('number', {ascending: false}), 20000);
+      this.keep(this.cT, rows); sync(rows); this._tkAt = Date.now(); this._tkDirty = false; return list(); };
+    const delta = async bg => { if (this._tkP) return this._tkP; this._tkP = (async () => { try {
+      const from = new Date((this._tkSync || Date.now()) - 60000).toISOString();   /* only what changed (1 min overlap) */
+      const {data, error} = await this.sb.from('tickets_v').select('*').gte('updatedAt', from).order('updatedAt').limit(1000); if (error) throw error;
+      const changed = (data || []).some(r => { const o = this.cT.get(r.id); return !o || o.updatedAt !== r.updatedAt; });
+      this.keep(this.cT, data); sync(data); this._tkAt = Date.now(); this._tkDirty = false; if (bg && changed) bgRefresh(); return list(); } finally { this._tkP = null; } })(); return this._tkP; };
+    if (!this._tkAt) this._tp = full();
+    else if (this._tkDirty) this._tp = delta(false);
+    else { if (Date.now() - this._tkAt > 8000) delta(true).catch(() => {}); this._tp = Promise.resolve(list()); }
+    return this._tp; },
+  /* Tickets page: older resolved tickets, 200 at a time, only when someone asks for them */
+  async loadResolved(offset = 0){ const {data, error} = await this.sb.from('tickets_v').select('*').eq('status', 'resolved').order('number', {ascending: false}).range(offset, offset + 199);
+    if (error) throw error; this.keep(this.cT, data); return (data || []).length; },
   async createTicket(emp, store, t){ return this.rpc('pos_create_ticket', {p_pin: this.pinFor(emp), p_store: store, p_t: t}); },
   async updateTicket(emp, store, id, patch){ return this.rpc('pos_update_ticket', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_patch: patch}); },
   async setPasscode(emp, store, id, v){ const r = await this.rpc('pos_set_passcode', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_passcode: v || ''}); this.keep(this.cT, [r]); return r; },
@@ -1345,7 +1391,7 @@ const LiveStore = {
   async transfers(){ return []; },
   async createTransfer(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
   async receiveTransfer(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
-  async pos(){ const {data, error} = await this.sb.from('sentrix_orders_v').select('*').order('orderedAt', {ascending: false}).limit(60); if (error) return []; return data; },
+  async pos(){ return this.swr('pos', async () => { const {data, error} = await this.sb.from('sentrix_orders_v').select('*').order('orderedAt', {ascending: false}).limit(60); if (error) return []; return data; }); },
   async createPO(actor, store, lines){ return this.rpc('pos_po_create', {p_pin: this.pinFor(actor), p_store: store, p_lines: lines.filter(l => l.qty > 0).map(l => ({name: l.name, partId: l.partId || null, qty: l.qty, cost: l.cost || null, requestIds: l.requestIds || []}))}); },
   async updatePO(actor, id, patch){ return this.rpc('pos_po_update', {p_pin: this.pinFor(actor), p_id: id, p_patch: patch}); },
   async poCartRequest(actor, id){ return this.rpc('pos_po_cart_request', {p_pin: this.pinFor(actor), p_id: id}); },
@@ -1914,6 +1960,7 @@ async function renderShell(){
     customer: viewCustomer, search: viewSearch, invoices: viewInvoices, invoice: viewInvoice, eod: viewEod, techboard: viewTechboard, calls: viewInbox, inbox: viewInbox, repairs: viewRepairs, repair: viewRepair,
     register: viewRegister, closeout: viewCloseout, bblog: viewBbLog, reports: viewReports, counts: viewCounts, transfers: viewTransfers, swappasync: viewSwappaSync};
   const mainEl = $('#main');
+  CUR_VIEW = () => mainEl.isConnected && tok === RENDER_NO ? (views[S.tab] || viewTickets)(mainEl) : null;
   try { await (views[S.tab] || viewTickets)(mainEl); }
   catch (e) { console.error(e); if (tok !== RENDER_NO || !mainEl.isConnected) return;   /* you already went somewhere else: ignore */
     mainEl.innerHTML = `<div class="banner bad stack" style="gap:8px"><span>${esc(e.message)}</span><button id="err-retry" style="align-self:flex-start">Try again</button></div>`; const rb = $('#err-retry'); if (rb) rb.onclick = () => go(S.tab); }
@@ -1938,7 +1985,9 @@ async function viewTickets(el){
   const [all, custs] = await Promise.all([Store.tickets(), Store.customers()]);
   const C = custById(custs);
   const techs = S.staff.filter(e => e.active);
-  const inStore = all.filter(t => F.store === 'all' || t.store === (F.store === 'mine' ? S.store : F.store)).filter(t => !F.mine || t.techId === S.user.id);
+  /* resolved tickets: last 14 days unless "Show all resolved tickets" was tapped (older ones load 200 at a time) */
+  const res14 = t => t.status !== 'resolved' || S.allRes || (Date.now() - new Date(t.resolvedAt || t.updatedAt)) <= 14 * 864e5;
+  const inStore = all.filter(t => F.store === 'all' || t.store === (F.store === 'mine' ? S.store : F.store)).filter(t => !F.mine || t.techId === S.user.id).filter(res14);
   const count = k => inStore.filter(t => k === 'open' ? t.status !== 'resolved' : t.status === k).length;
   const rows = inStore.filter(t => F.status === 'open' ? t.status !== 'resolved' : t.status === F.status);
   el.innerHTML = `<div class="stack">
@@ -1966,11 +2015,16 @@ async function viewTickets(el){
       <td class="small muted">${ago(t.updatedAt)}</td><td class="small num">${new Date(t.createdAt).toLocaleString('en-US',{month:'2-digit',day:'2-digit',year:'2-digit',hour:'numeric',minute:'2-digit'})}</td>
       <td class="small">${esc(t.issue || '')}</td><td class="small">${STORES[t.store]}</td></tr>`; }).join('')
       : `<tr><td colspan="11" class="muted">No ${F.status === 'open' ? 'open' : TS[F.status][1].toLowerCase()} tickets here.</td></tr>`}
-    </tbody></table></div></div>`;
+    </tbody></table></div>
+    ${F.status === 'resolved' ? `<div class="row" style="gap:10px;align-items:center"><span class="small muted">${S.allRes ? 'Showing every resolved ticket loaded so far.' : 'Showing tickets resolved in the last 14 days.'}</span>
+      <button id="tf-allres">${S.allRes ? 'Load 200 more' : 'Show all resolved tickets'}</button>${S.allRes ? '<button id="tf-res14">Back to last 14 days</button>' : ''}</div>` : ''}</div>`;
   $('#tf-store') && ($('#tf-store').value = F.store, $('#tf-store').onchange = e => { F.store = e.target.value; viewTickets(el); });
   $('#tf-mine').onclick = () => { F.mine = !F.mine; viewTickets(el); };
   $('#tf-new').onclick = () => go('newticket', {draft: {}});
   el.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { F.status = b.dataset.f; viewTickets(el); });
+  $('#tf-allres') && ($('#tf-allres').onclick = async e => { e.target.disabled = true; e.target.textContent = 'Loading…';
+    try { const n = await Store.loadResolved(S.resOff || 0); S.resOff = (S.resOff || 0) + n; S.allRes = true; if (!n) toast('That is every resolved ticket.'); } catch (x) { toast(x.message); } viewTickets(el); });
+  $('#tf-res14') && ($('#tf-res14').onclick = () => { S.allRes = false; viewTickets(el); });
   el.querySelectorAll('tr[data-id]').forEach(tr => { const o = e => { if (e.target.closest('select')) return; go('ticket', {ticketId: tr.dataset.id}); }; tr.onclick = o; tr.onkeydown = e => { if (e.key === 'Enter' && !e.target.closest('select')) o(e); }; });
   const save = async (id, patch, msg) => { try { await Store.updateTicket(S.user, S.store, id, patch); toast(msg); } catch (e) { toast(e.message); } viewTicketsKeepScroll(el); };
   el.querySelectorAll('[data-st]').forEach(sel => { sel.onclick = e => e.stopPropagation(); sel.onchange = () => { const t = all.find(x => x.id === sel.dataset.st); save(t.id, {status: sel.value}, `#${t.number} → ${TS[sel.value][1]}`); }; });
