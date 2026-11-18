@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795035973";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795039800";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -602,6 +602,9 @@ const DemoStore = {
         if (o.cost) t.partsUsed.push({name: row.name + ' (special order)', cost: +(o.cost * row.qty).toFixed(2), at: now(), by: emp.id, chargeId: cid, partOrderId: row.id}); } } }
     this.log(d, emp.id, store, 'Part requested', `${row.name} for ${row.forLabel || 'stock'}`); this.save(d); return row;
   },
+  async imeiCheck(b){ await new Promise(r => setTimeout(r, 600)); const bad = /0000$/.test(b.imei); return {verdict: bad ? 'bad' : 'clean', att: /at&t/i.test(b.carrier || ''), carrierSeen: '', checks: [{id: uid(), service: 61, name: 'iPhone carrier, iCloud & blacklist (demo)', verdict: bad ? 'bad' : 'clean', flags: bad ? ['iCloud / Find My ON'] : [], cached: false,
+    lines: [{k: 'Model', v: b.model, tone: ''}, {k: 'iCloud Lock', v: bad ? 'ON' : 'OFF', tone: bad ? 'bad' : 'ok'}, {k: 'Blacklist Status', v: 'Clean', tone: 'ok'}, {k: 'Sim-Lock Status', v: 'Unlocked', tone: 'ok'}]}]}; },
+  async imeiOverride(emp, store, checkId, reason){ const d = this.db(); this.notify(d, null, `IMEI override at ${store} by ${emp.name}: ${reason}`, {tab: 'bblog'}, 'manager'); this.save(d); return {ok: true}; },
   async partAlert(id){ const d = this.db(); const o = d.partOrders.find(x => x.id === id); if (o) { this.notify(d, null, `Special order ${STORES[o.store]}: ${o.name}${o.url ? ' · ' + o.url : ''} (Slack to Josh in the live POS)`, {tab: 'parts'}, 'manager'); this.save(d); } return {ok: true, demo: true}; },
   async partAlertCheck(){ return {BV: true, DZ: true, PT: true}; },
   async cancelPartOrder(emp, store, id){
@@ -1221,6 +1224,8 @@ const LiveStore = {
   async recordBuyback(emp, store, b, overrideBy){
     return this.rpc('pos_buyback', {p_pin: this.pinFor(emp), p_override_pin: overrideBy ? this.pinFor(overrideBy) : null, p_store: store, p_b: b});
   },
+  async imeiCheck(b){ const {data, error} = await this.sb.functions.invoke('imei-check', {body: {...b, pin: this.pinFor(S.user)}}); if (error) { let m = error.message; try { m = (await error.context.json()).error || m; } catch {} throw new Error(m); } if (data?.error) throw new Error(data.error); return data; },
+  async imeiOverride(emp, store, checkId, reason){ return this.rpc('pos_imei_override', {p_pin: this.pinFor(emp), p_store: store, p_check: checkId, p_reason: reason}); },
   async buybacks(from, to){ const {data, error} = await this.sb.from('buybacks_v').select('*').gte('at', from.toISOString()).lt('at', to.toISOString()); if (error) throw error; return data; },
   async devices(){ return this.swr('devices', async () => { const {data, error} = await this.sb.from('devices_v').select('*').order('createdAt', {ascending: false}).limit(2000); if (error) throw error; return data; }); },
   async buyback(id){ const {data} = await this.sb.from('buybacks_v').select('*').eq('id', id).maybeSingle(); if (data && !data.payoutTo) data.payoutTo = data.seller?.payoutTo || ''; return data; },
@@ -1401,8 +1406,9 @@ const LiveStore = {
   async updateLead(emp, id, patch, note){ return this.rpc('pos_update_lead', {p_pin: this.pinFor(emp), p_id: id, p_status: patch.status || null, p_note: note || ''}); },
   async reviews(){ return []; },
   async sendReviewNow(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
-  async notes(){ return []; },
-  async readNotes(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
+  async notes(){ const {data, error} = await this.sb.from('pos_notes').select('*').gte('at', new Date(Date.now() - 30 * 864e5).toISOString()).order('at', {ascending: false}).limit(100); if (error) return [];
+    return data.map(n => ({id: n.id, at: n.at, store: n.store, text: n.text, link: n.link, role: n.role, forEmp: n.for_emp, readBy: n.read_by || []})); },
+  async readNotes(emp, ids){ await this.rpc('pos_read_notes', {p_pin: this.pinFor(emp), p_ids: ids}); },
   async swappaList(emp, store, id, price, url, code){ return this.rpc('pos_swappa_list', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_price: price, p_url: url || '', p_code: code || ''}); },
   async swappaDrop(emp, store, id, price){ return this.rpc('pos_swappa_drop', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_price: price}); },
   async swappaSold(emp, store, id, price, buyer){ return this.rpc('pos_swappa_sold', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_price: price, p_buyer: buyer || ''}); },
@@ -1845,7 +1851,7 @@ window.addEventListener('popstate', e => {
   if (!st || !st.pos) { stay(); toast('That\'s the first screen. Use the menu to move around.'); return; }
   const extra = {}; NAV_KEYS.forEach(k => { extra[k] = st[k] ?? null; }); go(st.tab, extra, true);
 });
-const myNotes = list => list.filter(n => (!n.store || n.store === S.store) && (!n.role || RANK[S.user.role] >= (n.role === 'owner' ? 3 : 2)));
+const myNotes = list => list.filter(n => (!n.store || n.store === S.store) && (!n.role || RANK[S.user.role] >= (n.role === 'owner' ? 3 : 2)) && (!n.forEmp || n.forEmp === S.user.id || RANK[S.user.role] >= 3));   /* forEmp: one person (e.g. Josh for IMEI overrides) + owners */
 
 /* every page change gets a number; a page that finishes loading after you've already moved on is dropped quietly
    (that was the random "Cannot set properties of null" banner: the old page woke up and looked for buttons that were gone) */
@@ -5139,6 +5145,36 @@ async function viewBbLog(el){
   el.querySelectorAll('[data-blb]').forEach(x => x.onclick = e => { e.stopPropagation(); const r = rows.find(r => r.b.id === x.dataset.blb); bosSheet(r.b.id, r.b.deviceId); });
   el.querySelectorAll('[data-bl]').forEach(tr => tr.onclick = () => { const r = rows.find(r => r.b.id === tr.dataset.bl); if (r.d) deviceSheet(r.d, () => viewBbLog(el)); else toast('That device is no longer on file.'); });
 }
+const normImei = s => String(s || '').replace(/[^0-9a-z]/gi, '').toUpperCase();
+const luhnOk = n => { let t = 0; for (let i = 0; i < n.length; i++) { let x = +n[n.length - 1 - i]; if (i % 2) { x *= 2; if (x > 9) x -= 9; } t += x; } return t % 10 === 0; };
+const icFlags = res => [...new Set((res?.checks || []).flatMap(c => c.flags || []))];
+/* what Josh's buying guide says to do for each carrier after the Sickw check */
+function icCarrierTip(B, res){
+  const c = (B.carrier || '') + ' ' + (res?.carrierSeen || '');
+  if (res?.att || /at&t/i.test(c)) return `<b>AT&amp;T:</b> go to <a href="https://www.att.com/deviceunlock/" target="_blank" rel="noopener" style="color:var(--accent)">att.com/deviceunlock</a> › "Not an AT&amp;T customer" › Submit an unlock request › mobile number from AT&amp;T? <b>No</b> › paste the IMEI and put <b>your own work email</b>. Wait 1–15 min for the 2nd email: "We approved your unlock request" = paid off (clean price). "We can't approve" (installment plan, active on another account, less than 60 days old, too many attempts) = <b>financed price</b>. Don't tell the customer it's unlocked.`;
+  if (/t-?mobile|metro/i.test(c)) return `<b>T-Mobile step 2:</b> also check the IMEI on <a href="https://www.t-mobile.com/commerce/bring-your-own-phone?INTNAV=tNav%3AJoinUs%3ABYOD#phone-check" target="_blank" rel="noopener" style="color:var(--accent)">T-Mobile's Bring Your Own Phone page</a>. All 4 green checks = clean price. Financed, Loan, Blocked or Active on account = <b>financed price</b>.`;
+  if (/cricket/i.test(c)) return `<b>Cricket step 2:</b> also check it on <a href="https://www.cricketwireless.com/shop/imei-check.html" target="_blank" rel="noopener" style="color:var(--accent)">Cricket's IMEI check</a>. All green checks = clean price. Blocked or Active on account = <b>financed price</b>.`;
+  if (/verizon|spectrum|boost|straight|xfinity|us cellular|consumer|total|tracfone|locked|financ/i.test(c)) return `<b>${esc(B.carrier || 'This carrier')}:</b> considered <b>financed</b> unless it's unlocked from the original carrier. Pay the financed price.`;
+  return '';
+}
+function icHtml(B){
+  const ic = B.ic && B.ic.imei === normImei(B.imei) ? B.ic : null;
+  const btn = (l, f) => `<button type="button" data-icrun="${f ? 'fresh' : ''}" style="font-size:13px">${l}</button>`;
+  if (!normImei(B.imei)) return '<div class="small muted">Type the IMEI and the POS checks it on Sickw (iCloud, blacklist, carrier, financing) by itself.</div>';
+  if (!ic) return `<div class="row" style="gap:8px;align-items:center">${btn('Check IMEI on Sickw')}<span class="small muted">Runs by itself once a full 15-digit IMEI is typed.</span></div>`;
+  if (ic.busy) return '<div class="banner small">Checking the IMEI on Sickw… (takes a few seconds)</div>';
+  if (ic.err) return `<div class="banner bad small"><b>IMEI check didn't finish:</b> ${esc(ic.err)}</div><div class="row" style="gap:6px">${btn('Try again')}<button type="button" data-icover style="font-size:13px">Buy anyway (give a reason)</button></div>`;
+  const r = ic.res, fl = icFlags(r), tip = icCarrierTip(B, r);
+  const head = ic.over ? `<div class="banner warn small"><b>Override saved:</b> ${esc(ic.over)}. Josh was alerted.</div>`
+    : r.verdict === 'clean' ? `<div class="banner ok small"><b>IMEI clean.</b> iCloud off, not blacklisted${r.checks.length > 1 ? ', carrier check clean' : ''}.</div>`
+    : r.verdict === 'warn' ? `<div class="banner warn small"><b>Check this:</b> ${esc(fl.join(', ') || 'see the report')}. Usually means the <b>financed price</b>.</div>`
+    : r.verdict === 'error' ? `<div class="banner bad small"><b>Sickw couldn't check it:</b> ${esc(r.checks.find(c => c.verdict === 'error')?.lines?.[0]?.v || 'no answer')}</div>`
+    : `<div class="banner bad small"><b>Don't buy it:</b> ${esc(fl.join(', '))}. Hand it back, or buy it anyway only with a good reason.</div>`;
+  const tone = t => t === 'bad' ? 'color:var(--bad);font-weight:600' : t === 'warn' ? 'color:var(--warn);font-weight:600' : t === 'ok' ? 'color:var(--ok)' : '';
+  return `<div class="stack" style="gap:6px">${head}${tip ? `<div class="banner small">${tip}</div>` : ''}
+    <details><summary class="small" style="cursor:pointer">Full Sickw report${r.checks.some(c => c.cached) ? ' (from an earlier check, no charge)' : ''}</summary>${r.checks.map(c => `<div class="small" style="margin-top:6px"><b>${esc(c.name || 'Check')}</b>${c.lines.map(l => `<div><span class="muted">${esc(l.k)}${l.k ? ':' : ''}</span> <span style="${tone(l.tone)}">${esc(l.v)}</span></div>`).join('')}</div>`).join('')}</details>
+    <div class="row" style="gap:6px">${btn('Check again (new charge)', 1)}${!ic.over && ['bad', 'error'].includes(r.verdict) ? '<button type="button" data-icover style="font-size:13px">Buy anyway (give a reason)</button>' : ''}</div></div>`;
+}
 async function viewBuyback(el){
   if (S.bbDone) return viewBuybackDone(el);
   const B = S.bb; const P = S.prices;
@@ -5176,6 +5212,7 @@ async function viewBuyback(el){
           ${(A.lines || []).length > 1 ? `<div class="small mono">${A.lines.map(([k, v]) => `${esc(k)} ${v < 0 ? '−' + money(-v) : money(v)}`).join(' · ')} = <b>${money(max)}</b></div>` : ''}</div>
         ${B.model ? `<div class="grid g2"><div class="field"><label class="label" for="bb-imei">IMEI / serial</label><input id="bb-imei" data-b="imei" value="${esc(B.imei)}" inputmode="numeric" autocomplete="off"></div>
           <div class="field"><label class="label" for="bb-color">Color</label><input id="bb-color" data-b="color" value="${esc(B.color)}" placeholder="Graphite" autocomplete="off"></div></div>` : ''}
+        ${B.model ? `<div id="bb-ic">${icHtml(B)}</div>` : ''}
         <p class="muted small" style="margin:0">Wrong device or condition? Tap <b>Change device</b> and appraise it again.</p>
       </div>
       ${B.model ? `<div class="panel stack">
@@ -5246,6 +5283,29 @@ async function viewBuyback(el){
   $('#bb-allpass') && ($('#bb-allpass').onclick = () => { CHECKS.forEach(([k]) => { if (!B.checks[k]) B.checks[k] = 'pass'; }); const y = window.scrollY; re().then(() => window.scrollTo(0, y)); });
   el.querySelectorAll('[data-b]').forEach(i => i.oninput = i.onchange = () => { B[i.dataset.b] = i.value; if (i.dataset.b === 'battery') { const y = window.scrollY; clearTimeout(S._bt); S._bt = setTimeout(() => re().then(() => { window.scrollTo(0, y); const n = $('#bb-bat'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }), 600); } });
   el.querySelectorAll('[data-s]').forEach(i => i.oninput = i.onchange = () => { B.seller[i.dataset.s] = i.value; });
+  /* IMEI check (Sickw): runs by itself once a valid 15-digit IMEI is typed; the button re-runs it or checks a serial */
+  const keepY = () => { const y = window.scrollY; return re().then(() => window.scrollTo(0, y)); };
+  const runIC = async (fresh) => { const im = normImei(B.imei); if (im.length < 10) { toast('Type the full IMEI first.'); return; }
+    B.ic = {imei: im, busy: true}; await keepY();
+    try { const res = await Store.imeiCheck({imei: im, model: B.model, carrier: B.carrier, store: S.store, fresh: !!fresh}); B.ic = {imei: im, res};
+      const fl = res.checks.flatMap(c => c.flags || []);
+      B.icAuto = [];
+      if (fl.some(f => /icloud|find my/i.test(f))) { B.checks.lock = 'fail'; B.icAuto.push('lock'); }
+      if (fl.some(f => /blacklist|knox/i.test(f))) { B.checks.imei = 'fail'; B.icAuto.push('imei'); } else if (res.verdict !== 'error') { B.checks.imei = 'pass'; B.icAuto.push('imei'); }
+    } catch (e) { B.ic = {imei: im, err: e.message}; }
+    if (normImei(B.imei) === im) keepY(); };
+  const imIn = $('#bb-imei'); if (imIn) imIn.addEventListener('change', () => { const im = normImei(B.imei); if (B.ic?.imei === im) return;
+    (B.icAuto || []).forEach(k => delete B.checks[k]); B.icAuto = [];   /* new IMEI: the old result no longer counts */
+    if (/^\d{15}$/.test(im) && luhnOk(im)) runIC(); else keepY(); });
+  el.querySelectorAll('[data-icrun]').forEach(x => x.onclick = () => runIC(x.dataset.icrun === 'fresh'));
+  el.querySelectorAll('[data-icover]').forEach(x => x.onclick = () => { const ic = B.ic; const id = ic?.res?.checks?.find(c => c.verdict === 'bad' || c.verdict === 'error')?.id || ic?.res?.checks?.[0]?.id;
+    sheet(`<div class="row" style="justify-content:space-between"><h3>Buy it anyway?</h3><button data-close>Close</button></div>
+      <p class="small">Sickw flagged this IMEI${ic?.res ? ': <b>' + esc(icFlags(ic.res).join(', ') || 'no answer') + '</b>' : ''}. If you still buy it, say why. Josh gets an alert and it is saved on the device.</p>
+      <div class="field"><label class="label" for="ov-r">Why are you buying it?</label><textarea id="ov-r" rows="3" placeholder="Seller signed out of iCloud in front of me and the phone reset clean"></textarea></div>
+      <div class="err" id="ov-e" role="alert"></div><button class="primary" id="ov-go">Save the reason and continue</button>`,
+      (L, close) => L.querySelector('#ov-go').onclick = async () => { const r = L.querySelector('#ov-r').value.trim(); if (r.length < 5) { L.querySelector('#ov-e').textContent = 'Write why you are buying it anyway.'; return; }
+        try { if (id) await Store.imeiOverride(S.user, S.store, id, r); B.ic.over = r; B.checks.imei = 'pass'; if (B.checks.lock === 'fail') B.checks.lock = 'pass'; close(); toast('Override saved. Josh has been alerted.'); keepY(); }
+        catch (e) { L.querySelector('#ov-e').textContent = e.message; } }); });
   const form = $('#bb-form'); if (!form) return;
   // returning seller: search everyone who sold to us before and fill in everything from their last buy
   const sellers = async () => { if (!S.sellers || Date.now() - S.sellersAt > 300000) { const all = await Store.buybackLog().catch(() => []); const m = new Map();
@@ -5286,11 +5346,16 @@ async function viewBuyback(el){
       : !sl.idNumber.trim() ? 'Enter the ID number from the photo ID.' : !sl.idExp ? 'Enter the ID expiration date.' : new Date(sl.idExp) < new Date(new Date().toDateString()) ? 'That ID is expired. Ask for a current photo ID.'
       : !(paid > 0) ? 'Enter what you are paying the seller.'
       : SAM_PAYS.includes(B.payout) && !(B.payoutTo || '').trim() ? `Enter where to send the ${B.payout} payment.` : '';
-    $('#f-err').textContent = err; if (err) return;
+    const ic = B.ic && B.ic.imei === normImei(B.imei) ? B.ic : null;
+    const icErr = err ? '' : !ic || ic.busy ? 'Run the IMEI check in step 1 first (tap Check IMEI).'
+      : ic.over ? '' : ic.err ? 'The IMEI check did not finish. Tap Check IMEI again, or Buy anyway with a reason.'
+      : ['bad', 'error'].includes(ic.res.verdict) ? 'This IMEI was flagged. Hand it back, or tap Buy anyway and give a reason.' : '';
+    $('#f-err').textContent = err || icErr; if (err || icErr) return;
+    const icNote = ic.over ? `IMEI override: ${ic.over}` : `IMEI check ${ic.res.verdict === 'clean' ? 'clean' : 'flagged: ' + icFlags(ic.res).join(', ')} (Sickw)`;
     let override = null;
     if (paid > max) { override = await askPin(`Manager approval: paying ${money(paid)} (max ${money(max)})`, 2); if (!override) return; }
     const r = await Store.recordBuyback(S.user, S.store, {model: B.model, storage: B.storage, carrier: B.carrier, cond: B.cond, color: B.color.trim(), imei: B.imei.trim(),
-      battery: B.battery === '' ? null : +B.battery, checklist: {...B.checks}, needs, paid, max, payout: B.payout, payoutTo: (B.payoutTo || '').trim(), notes: B.notes.trim(),
+      battery: B.battery === '' ? null : +B.battery, checklist: {...B.checks}, needs, paid, max, payout: B.payout, payoutTo: (B.payoutTo || '').trim(), notes: [B.notes.trim(), icNote].filter(Boolean).join(' · '),
       seller: {...sl, phone: ph, email: (sl.email || '').trim().toLowerCase(), firstName: sl.firstName.trim(), lastName: sl.lastName.trim(), state: sl.state.toUpperCase()}}, override);
     /* every buy starts as Pending in inventory until the rep (or a manager later) picks Inventory, Repair stock or Wholesale */
     if (r.device.status !== 'testing') { try { await Store.updateDevice(S.user, S.store, r.device.id, {status: 'testing'}); } catch {} }
