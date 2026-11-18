@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795025559";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795027153";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -5841,7 +5841,7 @@ const isUnlocked = d => /unlock/i.test(d.carrier || '');
 const DEV_CATS = [['all', 'All devices', () => true], ['iphone-unl', 'Unlocked iPhones', d => devKind(d) === 'iphone' && isUnlocked(d)], ['iphone', 'All iPhones', d => devKind(d) === 'iphone'],
   ['samsung-unl', 'Unlocked Samsungs', d => devKind(d) === 'samsung' && isUnlocked(d)], ['samsung', 'All Samsungs', d => devKind(d) === 'samsung'], ['ipad', 'iPads', d => devKind(d) === 'ipad'],
   ['mac', 'MacBooks & iMacs', d => devKind(d) === 'mac'], ['watch', 'Apple Watch', d => devKind(d) === 'watch'], ['pixel', 'Pixels', d => devKind(d) === 'pixel'], ['console', 'Consoles', d => devKind(d) === 'console'], ['other', 'Other', d => devKind(d) === 'other']];
-const DEV_STATUS = [['active', 'In inventory (not sold)', d => !['sold', 'atlas'].includes(d.status)], ['sell', 'Ready to sell', d => ['hot', 'tolist', 'swappa'].includes(d.status)],
+const DEV_STATUS = [['active', 'In inventory', d => !['sold', 'atlas', 'repair'].includes(d.status)],   /* repair stock has its own chip so reps aren't sorting around it */ ['sell', 'Ready to sell', d => ['hot', 'tolist', 'swappa'].includes(d.status)],
   ['hot', 'Hot stock', d => d.status === 'hot'], ['tolist', 'To list', d => d.status === 'tolist'], ['swappa', 'On Swappa', d => d.status === 'swappa'], ['repair', 'Repair stock', d => d.status === 'repair'],
   ['testing', 'Pending', d => d.status === 'testing'], ['wholesale', 'Wholesale', d => d.status === 'wholesale'], ['sold', 'Sold', d => ['sold', 'atlas'].includes(d.status)], ['all', 'Everything', () => true]];
 async function viewInventory(el){
