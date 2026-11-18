@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794958641";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794961189";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -596,7 +596,9 @@ const DemoStore = {
     d.partOrders.unshift(row);
     if (o.rush) this.notify(d, null, `RUSH special order for ${STORES[store]}: ${row.name}${o.cost ? ' (' + cents(o.cost) + ')' : ''} · ${row.forLabel || 'stock'}. Needed before the next Mon/Thu order.`, {tab: 'parts'}, 'manager');
     if (o.forType === 'device') { const dv = d.devices.find(x => x.id === o.forId); if (dv) { dv.log.unshift({at: now(), who: emp.id, text: 'Part requested: ' + row.name}); if (['diag','parts'].includes(dv.repairStatus) || !dv.repairStatus) dv.repairStatus = 'parts'; } }
-    if (o.forType === 'ticket') { const t = d.tickets.find(x => x.id === o.forId); if (t) { t.comments.unshift({id: uid(), at: now(), who: emp.id, text: 'Part requested: ' + row.name, pub: false, sys: true}); if (!['resolved', 'customer'].includes(t.status)) t.status = 'order'; t.updatedAt = now(); } }
+    if (o.forType === 'ticket') { const t = d.tickets.find(x => x.id === o.forId); if (t) { t.comments.unshift({id: uid(), at: now(), who: emp.id, text: 'Part requested: ' + row.name, pub: false, sys: true}); if (!['resolved', 'customer'].includes(t.status)) t.status = 'order'; t.updatedAt = now();
+      if (o.forType === 'ticket' && +o.price > 0) { const cid = uid(); t.charges = t.charges || []; t.charges.push({id: cid, desc: row.name + (row.qty > 1 ? ' ×' + row.qty : ''), cat: 'Repair', price: +o.price, partCost: o.cost ? +(o.cost * row.qty).toFixed(2) : undefined, partOrderId: row.id, by: emp.id, at: now()});
+        if (o.cost) t.partsUsed.push({name: row.name + ' (special order)', cost: +(o.cost * row.qty).toFixed(2), at: now(), by: emp.id, chargeId: cid, partOrderId: row.id}); } } }
     this.log(d, emp.id, store, 'Part requested', `${row.name} for ${row.forLabel || 'stock'}`); this.save(d); return row;
   },
   async partAlert(id){ const d = this.db(); const o = d.partOrders.find(x => x.id === id); if (o) { this.notify(d, null, `Special order ${STORES[o.store]}: ${o.name}${o.url ? ' · ' + o.url : ''} (Slack to Josh in the live POS)`, {tab: 'parts'}, 'manager'); this.save(d); } return {ok: true, demo: true}; },
@@ -1951,17 +1953,18 @@ async function viewTickets(el){
       <button data-f="open" aria-pressed="${F.status === 'open'}">All open (${count('open')})</button>
       ${TSTATUS.map(([k, l]) => `<button data-f="${k}" aria-pressed="${F.status === k}">${l} (${count(k)})</button>`).join('')}
     </div>
-    <div class="tbl"><table><thead><tr><th>#</th><th>Customer</th><th>Subject</th><th>Status</th><th>Tech</th><th>Priority</th><th>Last updated</th><th>Created</th><th>Issue</th><th>Location</th></tr></thead><tbody>
+    <div class="tbl"><table><thead><tr><th>#</th><th>Customer</th><th>Model</th><th>Subject</th><th>Status</th><th>Tech</th><th>Priority</th><th>Last updated</th><th>Created</th><th>Issue</th><th>Location</th></tr></thead><tbody>
     ${rows.length ? rows.map(t => { const c = C[t.customerId] || {}; const f = ticketFlag(t); return `<tr class="click" data-id="${t.id}" tabindex="0">
       <td class="num"><a style="color:var(--accent)">${t.number}</a></td>
       <td><a style="color:var(--accent)">${esc(c.name || '—')}</a><div class="small muted num" style="white-space:nowrap">${fmtPhone(c.phone)}</div></td>
+      <td>${esc(t.device || '—')}</td>
       <td><b>${esc(t.subject || '')}</b>${t.example ? ' <span class="pill">example</span>' : ''}${f ? `<div><span class="pill ${f[0]}">${f[1]}</span></div>` : ''}</td>
       <td><select class="stsel ${TS[t.status][2]}" data-st="${t.id}" aria-label="Status for ticket ${t.number}">${TSTATUS.map(([k, l]) => `<option value="${k}" ${t.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select></td>
       <td><select class="techsel" data-tech="${t.id}" aria-label="Tech for ticket ${t.number}"><option value="">${!t.techId && t.rsTech ? esc(t.rsTech) : 'None assigned'}</option>${techs.map(e => `<option value="${e.id}" ${t.techId === e.id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select></td>
       <td class="small">${PRIORITIES[t.priority ?? 2][1]}</td>
       <td class="small muted">${ago(t.updatedAt)}</td><td class="small num">${new Date(t.createdAt).toLocaleString('en-US',{month:'2-digit',day:'2-digit',year:'2-digit',hour:'numeric',minute:'2-digit'})}</td>
       <td class="small">${esc(t.issue || '')}</td><td class="small">${STORES[t.store]}</td></tr>`; }).join('')
-      : `<tr><td colspan="10" class="muted">No ${F.status === 'open' ? 'open' : TS[F.status][1].toLowerCase()} tickets here.</td></tr>`}
+      : `<tr><td colspan="11" class="muted">No ${F.status === 'open' ? 'open' : TS[F.status][1].toLowerCase()} tickets here.</td></tr>`}
     </tbody></table></div></div>`;
   $('#tf-store') && ($('#tf-store').value = F.store, $('#tf-store').onchange = e => { F.store = e.target.value; viewTickets(el); });
   $('#tf-mine').onclick = () => { F.mine = !F.mine; viewTickets(el); };
@@ -2062,7 +2065,7 @@ async function viewTicket(el){
       </div>
       <div class="panel stack">
         <div class="row" style="justify-content:space-between"><h3>Parts pulled from stock</h3>${can(2) ? `<span class="muted small">${money(partsCost)} part cost</span>` : ''}</div>
-        ${t.partsUsed.length ? `<ul style="margin:0;padding-left:18px">${t.partsUsed.map(p => `<li>${esc(p.name)} <span class="muted small">· ${cents(+p.cost || 0)} · ${p.chargeId ? 'with its charge' : 'no charge'} · ${esc(staffName(p.by))}</span>${p.damaged ? ` <span class="pill bad">damaged${p.damagedBy ? ' · ' + esc(staffName(p.damagedBy)) : ''}</span>${p.damagedNote ? `<div class="small muted">${esc(p.damagedNote)}</div>` : ''}` : t.status !== 'resolved' && !p.defective ? ` <button data-dmg="${t.partsUsed.indexOf(p)}" style="min-height:26px;padding:0 8px;font-size:12px">Damaged?</button>` : ''}${p.rma ? ` <button data-rmal="${t.partsUsed.indexOf(p)}" style="min-height:26px;padding:0 8px;font-size:12px">RMA label</button>` : ''}${p.rma ? ' <span class="pill warn">old part → RMA</span>' : ''}${p.defective ? ` <span class="pill bad">defective → RMA</span> <span class="small muted">${esc(p.defectReason || '')}</span> <button data-rmad="${esc(p.at)}" style="min-height:26px;padding:0 8px;font-size:12px">RMA label</button>` : ''}${p.replaces ? ' <span class="pill">replacement · $0 to this ticket</span>' : ''}${p.partId && !p.defective && !p.damaged && !p.replaces && t.status !== 'resolved' ? ` <button data-defect="${esc(p.at)}" style="min-height:26px;padding:0 8px;font-size:12px">Defective → RMA</button>` : ''}${!p.chargeId && !p.damaged && !p.defective && t.status !== 'resolved' ? ` <button data-tprm="${esc(p.at)}" title="Added by mistake? Take it off. It goes back on the shelf." style="min-height:26px;padding:0 8px;font-size:12px">✕ Remove</button>` : ''}</li>`).join('')}</ul>` : '<span class="muted small">None yet. Adding a repair charge pulls its part from this store\'s stock automatically.</span>'}
+        ${t.partsUsed.length ? `<ul style="margin:0;padding-left:18px">${t.partsUsed.map(p => `<li>${esc(p.name)} <span class="muted small">· ${cents(+p.cost || 0)} · ${p.chargeId ? 'with its charge' : 'no charge'} · ${esc(staffName(p.by))}</span>${p.damaged ? ` <span class="pill bad">damaged${p.damagedBy ? ' · ' + esc(staffName(p.damagedBy)) : ''}</span>${p.damagedNote ? `<div class="small muted">${esc(p.damagedNote)}</div>` : ''}` : t.status !== 'resolved' && !p.defective && !p.partOrderId ? ` <button data-dmg="${t.partsUsed.indexOf(p)}" style="min-height:26px;padding:0 8px;font-size:12px">Damaged?</button>` : ''}${p.rma ? ` <button data-rmal="${t.partsUsed.indexOf(p)}" style="min-height:26px;padding:0 8px;font-size:12px">RMA label</button>` : ''}${p.rma ? ' <span class="pill warn">old part → RMA</span>' : ''}${p.defective ? ` <span class="pill bad">defective → RMA</span> <span class="small muted">${esc(p.defectReason || '')}</span> <button data-rmad="${esc(p.at)}" style="min-height:26px;padding:0 8px;font-size:12px">RMA label</button>` : ''}${p.replaces ? ' <span class="pill">replacement · $0 to this ticket</span>' : ''}${p.partId && !p.defective && !p.damaged && !p.replaces && t.status !== 'resolved' ? ` <button data-defect="${esc(p.at)}" style="min-height:26px;padding:0 8px;font-size:12px">Defective → RMA</button>` : ''}${!p.chargeId && !p.damaged && !p.defective && t.status !== 'resolved' ? ` <button data-tprm="${esc(p.at)}" title="Added by mistake? Take it off. It goes back on the shelf." style="min-height:26px;padding:0 8px;font-size:12px">✕ Remove</button>` : ''}</li>`).join('')}</ul>` : '<span class="muted small">None yet. Adding a repair charge pulls its part from this store\'s stock automatically.</span>'}
         ${t.status !== 'resolved' ? `<div class="row"><button id="t-order">+ Special order a part</button></div>
           <details><summary class="small muted" style="cursor:pointer">Pull a part without a charge (warranty, rework, or a part damaged during the repair)</summary>
           <div class="row" style="margin-top:8px;align-items:flex-start">${partPickHTML('t-part', 'Type the part, e.g. 13 pro screen')}<button id="t-usepart">Use part</button></div></details>` : ''}
@@ -2795,7 +2798,7 @@ async function chargeSheet(t, c, after, opts = {}){
           add(gl ? {desc: p.name + ' (lifetime warranty)', cat: 'Tempered glass', price: GLASS[gl], productId: p.id, glass: gl} : {desc: p.name, cat: prodCat(p), price: p.price, productId: p.id}); S.chq = ''; body(); });
       } else {
         if (!S.tkSpecials || S.tkSpecials.t !== t.id) S.tkSpecials = {t: t.id, list: (await Store.partOrders().catch(() => [])).filter(o => o.forId === t.id && o.status !== 'cancelled')};
-        const sps = S.tkSpecials.list;
+        const sps = S.tkSpecials.list.filter(o => !(t.charges || []).some(c => c.partOrderId === o.id));
         B.innerHTML = `${sps.length ? `<div class="stack" style="gap:6px"><span class="label">Charging for a special-order part? Tap it to fill in the cost</span><div class="row" style="gap:6px;flex-wrap:wrap">${sps.map((o, i) => `<button type="button" data-sp="${i}" style="min-height:36px">${esc(o.name)}${o.cost ? ' · ' + cents(o.cost) : ''}</button>`).join('')}</div></div>` : ''}
           <div class="field"><label class="label" for="cs-d">What is it</label><input id="cs-d" placeholder="Water damage cleaning"></div>
           <div class="grid g3"><div class="field"><label class="label" for="cs-c">Category</label><select id="cs-c">${LINE_CATS.map(x => `<option>${x}</option>`).join('')}</select></div>
@@ -5972,17 +5975,20 @@ async function viewAccessories(box, again){
 async function viewParts(el){
   const [parts, reqs, pos] = await Promise.all([Store.parts(), Store.partOrders(), Store.pos()]);
   const low = parts.filter(p => (p.qty[S.store] || 0) < dqOf(p, S.store));
-  const openReq = reqs.filter(o => o.status === 'needed' && !o.poId && o.store === S.store);
+  const openReq = reqs.filter(o => o.status === 'needed' && !o.poId && o.store === S.store && o.source !== 'link');
+  const openSpec = reqs.filter(o => o.source === 'link' && ['needed', 'ordered'].includes(o.status) && o.store === S.store);
   const openPOs = pos.filter(p => p.status !== 'received' && p.store === S.store);
   el.innerHTML = `<div class="stack"><div class="statusbar" role="group" aria-label="Parts section">
       <button data-pt="stock" aria-pressed="${S.pTab === 'stock'}">Stock</button>
       <button data-pt="orders" aria-pressed="${S.pTab === 'orders'}">Sentrix orders${openReq.length || openPOs.length ? ` (${openReq.length + openPOs.length})` : ''}</button>
+      <button data-pt="special" aria-pressed="${S.pTab === 'special'}">Special orders${openSpec.length ? ` (${openSpec.length})` : ''}</button>
       <button data-pt="rma" aria-pressed="${S.pTab === 'rma'}">RMA &amp; refurb</button>
       <button data-pt="lookups" aria-pressed="${S.pTab === 'lookups'}">Sentrix lookups</button>
       <button data-pt="acc" aria-pressed="${S.pTab === 'acc'}">Accessories</button></div><div id="pbox"></div></div>`;
   el.querySelectorAll('[data-pt]').forEach(x => x.onclick = () => { S.pTab = x.dataset.pt; viewParts(el); });
   const box = $('#pbox');
   if (S.pTab === 'orders') return viewOrders(box, parts, reqs, pos, () => viewParts(el));
+  if (S.pTab === 'special') return viewSpecialOrders(box, reqs, () => viewParts(el));
   if (S.pTab === 'acc') return viewAccessories(box, () => viewParts(el));
   if (S.pTab === 'rma') return viewRmaRefurb(box, parts, () => viewParts(el));
   if (S.pTab === 'lookups') { const lks = await Store.lookups();
@@ -6063,12 +6069,34 @@ function suggestOrder(store, parts, reqs, pos){
   return lines;
 }
 const nextOrderDay = () => { const d = new Date(); for (let i = 0; i < 8; i++) { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate() + i, 9); if ((x.getDay() === 1 || x.getDay() === 4) && x > d) return (i === 0 ? 'today' : i === 1 ? 'tomorrow' : x.toLocaleDateString('en-US', {weekday: 'long'})) + ' 9 AM'; } return 'Mon/Thu 9 AM'; };
+/* Special orders: parts bought from a link (Amazon, eBay, a supplier), not MobileSentrix. Josh orders them and taps Ordered; the store taps Arrived. */
+function viewSpecialOrders(box, reqs, re){
+  const st = S.store, mine = reqs.filter(r => r.store === st && r.source === 'link');
+  const wait = mine.filter(r => r.status === 'needed'), coming = mine.filter(r => r.status === 'ordered'),
+    got = mine.filter(r => r.status === 'received' && (Date.now() - new Date(r.receivedAt || r.createdAt)) < 45 * 864e5);
+  const row = r => `<tr><td><b>${esc(r.name)}</b>${r.qty > 1 ? ' ×' + r.qty : ''}${r.rush ? ' <span class="pill bad">rush</span>' : ''}
+      <div class="small muted">${r.forType === 'ticket' && r.forId ? `<a data-sotk="${r.forId}" style="color:var(--accent);cursor:pointer">${esc(r.forLabel || 'Ticket')}</a>` : esc(r.forLabel || 'Shelf stock')} · asked ${fmtDate(r.createdAt)} by ${esc(staffName(r.by))}${r.orderedAt ? ' · ordered ' + fmtDate(r.orderedAt) : ''}${r.receivedAt ? ' · arrived ' + fmtDate(r.receivedAt) : ''}</div></td>
+    <td class="small">${r.ref ? esc(r.ref) : ''}</td><td class="r num">${r.cost ? cents(r.cost) : '—'}</td><td class="r" style="white-space:nowrap">${poEditBtns(r)}</td></tr>`;
+  const tbl = (title, list, empty, open = true) => `<div class="panel stack"><details ${open ? 'open' : ''}><summary style="cursor:pointer"><b>${title}</b> <span class="muted small">(${list.length})</span></summary>
+    ${list.length ? `<div class="tbl" style="margin-top:8px"><table><thead><tr><th>Part</th><th>Order # / ETA</th><th class="r">Our cost</th><th></th></tr></thead><tbody>${list.map(row).join('')}</tbody></table></div>` : `<p class="muted small" style="margin:8px 0 0">${empty}</p>`}</details></div>`;
+  box.innerHTML = `<div class="stack">
+    <div class="panel stack" style="gap:6px"><div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap"><div><h2 style="margin:0">Special orders</h2>
+      <div class="small muted">Parts from a link (Amazon, eBay, a supplier). Josh orders them and taps <b>Ordered</b>; the store taps <b>Arrived</b> when it comes in. MobileSentrix parts are on Sentrix orders.</div></div>
+      <button id="so-add">+ Special order a part</button></div></div>
+    ${tbl('Waiting for Josh to order', wait, 'Nothing waiting.')}
+    ${tbl('Ordered · on the way', coming, 'Nothing on the way.')}
+    ${tbl('Arrived (last 45 days)', got, 'Nothing yet.', false)}
+  </div>`;
+  box.querySelector('#so-add').onclick = () => specialOrderSheet({forType: 'stock', store: st, forLabel: '', mode: 'link'}, re);
+  box.querySelectorAll('[data-sotk]').forEach(a => a.onclick = () => go('ticket', {ticketId: a.dataset.sotk}));
+  wirePoEdit(box, reqs, {forType: 'stock', store: st}, re);
+}
 function viewOrders(box, parts, reqs, pos, re){
   const st = S.store; const sug = suggestOrder(st, parts, reqs, pos);   /* this store only: switch stores at the top to see another */
   const PO_LABEL = {draft: 'Waiting for Josh', placed: 'Placed', partial: 'Partly received', received: 'Received'};
   const mine = pos.filter(p => p.store === st);
   const waiting = mine.filter(p => p.status === 'draft'), coming = mine.filter(p => ['placed', 'partial'].includes(p.status)), done = mine.filter(p => p.status === 'received');
-  const open = reqs.filter(r => r.store === st && ((r.status === 'needed' && !r.poId) || (r.status === 'ordered' && r.source === 'link')));
+  const open = reqs.filter(r => r.store === st && r.source !== 'link' && r.status === 'needed' && !r.poId);   /* link orders live on the Special orders tab */
   const card = p => `<div class="stack" style="border:1px solid var(--line);border-radius:12px;padding:12px;gap:8px">
       <div class="row" style="justify-content:space-between"><b>${p.orderNo ? "Sentrix #" + esc(p.orderNo) : "PO " + p.number} · ${STORES[p.store]}</b><span class="pill ${p.status === 'received' ? 'ok' : p.status === 'draft' ? '' : 'acc'}">${PO_LABEL[p.status]}</span></div>
       <div class="small muted">${p.orderNo ? 'Sentrix #' + esc(p.orderNo) : 'Not placed yet'}${p.tracking ? ` · ${esc(p.carrier || 'Tracking')} <span class="mono">${esc(p.tracking)}</span>` : ''} · ordered ${fmtDate(p.orderedAt || p.at)}${p.by ? ' by ' + esc(staffName(p.by)) : ''}${p.total ? ` · ${cents(p.total)}` : ''}</div>
@@ -6213,12 +6241,12 @@ async function specialOrderSheet(ctx, after){
     <div class="err" id="so-err" role="alert"></div>`,
   (L, close) => {
     const order = async o => { const rush = L.querySelector('#so-rush').checked; const err = L.querySelector('#so-err'); err.textContent = ''; try {
-      const row = await Store.orderPart(S.user, ctx.store, {name: o.name, quality: o.quality || '', productId: o.productId || '', cost: o.cost || null, url: o.url || '', source: o.source || 'sentrix', qty: o.qty || 1, rush,
+      const row = await Store.orderPart(S.user, ctx.store, {name: o.name, quality: o.quality || '', productId: o.productId || '', cost: o.cost || null, price: o.price || null, url: o.url || '', source: o.source || 'sentrix', qty: o.qty || 1, rush,
         forType: ctx.forType, forId: ctx.forId || null, forLabel: ctx.forLabel || ''});
       if (ctx.replaceId) { try { await Store.cancelPartOrder(S.user, ctx.store, ctx.replaceId); } catch (e) { toast('New part ordered, but the old one could not be removed: ' + e.message); } }
       const al = row?.id ? await Store.partAlert(row.id) : {ok: false};
       close();
-      toast((o.source === 'link' ? 'Sent to Josh to order.' : rush ? 'Rush order saved.' : 'On the next Sentrix order (Mon/Thu).') + (al.ok ? ' Josh was tagged on Slack.' : ` Slack message didn't go out${al.error ? ' (' + al.error + ')' : ''}: tell Josh.`) + ' The ticket shows when it arrives.');
+      toast((o.source === 'link' ? 'Sent to Josh to order.' + (o.price && ctx.forType === 'ticket' ? ` ${cents(o.price)} charge added to the ticket.` : '') : rush ? 'Rush order saved.' : 'On the next Sentrix order (Mon/Thu).') + (al.ok ? ' Josh was tagged on Slack.' : ` Slack message didn't go out${al.error ? ' (' + al.error + ')' : ''}: tell Josh.`) + ' The ticket shows when it arrives.');
       after && after();
     } catch (e) { err.textContent = e.message; } };
     const body = () => {
@@ -6227,14 +6255,18 @@ async function specialOrderSheet(ctx, after){
       if (mode === 'link') {
         B.innerHTML = `<div class="field"><label class="label" for="so-url">Link to the part</label><input id="so-url" placeholder="Paste the Amazon / eBay / supplier link" autocomplete="off"></div>
           <div class="grid g2"><div class="field"><label class="label" for="so-ln">What part is it</label><input id="so-ln" value="${esc([ctx.device, ctx.part].filter(Boolean).join(' '))}" placeholder="HP Envy 15 LCD screen"></div>
-            <div class="grid" style="grid-template-columns:1fr 80px;gap:8px"><div class="field"><label class="label" for="so-lc">Price on the site</label><input id="so-lc" inputmode="decimal" placeholder="$0.00"></div>
-            <div class="field"><label class="label" for="so-lq">Qty</label><input id="so-lq" inputmode="numeric" value="1"></div></div></div>
-          <button class="primary" id="so-lgo">Send to Josh to order</button>`;
+            <div class="field"><label class="label" for="so-lq">Qty</label><input id="so-lq" inputmode="numeric" value="1" style="max-width:90px"></div></div>
+          <div class="grid g2"><div class="field"><label class="label" for="so-lc">Our cost (price on the site)</label><input id="so-lc" inputmode="decimal" placeholder="$0.00"></div>
+            ${ctx.forType === 'ticket' ? `<div class="field"><label class="label" for="so-lp">Price we charge the customer</label><input id="so-lp" inputmode="decimal" placeholder="$0.00"><div class="small muted">Goes on the ticket as a charge. Labor is a separate charge.</div></div>` : ''}</div>
+          <button class="primary" id="so-lgo">Send order to Josh${ctx.forType === 'ticket' ? ' + add the charge' : ''}</button>`;
         L.querySelector('#so-lgo').onclick = () => { const url = L.querySelector('#so-url').value.trim(), name = L.querySelector('#so-ln').value.trim();
           if (!/^https?:\/\//i.test(url)) { L.querySelector('#so-err').textContent = 'Paste the full link (it starts with https://).'; return; }
           if (!name) { L.querySelector('#so-err').textContent = 'Say what part it is, e.g. "HP Envy 15 LCD screen".'; return; }
-          const c = parseFloat(String(L.querySelector('#so-lc').value).replace(/[$,]/g, ''));
-          order({source: 'link', url, name, cost: c > 0 ? Math.round(c * 100) / 100 : null, qty: Math.max(1, parseInt(L.querySelector('#so-lq').value) || 1)}); };
+          const num = id => parseFloat(String(L.querySelector(id)?.value || '').replace(/[$,]/g, ''));
+          const c = num('#so-lc'), pr = num('#so-lp');
+          if (!(c > 0)) { L.querySelector('#so-err').textContent = 'Enter our cost (the price on the site).'; return; }
+          if (ctx.forType === 'ticket' && !(pr > 0)) { L.querySelector('#so-err').textContent = 'Enter the price we charge the customer for this part.'; return; }
+          order({source: 'link', url, name, cost: Math.round(c * 100) / 100, price: pr > 0 ? Math.round(pr * 100) / 100 : null, qty: Math.max(1, parseInt(L.querySelector('#so-lq').value) || 1)}); };
         return;
       }
       B.innerHTML = `<div class="grid g2"><div class="field"><label class="label" for="so-d">Device</label><input id="so-d" value="${esc(ctx.device || '')}"></div>
