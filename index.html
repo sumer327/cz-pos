@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794962191";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794962323";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -5293,18 +5293,26 @@ async function viewBuybackDone(el){
 }
 
 /* ---------------- REPAIR STOCK ---------------- */
-S.rf = {store: 'mine', st: 'all'};
+S.rf = {store: 'mine', st: 'all', sort: 'bought', dir: 'desc'};
 async function viewRepairs(el){
   const [devs, orders] = await Promise.all([Store.devices(), Store.partOrders()]);
   const F = S.rf;
   const all = devs.filter(d => d.status === 'repair' && (F.store === 'all' || d.store === (F.store === 'mine' ? S.store : F.store)));
-  const rows = all.filter(d => F.st === 'all' || (d.repairStatus || 'diag') === F.st).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));   /* newest first */
+  const lastUpd = d => Math.max(new Date(d.updatedAt || d.createdAt).getTime(), ...(d.log || []).map(l => new Date(l.at).getTime() || 0));
+  const RS = {stock: d => +d.stockNo, device: d => d.model + ' ' + d.storage, needs: d => (d.needs || []).join(', '), status: d => REPAIR_ST.findIndex(([k]) => k === (d.repairStatus || 'diag')),
+    tech: d => d.techId ? staffName(d.techId) : '', parts: d => orders.filter(o => o.forId === d.id && o.status !== 'received').length || (d.partsUsed?.length ? 0.5 : 0),
+    cost: d => (+d.cost || 0) + (+d.partsCost || 0), bought: d => new Date(d.boughtAt || d.createdAt).getTime(), updated: lastUpd, age: d => daysOld(d.createdAt), store: d => d.store};
+  const rows = all.filter(d => F.st === 'all' || (d.repairStatus || 'diag') === F.st);
+  { const g = RS[F.sort] || RS.bought, dir = F.dir === 'asc' ? 1 : -1;   /* default: newest purchase first */
+    rows.sort((a, b) => { const x = g(a), y = g(b); if (x === '' && y !== '') return 1; if (y === '' && x !== '') return -1;
+      return (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), undefined, {numeric: true})) * dir; }); }
+  const rth = (k, l, r) => { const on = (F.sort || 'bought') === k; return `<th${r ? ' class="r"' : ''} aria-sort="${on ? (F.dir === 'asc' ? 'ascending' : 'descending') : 'none'}"><button data-rsort="${k}" style="all:unset;cursor:pointer;font:inherit;color:inherit;white-space:nowrap">${l}${on ? (F.dir === 'asc' ? ' ▲' : ' ▼') : ''}</button></th>`; };
   const tied = all.reduce((a, d) => a + (+d.cost || 0) + (+d.partsCost || 0), 0);
   el.innerHTML = `<div class="stack">
     <div class="row" style="justify-content:space-between"><div><h2>Repair stock</h2><p class="muted small" style="margin:0">Bought devices that need work before they can sell. ${all.length} devices · ${money(tied)} tied up.</p></div>
       ${can(3) ? `<select id="rf-store" aria-label="Store" style="width:auto"><option value="mine">${STORES[S.store]}</option><option value="all">All stores</option>${Object.entries(STORES).filter(([k]) => k !== S.store).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>` : ''}</div>
     <div class="statusbar" role="group" aria-label="Filter by repair status"><button data-rs="all" aria-pressed="${F.st === 'all'}">All (${all.length})</button>${REPAIR_ST.map(([k, l]) => `<button data-rs="${k}" aria-pressed="${F.st === k}">${l} (${all.filter(d => (d.repairStatus || 'diag') === k).length})</button>`).join('')}</div>
-    <div class="tbl"><table><thead><tr><th>Stock #</th><th>Device</th><th>Needs</th><th>Repair status</th><th>Tech</th><th>Parts</th><th class="r">Cost so far</th><th>In repair</th><th>Store</th></tr></thead><tbody>
+    <div class="tbl"><table><thead><tr>${rth('stock', 'Stock #')}${rth('device', 'Device')}${rth('needs', 'Needs')}${rth('status', 'Repair status')}${rth('tech', 'Tech')}${rth('parts', 'Parts')}${rth('cost', 'Cost so far', 1)}${rth('bought', 'Purchased')}${rth('updated', 'Last updated')}${rth('age', 'In repair')}${rth('store', 'Store')}</tr></thead><tbody>
     ${rows.map(d => { const po = orders.filter(o => o.forId === d.id && o.status !== 'received'); const age = daysOld(d.createdAt); return `<tr class="click" data-d="${d.id}" tabindex="0">
       <td class="num"><a style="color:var(--accent)">${d.stockNo}</a></td>
       <td><b>${esc(d.model)}</b> <span class="muted">${esc(d.storage)} · ${esc(d.carrier)}</span>${d.example ? ' <span class="pill">example</span>' : ''}</td>
@@ -5313,10 +5321,12 @@ async function viewRepairs(el){
       <td><select class="techsel" data-rtech="${d.id}" aria-label="Tech for ${d.stockNo}"><option value="">Unassigned</option>${S.staff.filter(e => e.active || e.id === d.techId).map(e => `<option value="${e.id}" ${d.techId === e.id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select></td>
       <td class="small">${po.length ? po.map(o => `${esc(o.name)} <span class="pill ${o.status === 'ordered' ? 'acc' : 'bad'}">${PO_ST[o.status]}</span>`).join('<br>') : (d.partsUsed?.length ? d.partsUsed.length + ' used' : '<span class="muted">—</span>')}</td>
       <td class="r num">${money((+d.cost || 0) + (+d.partsCost || 0))}</td>
-      <td class="small"><span class="${age >= 14 ? 'pill bad' : age >= 7 ? 'pill warn' : ''}">${age}d</span></td><td>${d.store}</td></tr>`; }).join('') || '<tr><td colspan="9" class="muted">Nothing in repair stock. Devices land here when a buyback fails a test.</td></tr>'}
+      <td class="small" style="white-space:nowrap">${fmtDate(d.boughtAt || d.createdAt)}</td><td class="small" style="white-space:nowrap">${fmtDate(new Date(lastUpd(d)))}</td>
+      <td class="small"><span class="${age >= 14 ? 'pill bad' : age >= 7 ? 'pill warn' : ''}">${age}d</span></td><td>${d.store}</td></tr>`; }).join('') || '<tr><td colspan="11" class="muted">Nothing in repair stock. Devices land here when a buyback fails a test.</td></tr>'}
     </tbody></table></div></div>`;
   $('#rf-store') && ($('#rf-store').value = F.store, $('#rf-store').onchange = e => { F.store = e.target.value; viewRepairs(el); });
   el.querySelectorAll('[data-rs]').forEach(b => b.onclick = () => { F.st = b.dataset.rs; viewRepairs(el); });
+  el.querySelectorAll('[data-rsort]').forEach(b => b.onclick = () => { const k = b.dataset.rsort; if ((F.sort || 'bought') === k) F.dir = F.dir === 'asc' ? 'desc' : 'asc'; else { F.sort = k; F.dir = ['bought', 'updated', 'cost', 'age'].includes(k) ? 'desc' : 'asc'; } viewRepairs(el); });
   el.querySelectorAll('[data-rtech]').forEach(sel => { sel.onclick = e => e.stopPropagation(); sel.onchange = async () => { try { await Store.deviceTech(S.user, S.store, sel.dataset.rtech, sel.value || null); toast(sel.value ? 'Assigned to ' + staffName(sel.value) : 'Unassigned'); viewRepairs(el); } catch (e) { toast(e.message); } }; });
   el.querySelectorAll('[data-rst]').forEach(sel => { sel.onclick = e => e.stopPropagation(); sel.onchange = async () => { await Store.repairUpdate(S.user, S.store, sel.dataset.rst, {repairStatus: sel.value}); toast('Repair status: ' + REPAIR_LABEL[sel.value]); viewRepairs(el); }; });
   el.querySelectorAll('tr[data-d]').forEach(tr => { const o = e => { if (e.target.closest('select')) return; go('repair', {deviceId: tr.dataset.d}); }; tr.onclick = o; tr.onkeydown = e => { if (e.key === 'Enter') o(e); }; });
@@ -5792,7 +5802,7 @@ async function viewInventory(el){
   // click a column header to sort by it (click again to flip)
   const calc = d => { const sold = ['sold', 'atlas'].includes(d.status) && d.soldPrice; const ret = retailPrice(d) || d.listPrice || null; const swp = d.swappa?.price && d.status !== 'sold' ? +d.swappa.price : d.status === 'sold' && d.channel === 'Swappa' ? null : d.swappa?.price ? +d.swappa.price : null; const profit = sold ? d.soldPrice - d.cost : ret && +d.cost ? ret - d.cost : null; return {sold, ret, swp, profit, price: sold ? +d.soldPrice : ret}; };
   const CV = new Map(rows.map(d => [d, calc(d)]));
-  const SORTS = {stock: d => d.stockNo, device: d => (d.model || '') + ' ' + String(parseInt(d.storage) || 0).padStart(5, '0'), store: d => d.store, status: d => STATUS_LABEL[d.status] || d.status, cost: d => +d.cost || null, price: d => CV.get(d).price, swappa: d => CV.get(d).swp, profit: d => CV.get(d).profit, age: d => d.createdAt ? -new Date(d.createdAt).getTime() : null};
+  const SORTS = {stock: d => d.stockNo, color: d => (d.color || '').toLowerCase(), device: d => (d.model || '') + ' ' + String(parseInt(d.storage) || 0).padStart(5, '0'), store: d => d.store, status: d => STATUS_LABEL[d.status] || d.status, cost: d => +d.cost || null, price: d => CV.get(d).price, swappa: d => CV.get(d).swp, profit: d => CV.get(d).profit, age: d => d.createdAt ? -new Date(d.createdAt).getTime() : null};
   if (F.sort && SORTS[F.sort]) { const g = SORTS[F.sort], dir = F.dir === 'desc' ? -1 : 1;
     rows.sort((a, b) => { const x = g(a), y = g(b); if (x == null || x === '') return y == null || y === '' ? 0 : 1; if (y == null || y === '') return -1;
       return (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), undefined, {numeric: true})) * dir; }); }
@@ -5810,15 +5820,16 @@ async function viewInventory(el){
       <div class="row" style="gap:6px;flex-wrap:wrap">${DEV_CATS.map(([k, l, f]) => { const n = catCount(f); return n || ['all', 'iphone-unl', 'samsung-unl', 'ipad', 'mac'].includes(k) || F.cat === k ? chipBtn('dcat', k, l, n, F.cat === k) : ''; }).join('')}</div>
       <div class="row" style="gap:6px;flex-wrap:wrap;align-items:center"><span class="label" style="margin-right:4px">Show</span>${DEV_STATUS.map(([k, l, f]) => chipBtn('dst', k, l, stCount(f), F.status === k)).join('')}</div>
     </div>
-    <div class="tbl"><table><thead><tr>${th('stock', 'Stock #')}${th('device', 'Device')}${th('store', 'Store')}${th('status', 'Status')}${th('cost', 'Cost', 1)}${th('price', 'Store price', 1)}${th('swappa', 'Swappa', 1)}${th('profit', 'Profit', 1)}${th('age', 'Age')}</tr></thead><tbody>
+    <div class="tbl"><table><thead><tr>${th('stock', 'Stock #')}${th('device', 'Device')}${th('color', 'Color')}${th('store', 'Store')}${th('status', 'Status')}${th('cost', 'Cost', 1)}${th('price', 'Store price', 1)}${th('swappa', 'Swappa', 1)}${th('profit', 'Profit', 1)}${th('age', 'Age')}</tr></thead><tbody>
     ${rows.length ? rows.map(d => { const h = nextStatusHint(d); const {sold, ret, swp, profit} = CV.get(d); return `<tr class="click" data-id="${d.id}" tabindex="0">
       <td class="num">${d.stockNo ?? '—'}</td><td><b>${esc(d.model)}</b> <span class="muted">${esc([d.storage, d.carrier].filter(Boolean).join(' · '))}</span>${/IMEI \+ cost needed/.test(d.notes || '') ? ' <span class="pill warn">IMEI + cost needed</span>' : ''}${d.example ? ' <span class="pill">example</span>' : ''}<div class="mono small muted">${esc(d.imei || '')}</div></td>
+      <td>${d.color ? esc(d.color) : '<span class="muted">—</span>'}</td>
       <td>${d.store}</td>
       <td><span class="pill ${d.status === 'sold' ? 'ok' : d.status === 'hot' ? 'acc' : ''}">${STATUS_LABEL[d.status]}</span>${d.transferId ? ' <span class="pill warn">In transit</span>' : ''}${h ? ` <span class="pill ${h[0]}">${h[1]}</span>` : ''}</td>
       <td class="r num">${money(d.cost)}</td><td class="r num">${sold ? `${money(d.soldPrice)}<div class="small muted">sold${d.channel ? ' · ' + esc(d.channel) : ''}</div>` : ret ? `${money(ret)}${retailPrice(d) ? '<div class="small muted">price sheet</div>' : ''}` : '<span class="muted">—</span>'}</td>
       <td class="r num">${swp ? `${money(swp)}<div class="small muted">${d.status === 'swappa' ? 'listed' : 'last listed'}${d.swappa?.code ? ' · ' + esc(d.swappa.code) : ''}</div>` : '<span class="muted">—</span>'}</td>
       <td class="r num" style="color:${profit == null ? 'inherit' : profit >= 0 ? 'var(--ok)' : 'var(--bad)'}">${profit == null ? '—' : money(profit)}</td>
-      <td class="num small">${daysOld(d.createdAt)}d</td></tr>`; }).join('') : '<tr><td colspan="9" class="muted">Nothing matches. Devices appear here the moment a buyback is completed.</td></tr>'}
+      <td class="num small">${daysOld(d.createdAt)}d</td></tr>`; }).join('') : '<tr><td colspan="10" class="muted">Nothing matches. Devices appear here the moment a buyback is completed.</td></tr>'}
     </tbody></table></div></div>`;
   $('#iv-st') && ($('#iv-st').value = F.store);
   el.querySelectorAll('[data-dcat]').forEach(b => b.onclick = () => { F.cat = b.dataset.dcat; viewInventory(el); });
