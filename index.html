@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794961189";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1794961337";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -293,7 +293,7 @@ const COST_OPEN = true;   /* TEMPORARY (Nov 11): reps can enter device cost whil
 const GLASS = {regular: 29.99, privacy: 34.99, replace: 5};   /* tempered glass: any model; lifetime warranty = $5 replacement */
 /* Same statuses, issue types and priorities as Cellular Zone's RepairShopr account (checked Nov 9 2026) */
 const TSTATUS = [['new','New','st-new'],['progress','In Progress','st-prog'],['approval','Waiting on Approval','st-appr'],['device','Awaiting Device','st-dev'],
-  ['scheduled','Scheduled','st-sched'],['order','Part Pending Order','st-order'],['parts','Waiting for Parts','st-parts'],['customer','Ready for Pickup','st-cust'],['reply','Customer Reply','st-reply'],
+  ['scheduled','Scheduled','st-sched'],['order','Need to Order','st-order'],['parts','Waiting for Parts','st-parts'],['customer','Ready for Pickup','st-cust'],['reply','Customer Reply','st-reply'],
   ['board','Board Level','st-board'],['resolved','Resolved','st-res']];
 const PRIORITIES = [[0,'0 Urgent'],[1,'1 High'],[2,'2 Normal'],[3,'3 Low']];
 const issueGuess = d => /iphone/i.test(d) ? 'iPhone Repair' : /ipad/i.test(d) ? 'iPad Repair' : /macbook|imac|mac\b/i.test(d) ? 'Macbook Repair' : /ps[2345]|playstation|xbox|switch|console/i.test(d) ? 'Game Console Repair' : /galaxy|samsung|pixel|moto|note|s2\d/i.test(d) ? 'Smartphone Repair' : /tab|surface/i.test(d) ? 'Tablet Repair' : /laptop|pc|computer|dell|hp|lenovo/i.test(d) ? 'Computer Repair' : '';
@@ -6817,7 +6817,7 @@ async function viewHours(el){
    and writes each page into the POS database through pos_import (owner PIN). Resumable; safe to run again (rows match on RepairShopr id). */
 const RS_API = 'https://cellularzone.repairshopr.com/api/v1/';
 const RS_ST = {'new': 'new', 'in progress': 'progress', 'awaiting approval': 'approval', 'awaiting device': 'device', 'scheduled': 'scheduled', 'waiting for parts': 'parts',
-  'waiting on customer': 'customer', 'ready for pickup': 'customer', 'part pending order': 'order', 'customer reply': 'reply', 'board level': 'board', 'resolved': 'resolved'};
+  'waiting on customer': 'customer', 'ready for pickup': 'customer', 'part pending order': 'order', 'need to order': 'order', 'customer reply': 'reply', 'board level': 'board', 'resolved': 'resolved'};
 const rsStore = n => /bulverde/i.test(n || '') ? 'BV' : /potranco/i.test(n || '') ? 'PT' : /babcock|zavala|dz/i.test(n || '') ? 'DZ' : null;
 const RSI = {log: [], running: false, stop: false, loc: {1163: 'BV', 1931: 'PT', 1164: 'DZ'}, tally: {}, unknownSt: {}, unknownLoc: {}};   /* RepairShopr location ids (Admin → Locations) */
 function rsiState(){ try { return JSON.parse(localStorage.getItem('czpos-rsimport') || '{}'); } catch { return {}; } }
