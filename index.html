@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795022920";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795023097";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -4269,7 +4269,7 @@ async function viewInvoice(el){
   /* parts pulled on the ticket with no charge (warranty, rework, damaged during the repair): not billed, but they're a real cost of this job */
   const extraParts = t && L.some(l => l.chargeId) ? (t.partsUsed || []).filter(p => !p.chargeId) : [];
   const wty = !!(t && t.type === 'rework' && t.warranty);   /* warranty rework: the old part goes back to the vendor for credit, so its cost isn't ours */
-  const costLive = Math.round((costKnown.reduce((a, v) => a + (v || 0), 0) + (wty ? 0 : extraParts.reduce((a, p) => a + (+p.cost || 0), 0))) * 100) / 100;
+  const costLive = Math.round((costKnown.reduce((a, v) => a + (v || 0), 0) + extraParts.filter(p => !wty || p.damaged).reduce((a, p) => a + (+p.cost || 0), 0)) * 100) / 100;
   const costSum = !open && inv.paid !== false && inv.partsCost != null && !inv.rsId ? Math.round(Math.max(+inv.partsCost || 0, 0) * 100) / 100 || costLive : costLive;
   const refunds = inv.refundOf ? [] : (await Store.allInvoices(inv.store).catch(() => [])).filter(r => r.refundOf === inv.id);
   el.innerHTML = `
@@ -4298,7 +4298,7 @@ async function viewInvoice(el){
           : `<tr><td>${esc(l.desc)}<div class="small muted">${esc(l.cat || '')}</div>${dn ? `<div class="small" style="color:var(--ok)">${esc(dn)}</div>` : ''}</td><td class="r num">${l.qty}</td><td class="r num">${dn ? `<s class="muted small">${cents(l.orig)}</s><br>` : ''}${cents(l.price)}</td><td class="r small num muted">${costKnown[i] == null ? '—' : cents(costKnown[i])}</td><td style="text-align:center">${isTaxable(l) ? '✓' : '<span class="muted">no</span>'}</td><td class="r num">${cents(lt(l))}</td></tr>`; }).join('')
           || `<tr><td colspan="7" class="muted">${inv.rsId ? 'RepairShopr didn\'t send the line items for this invoice.' : 'No items yet. Scan or search below (type "UAG", "charger", "15 pro case"…).'}</td></tr>`}
         </tbody></table></div>
-        ${extraParts.length ? `<div class="stack" style="gap:4px"><span class="label">Parts used on ticket #${t.number} that aren't billed</span>${extraParts.map(p => `<div class="row small" style="justify-content:space-between"><span>${esc(p.name)}${p.damaged ? ` <span class="pill bad">damaged${p.damagedBy ? ' · ' + esc(staffName(p.damagedBy)) : ''}</span>` : ' <span class="muted">· no charge</span>'}${p.damagedNote ? ` <span class="muted">· ${esc(p.damagedNote)}</span>` : ''}</span><span class="num">${wty ? `<s class="muted">${cents(+p.cost || 0)}</s>` : cents(+p.cost || 0)}</span></div>`).join('')}<span class="small muted">${wty ? 'Warranty rework: these go back to the vendor for credit, so they are not counted in Our cost.' : 'Counted in Our cost below.'}</span></div>` : ''}
+        ${extraParts.length ? `<div class="stack" style="gap:4px"><span class="label">Parts used on ticket #${t.number} that aren't billed</span>${extraParts.map(p => `<div class="row small" style="justify-content:space-between"><span>${esc(p.name)}${p.damaged ? ` <span class="pill bad">damaged${p.damagedBy ? ' · ' + esc(staffName(p.damagedBy)) : ''}</span>` : ' <span class="muted">· no charge</span>'}${p.damagedNote ? ` <span class="muted">· ${esc(p.damagedNote)}</span>` : ''}</span><span class="num">${wty && !p.damaged ? `<s class="muted">${cents(+p.cost || 0)}</s>` : cents(+p.cost || 0)}</span></div>`).join('')}<span class="small muted">${wty ? 'Warranty rework: crossed-out parts go back to the vendor for credit, so they aren\'t counted. Parts marked damaged are counted in Our cost.' : 'Counted in Our cost below.'}</span></div>` : ''}
         ${open ? `<div class="stack" style="gap:8px;border-top:1px solid var(--line);padding-top:10px">
           <div class="row" style="gap:6px"><input id="iv-add" placeholder="Add an item: scan or search (case, charger… or a phone: stock #, IMEI, BV70002, 16 pro max)" style="flex:1;min-width:220px" autocomplete="off"></div>
           <div id="iv-hits"></div>
