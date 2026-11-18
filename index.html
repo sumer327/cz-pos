@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795043796";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795043929";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -6869,8 +6869,8 @@ async function viewRepDash(el){
   el.innerHTML = `<div class="dash">
     <div class="dh"><div><h2>${greet()}, ${esc(S.user.name.split(' ')[0])}</h2><div class="muted">${STORES[st]} · ${new Date().toLocaleDateString('en-US', {weekday: 'long', month: 'long', day: 'numeric'})}</div></div>
       ${can(3) ? '<button id="od-owner" class="small">← All stores</button>' : ''}</div>
-    ${anns.length || can(3) ? annHTML : ''}
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">${QA.map(([k, l, d]) => `<button class="qa" data-qa="${k}" style="min-height:64px;text-align:left;align-items:flex-start;flex-direction:column;justify-content:center;gap:2px"><b>${l}</b><span class="small muted">${d}</span></button>`).join('')}</div>
+    ${anns.length || can(3) ? annHTML : ''}
     <section class="dp goals"><header><h3>${STORES[st]} today</h3><span class="small muted">Daily goals: ${money(DAILY_GOAL)} profit · ${money(ACC_GOAL)} accessories</span></header>
       <div class="goal-row">${ring(storeDay.profit, DAILY_GOAL, 'Store profit', `you: ${money(day.profit)}`, 'g-blue')}${ring(storeDay.acc, ACC_GOAL, 'Accessories', `you: ${money(day.acc)}`, 'g-orange')}
         <div class="mine">
