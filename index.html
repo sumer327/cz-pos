@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795039908";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795042022";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -1996,6 +1996,14 @@ async function viewTickets(el){
   const inStore = all.filter(t => F.store === 'all' || t.store === (F.store === 'mine' ? S.store : F.store)).filter(t => !F.mine || t.techId === S.user.id).filter(res14);
   const count = k => inStore.filter(t => k === 'open' ? t.status !== 'resolved' : t.status === k).length;
   const rows = inStore.filter(t => F.status === 'open' ? t.status !== 'resolved' : t.status === F.status);
+  /* click a column header to sort by it (click again to flip); no sort picked = the usual order */
+  const TSO = {num: t => +t.number, cust: t => (C[t.customerId]?.name || '').toLowerCase(), model: t => (t.device || '').toLowerCase(), subj: t => (t.subject || '').toLowerCase(),
+    status: t => TSTATUS.findIndex(([k]) => k === t.status), tech: t => (t.techId ? staffName(t.techId) : t.rsTech || '').toLowerCase(), prio: t => -(t.priority ?? 2),
+    upd: t => new Date(t.updatedAt || 0).getTime(), made: t => new Date(t.createdAt || 0).getTime(), issue: t => (t.issue || '').toLowerCase(), loc: t => STORES[t.store] || ''};
+  if (F.sort && TSO[F.sort]) { const g = TSO[F.sort], dir = F.dir === 'desc' ? -1 : 1;
+    rows.sort((a, b) => { const x = g(a), y = g(b); if (x === '' || x == null) return y === '' || y == null ? 0 : 1; if (y === '' || y == null) return -1;
+      return (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), undefined, {numeric: true})) * dir; }); }
+  const tth = (k, l) => { const on = F.sort === k; return `<th aria-sort="${on ? (F.dir === 'desc' ? 'descending' : 'ascending') : 'none'}"><button data-tsort="${k}" style="all:unset;cursor:pointer;font:inherit;color:inherit;white-space:nowrap">${l}${on ? (F.dir === 'desc' ? ' ▼' : ' ▲') : ''}</button></th>`; };
   el.innerHTML = `<div class="stack">
     <div class="row" style="justify-content:space-between">
       <h2>Tickets</h2>
@@ -2009,7 +2017,7 @@ async function viewTickets(el){
       <button data-f="open" aria-pressed="${F.status === 'open'}">All open (${count('open')})</button>
       ${TSTATUS.map(([k, l]) => `<button data-f="${k}" aria-pressed="${F.status === k}">${l} (${count(k)})</button>`).join('')}
     </div>
-    <div class="tbl"><table><thead><tr><th>#</th><th>Customer</th><th>Model</th><th>Subject</th><th>Status</th><th>Tech</th><th>Priority</th><th>Last updated</th><th>Created</th><th>Issue</th><th>Location</th></tr></thead><tbody>
+    <div class="tbl"><table><thead><tr>${tth('num', '#')}${tth('cust', 'Customer')}${tth('model', 'Model')}${tth('subj', 'Subject')}${tth('status', 'Status')}${tth('tech', 'Tech')}${tth('prio', 'Priority')}${tth('upd', 'Last updated')}${tth('made', 'Created')}${tth('issue', 'Issue')}${tth('loc', 'Location')}</tr></thead><tbody>
     ${rows.length ? rows.map(t => { const c = C[t.customerId] || {}; const f = ticketFlag(t); return `<tr class="click" data-id="${t.id}" tabindex="0">
       <td class="num"><a style="color:var(--accent)">${t.number}</a></td>
       <td><a style="color:var(--accent)">${esc(c.name || '—')}</a><div class="small muted num" style="white-space:nowrap">${fmtPhone(c.phone)}</div></td>
@@ -2028,6 +2036,8 @@ async function viewTickets(el){
   $('#tf-mine').onclick = () => { F.mine = !F.mine; viewTickets(el); };
   $('#tf-new').onclick = () => go('newticket', {draft: {}});
   el.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { F.status = b.dataset.f; viewTickets(el); });
+  /* dates and numbers start newest/highest first; text starts A→Z */
+  el.querySelectorAll('[data-tsort]').forEach(b => b.onclick = () => { const k = b.dataset.tsort; if (F.sort === k) F.dir = F.dir === 'desc' ? 'asc' : 'desc'; else { F.sort = k; F.dir = ['num', 'upd', 'made', 'prio'].includes(k) ? 'desc' : 'asc'; } viewTicketsKeepScroll(el); });
   $('#tf-allres') && ($('#tf-allres').onclick = async e => { e.target.disabled = true; e.target.textContent = 'Loading…';
     try { const n = await Store.loadResolved(S.resOff || 0); S.resOff = (S.resOff || 0) + n; S.allRes = true; if (!n) toast('That is every resolved ticket.'); } catch (x) { toast(x.message); } viewTickets(el); });
   $('#tf-res14') && ($('#tf-res14').onclick = () => { S.allRes = false; viewTickets(el); });
