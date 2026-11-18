@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795023097";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795025559";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -6195,10 +6195,11 @@ function viewOrders(box, parts, reqs, pos, re){
         <td class="small"><span class="pill ${r.status === 'ordered' ? 'acc' : r.source === 'link' ? 'warn' : ''}">${poSt(r)}${r.ref ? ' · ' + esc(r.ref) : ''}</span>${r.cost ? ` ${cents(r.cost)}` : ''}</td><td class="r" style="white-space:nowrap">${poEditBtns(r)}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
     </div>
     ${can(2) || waiting.length ? `<div class="panel stack">${group('Waiting for Josh', waiting, 'No carts waiting. The next one is built ' + nextOrderDay() + '.')}</div>` : ''}
-    <div class="panel stack">${group('On the way', coming, 'Nothing on the way.')}</div>
+    <div class="panel"><details id="po-way" ${S.poWayOpen ? 'open' : ''}><summary style="cursor:pointer"><b>On the way</b> <span class="muted small">(${coming.length})</span></summary><div class="stack" style="margin-top:10px">${coming.map(card).join('') || '<p class="muted small" style="margin:0">Nothing on the way.</p>'}</div></details></div>
     ${done.length ? `<div class="panel"><details><summary style="cursor:pointer"><b>Received</b> <span class="muted small">(${done.length})</span></summary><div class="stack" style="margin-top:10px">${done.slice(0, 15).map(card).join('')}</div></details></div>` : ''}
   </div>`;
   $('#po-add').onclick = () => specialOrderSheet({forType: 'stock', store: S.store, forLabel: ''}, re);
+  const way = box.querySelector('#po-way'); if (way) way.ontoggle = () => { S.poWayOpen = way.open; };   /* stays open while receiving part by part */
   wirePoEdit(box, reqs, {forType: 'stock', store: st}, re);
   box.querySelectorAll('[data-place]').forEach(b => b.onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Mark placed</h3><button data-close>Close</button></div>
     <div class="field"><label class="label" for="pl-no">Sentrix order #</label><input id="pl-no" placeholder="108772203"></div><div class="err" id="pl-e" role="alert"></div><button class="primary" id="pl-go">Mark placed</button>`,
