@@ -266,7 +266,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795103855";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795103956";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -2486,6 +2486,7 @@ async function viewNewTicket(el){
     if (bhN && (bhV || D.bhs)) { try { await Store.updateTicket(S.user, S.store, t.id, bhV ? {bh: +bhV} : {bhSkip: D.bhs}); } catch (e) { toast("Ticket made, but the battery health didn't save: " + e.message); } }
     if (testable(D.device) && testsDone(D.tests)) { try { await Store.saveTicketTest(S.user, S.store, t.id, 'checkin', D.tests, (D.testNote || '').trim()); } catch (e) { toast("Ticket made, but the check-in test didn't save: " + e.message); } }
     S.draft = {}; S.justCreated = t.id; go('ticket', {ticketId: t.id});
+    if (bhN) batteryUpsell({...t, subject: D.subject, issue: D.issue, device: D.device.trim()}, bhV || null);
   };
 }
 
@@ -6580,6 +6581,34 @@ const rqColLabel = (col, k, m) => { const n = m?.n || '', t = /^(GOOD|BETTER|BES
   if (/^full screen/i.test(col)) return 'Glass + LCD Replacement';
   return col.replace(/\bscreen\b/gi, 'display'); };
 const rqRepairName = (k, m, col) => k === 'computer' ? m.n : rqColLabel(col, k, m);
+/* battery price for a device from the repair price list: {desc, usual, deal} ($20 off when done with another repair) */
+const BATT_DEAL = 20;
+async function batteryOffer(device){
+  try { if (!S.rq) await S.rqP; if (!S.rq || !device) return null; const q = device.trim().toLowerCase().replace(/\s+/g, ' ');
+    const hits = Object.entries(S.rq.cats).flatMap(([k, cc]) => cc.models.map(m => ({k, m, c: cc})).filter(x => rqMatch(x, q)));
+    const x = hits.find(h => rqDevice(h.k, h.m).toLowerCase() === q) || hits[0]; if (!x) return null;
+    const i = x.c.cols.findIndex(c => /batt/i.test(c)); if (i < 0) return null;
+    const usual = to99(parseFloat(String(x.m.p[i] || '').replace(/,/g, '').match(/\d+(\.\d+)?/)?.[0])); if (!(usual > BATT_DEAL)) return null;
+    return {device: rqDevice(x.k, x.m), desc: `${rqDevice(x.k, x.m)} ${rqRepairName(x.k, x.m, x.c.cols[i])}`, usual, deal: Math.round((usual - BATT_DEAL) * 100) / 100};
+  } catch { return null; } }
+/* after check-in on a repair that isn't the battery: remind the rep to offer the battery at $20 off */
+async function batteryUpsell(t, bh){
+  if (/batt/i.test((t.subject || '') + ' ' + (t.issue || ''))) return;
+  const o = await batteryOffer(t.device); if (!o) return;
+  const low = bh && +bh < 85;
+  sheet(`<div class="row" style="justify-content:space-between"><h3>🔋 Offer the battery: $${BATT_DEAL} off today</h3><button data-close>Not now</button></div>
+    <p style="margin:0">They're already getting a repair, so a new battery is <b>$${BATT_DEAL} off</b> if we do it at the same time.${bh ? ` Battery health is <b style="color:${low ? 'var(--bad)' : 'inherit'}">${esc(bh)}%</b>${low ? ' — below 85%, a great time to replace it.' : '.'}` : ''}</p>
+    <div class="row" style="gap:16px;align-items:baseline;justify-content:center;padding:10px;background:var(--soft);border-radius:var(--r)">
+      <span class="muted">${esc(o.desc)}</span></div>
+    <div class="row" style="gap:16px;align-items:baseline;justify-content:center"><span>Usual price <s class="num" style="font-size:22px;color:var(--muted)">${cents(o.usual)}</s></span><span>With this repair <b class="num" style="font-size:30px;color:var(--ok)">${cents(o.deal)}</b></span></div>
+    <div class="err" id="bu-e" role="alert"></div>
+    <div class="row" style="gap:8px"><button class="primary" id="bu-yes" style="flex:1;min-height:48px">They want it: add the battery at ${cents(o.deal)}</button><button data-close style="min-height:48px">No thanks</button></div>`,
+  (L, close) => L.querySelector('#bu-yes').onclick = async e => { e.target.disabled = true;
+    try { const parts = await Store.parts().catch(() => []); const cand = partsFor(parts, o.device, null, t.store, 'battery'); const p = cand.find(x => (x.qty?.[t.store] || 0) > 0);
+      await Store.ticketCharge(S.user, S.store, t.id, {desc: o.desc + ` ($${BATT_DEAL} off with repair)`, cat: 'Repair', price: o.deal, orig: o.usual, ...(p ? {partId: p.id} : {})});
+      close(); toast('Battery added at ' + cents(o.deal) + (p ? ' · battery pulled from stock' : ' · no battery on the shelf: special order it')); if (S.tab === 'ticket') go('ticket', {ticketId: t.id}); }
+    catch (x) { e.target.disabled = false; L.querySelector('#bu-e').textContent = x.message; } });
+}
 const rqMatch = (x, q) => { const hay = (rqDevice(x.k, x.m) + ' ' + x.m.g + ' ' + x.c.name + ' ' + x.m.n + (x.m.g === 'Mac' ? ' macbook imac' : x.m.g === 'PC' ? ' laptop windows' : '')).toLowerCase().replace(/playstation\s*/g, 'ps').replace(/series\s*/g, 'series ');
   const qq = q.replace(/playstation\s*/g, 'ps').replace(/\bxbox\s+/, 'xbox ').replace(/\bs(\d{2})\b/, 'galaxy s$1');
   return qq.split(' ').every(w => hay.includes(w)) || q.split(' ').every(w => hay.includes(w)); };
