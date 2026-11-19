@@ -266,7 +266,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795053395";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795103855";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -689,7 +689,12 @@ const DemoStore = {
       l.status = 'won'; l.customerId = l.customerId || row.id; (l.notes = l.notes || []).unshift({at: now(), who: emp.id, text: 'Became a customer: ' + row.name}); won++; } });
     this.log(d, emp.id, store, 'Customer saved', row.name + (won ? ` · ${won} lead(s) marked won` : '')); this.save(d); return {...row, leadsWon: won};
   },
-  async tickets(){ return this.db().tickets; },
+  async tickets(){ return this.db().tickets.filter(t => !t.deletedAt); },
+  async deleteTicket(emp, store, id, reason){ const d = this.db(); const t = d.tickets.find(x => x.id === id); if (!t) throw new Error('Ticket not found.');
+    if ((reason || '').trim().length < 5) throw new Error('Write why you are deleting this ticket.');
+    if ((t.charges || []).length) throw new Error('Remove the charges first (✕ on each, or delete the unpaid invoice), so any parts go back on the shelf.');
+    if (d.invoices.some(i => i.ticketId === id)) throw new Error('This ticket has an invoice. Delete the invoice first.');
+    Object.assign(t, {deletedAt: now(), deletedBy: emp.id, deleteReason: reason.trim()}); this.log(d, emp.id, store, 'Ticket deleted', `#${t.number} · ${reason.trim()}`); this.save(d); return {ok: true, number: t.number}; },
   async loadResolved(){ return 0; },
   async createTicket(emp, store, t){
     const d = this.db();
@@ -1294,7 +1299,7 @@ const LiveStore = {
   async importSummary(emp){ return this.rpc('pos_import_summary', {p_pin: this.pinFor(emp)}); },
   async saveCustomer(emp, store, c){ const r = await this.rpc('pos_save_customer', {p_pin: this.pinFor(emp), p_store: store, p_c: c}); this.keep(this.cC, [r]); return r; },
   async tickets(){
-    const list = () => [...this.cT.values()].sort((a, b) => b.number - a.number);
+    const list = () => [...this.cT.values()].filter(t => !t.deletedAt).sort((a, b) => b.number - a.number);
     const sync = rows => { for (const r of rows || []) { const u = new Date(r.updatedAt).getTime(); if (u > (this._tkSync || 0)) this._tkSync = u; } };
     const full = async () => { const since = new Date(Date.now() - 14*86400000).toISOString();   /* open tickets + resolved in the last 14 days */
       const rows = await this.all(() => this.sb.from('tickets_v').select('*').or(`status.neq.resolved,updatedAt.gte.${since}`).order('number', {ascending: false}), 20000);
@@ -1313,6 +1318,7 @@ const LiveStore = {
     if (error) throw error; this.keep(this.cT, data); return (data || []).length; },
   async createTicket(emp, store, t){ return this.rpc('pos_create_ticket', {p_pin: this.pinFor(emp), p_store: store, p_t: t}); },
   async updateTicket(emp, store, id, patch){ return this.rpc('pos_update_ticket', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_patch: patch}); },
+  async deleteTicket(emp, store, id, reason){ const r = await this.rpc('pos_delete_ticket', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_reason: reason}); this.cT.delete(id); return r; },
   async setPasscode(emp, store, id, v){ const r = await this.rpc('pos_set_passcode', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_passcode: v || ''}); this.keep(this.cT, [r]); return r; },
   async addComment(emp, store, id, text, pub){ return this.rpc('pos_ticket_comment', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_text: text, p_pub: pub}); },
   async partDamaged(emp, store, id, idx, who, note){ const r = await this.rpc('pos_part_damaged', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_idx: idx, p_who: who, p_note: note}); this.keep && this.cT && this.keep(this.cT, [r]); return r; },
@@ -2228,11 +2234,17 @@ async function viewTicket(el){
     <div class="grid g2"><div class="field"><label class="label" for="te-imei">IMEI / serial</label><input id="te-imei" value="${esc(t.imei || '')}" autocomplete="off"></div>
       <div class="field"><label class="label" for="te-cb">Call-back number (if different)</label><input id="te-cb" inputmode="tel" value="${esc(t.callback || '')}"></div></div>
     ${(t.charges || []).some(x => !x.invoiceId || x.draft) ? '<div class="banner warn small">Changed the model? The charges already on the ticket keep the old model and price. Remove them (✕, or delete the unpaid invoice first) and add the right ones.</div>' : ''}
-    <div class="err" id="te-e" role="alert"></div><button class="primary" id="te-go">Save</button>`,
-    (L, close) => L.querySelector('#te-go').onclick = async () => { const dev = L.querySelector('#te-dev').value.trim(), cb = L.querySelector('#te-cb').value.replace(/\D/g, '');
+    <div class="err" id="te-e" role="alert"></div><button class="primary" id="te-go">Save</button>
+    <details style="border-top:1px solid var(--line);padding-top:10px"><summary class="small" style="cursor:pointer;color:var(--bad)">Delete this ticket</summary>
+      <div class="stack" style="gap:8px;margin-top:8px"><p class="small muted" style="margin:0">Use this for a duplicate or a ticket made by mistake. Remove its charges first so parts go back on the shelf. The ticket and your reason are kept in the log.</p>
+        <div class="field"><label class="label" for="te-dr">Why are you deleting it?</label><input id="te-dr" placeholder="Duplicate of #${t.number - 1} (tapped Open ticket twice)"></div>
+        <div class="err" id="te-de" role="alert"></div><button id="te-del" style="color:var(--bad);border-color:var(--bad)">Delete ticket #${t.number}</button></div></details>`,
+    (L, close) => { L.querySelector('#te-del').onclick = async () => { const r = L.querySelector('#te-dr').value.trim(); if (r.length < 5) { L.querySelector('#te-de').textContent = 'Write why you are deleting this ticket.'; return; }
+        try { await Store.deleteTicket(S.user, S.store, t.id, r); close(); toast(`Ticket #${t.number} deleted`); go('tickets'); } catch (e) { L.querySelector('#te-de').textContent = e.message; } };
+      L.querySelector('#te-go').onclick = async () => { const dev = L.querySelector('#te-dev').value.trim(), cb = L.querySelector('#te-cb').value.replace(/\D/g, '');
       if (!dev) { L.querySelector('#te-e').textContent = 'Enter the device.'; return; } if (cb && cb.length !== 10) { L.querySelector('#te-e').textContent = 'The call-back number needs 10 digits.'; return; }
       try { await Store.updateTicket(S.user, S.store, t.id, {device: dev, subject: L.querySelector('#te-sub').value.trim(), imei: L.querySelector('#te-imei').value.trim(), callback: cb}); close(); toast('Ticket updated'); viewTicket(el); }
-      catch (e) { L.querySelector('#te-e').textContent = e.message; } }));
+      catch (e) { L.querySelector('#te-e').textContent = e.message; } }; }));
   const copy = async (txt, ok) => { try { await navigator.clipboard.writeText(txt); toast(ok); } catch { toast('Copy blocked here. Select the text and copy it.'); } };
   $('#t-copyph') && ($('#t-copyph').onclick = () => copy(c.phone, 'Phone number copied'));
   S.prefillSms = null;
@@ -2464,8 +2476,11 @@ async function viewNewTicket(el){
     const err = !D.customerId ? 'Pick or add the customer first.' : bhN && bhV && !(+bhV >= 1 && +bhV <= 100) ? 'Battery health is a number from 1 to 100.' : bhN && !bhV && !D.bhs ? 'iPhone repair: enter the battery health %, or pick N/A.' : cbd && cbd.length !== 10 ? 'The call-back number should be 10 digits (or leave it blank).' : !D.device.trim() ? 'Enter the device.' : !D.issue ? 'Pick the issue.' : !D.subject.trim() ? 'Enter a subject.'
       : '';
     $('#nt-err').textContent = err; if (err) return;
-    const t = await Store.createTicket(S.user, S.store, {customerId: D.customerId, device: D.device.trim(), issue: D.issue, subject: D.subject.trim(),
-      estimate: null, imei: D.imei.trim(), passcode: (D.passcode || '').trim(), callback: cbd || null, techId: $('#nt-tech').value || null, notes: D.notes.trim()});
+    /* one tap = one ticket: lock the form while it saves (the database also hands back the same ticket for a repeat within 60 s) */
+    const form = $('#nt'); if (form.dataset.busy) return; form.dataset.busy = '1'; const sb = form.querySelector('[type="submit"]'); if (sb) { sb.disabled = true; sb.dataset.lbl = sb.textContent; sb.textContent = 'Opening ticket…'; }
+    let t; try { t = await Store.createTicket(S.user, S.store, {customerId: D.customerId, device: D.device.trim(), issue: D.issue, subject: D.subject.trim(),
+      estimate: null, imei: D.imei.trim(), passcode: (D.passcode || '').trim(), callback: cbd || null, techId: $('#nt-tech').value || null, notes: D.notes.trim()}); }
+    catch (x) { delete form.dataset.busy; if (sb) { sb.disabled = false; sb.textContent = sb.dataset.lbl; } $('#nt-err').textContent = x.message; return; }
     /* a price carried over from the Quote tool goes straight on as the first charge (no separate "quoted price" to keep in sync) */
     if (+D.estimate > 0) { try { await Store.ticketCharge(S.user, S.store, t.id, {desc: D.subject.trim(), cat: /diag/i.test(D.subject) ? 'Diagnostic' : /console/i.test(D.issue) ? 'Console repair' : 'Repair', price: +D.estimate}); } catch (e) { toast("Ticket made, but the quoted charge didn't save: " + e.message); } }
     if (bhN && (bhV || D.bhs)) { try { await Store.updateTicket(S.user, S.store, t.id, bhV ? {bh: +bhV} : {bhSkip: D.bhs}); } catch (e) { toast("Ticket made, but the battery health didn't save: " + e.message); } }
