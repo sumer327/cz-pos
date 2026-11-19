@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795048578";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795048882";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -4345,9 +4345,9 @@ async function viewInvoice(el){
         </tbody></table></div>
         ${extraParts.length ? `<div class="stack" style="gap:4px"><span class="label">Parts used on ticket #${t.number} that aren't billed</span>${extraParts.map(p => `<div class="row small" style="justify-content:space-between"><span>${esc(p.name)}${p.damaged ? ` <span class="pill bad">damaged${p.damagedBy ? ' · ' + esc(staffName(p.damagedBy)) : ''}</span>` : ' <span class="muted">· no charge</span>'}${p.damagedNote ? ` <span class="muted">· ${esc(p.damagedNote)}</span>` : ''}</span><span class="num">${wty && !p.damaged ? `<s class="muted">${cents(+p.cost || 0)}</s>` : cents(+p.cost || 0)}</span></div>`).join('')}<span class="small muted">${wty ? 'Warranty rework: crossed-out parts go back to the vendor for credit, so they aren\'t counted. Parts marked damaged are counted in Our cost.' : 'Counted in Our cost below.'}</span></div>` : ''}
         ${open ? `<div class="stack" style="gap:8px;border-top:1px solid var(--line);padding-top:10px">
-          <div class="row" style="gap:6px"><input id="iv-add" placeholder="Add an item: scan or search (case, charger… or a phone: stock #, IMEI, BV70002, 16 pro max)" style="flex:1;min-width:220px" autocomplete="off"></div>
+          <div class="row" style="gap:6px"><input id="iv-add" placeholder="Add an item: scan or search (case, charger… or a phone: stock #, IMEI, BV70002, 16 pro max). Repairs: + Repair…" style="flex:1;min-width:220px" autocomplete="off"></div>
           <div id="iv-hits"></div>
-          <div class="row" style="gap:6px"><button data-ia="regular">+ Tempered glass…</button><button data-ia="privacy">+ Privacy glass…</button><button data-ia="custom">+ Manual item</button><button data-ia="discount">+ Discount</button><button data-ia="diag">+ Diagnostic credit</button><button data-ia="thanks">+ $10 Customer appreciation</button></div>
+          <div class="row" style="gap:6px">${t ? '<button data-ia="repair" class="primary">+ Repair…</button>' : ''}<button data-ia="regular">+ Tempered glass…</button><button data-ia="privacy">+ Privacy glass…</button><button data-ia="custom">+ Manual item</button><button data-ia="discount">+ Discount</button><button data-ia="diag">+ Diagnostic credit</button><button data-ia="thanks">+ $10 Customer appreciation</button></div>
         </div>` : ''}
       </div>
     </div>
@@ -4412,7 +4412,9 @@ async function viewInvoice(el){
     const hs = S.prods.filter(p => !phoneProd(p) && !repProd(p) && prodMatch(p, q)).sort((a, b) => (b.qty?.[S.store] || 0) - (a.qty?.[S.store] || 0)).slice(0, 8);
     if (!S.rgDevs || Date.now() - (S.rgDevsAt || 0) > 60000) { S.rgDevs = (await Store.devices().catch(() => [])).filter(d => d.store === S.store && SELLABLE.includes(d.status) && !d.transferId); S.rgDevsAt = Date.now(); }
     const dh = S.rgDevs.filter(d => !L.some(l => l.deviceId === d.id) && devMatch(d, q)).slice(0, 8);
-    hits.innerHTML = (dh.length ? `<div class="stack" style="gap:4px;margin-bottom:6px"><span class="label">Phones in stock</span><div class="tbl"><table><tbody>${dh.map(d => devRowHTML(d, 'data-idv')).join('')}</tbody></table></div></div>` : '') + (hs.length || !dh.length ? (hs.length ? `<div class="tbl"><table><tbody>${hs.map(p => `<tr data-ip="${p.id}" style="cursor:pointer"><td>${esc(p.name)}<div class="small muted">${esc(p.category || '')}</div></td><td class="r small">${p.qty?.[S.store] ?? 0} at ${S.store}</td><td class="r num"><b>${cents(p.price)}</b></td></tr>`).join('')}</tbody></table></div>` : '<span class="small muted">Nothing in inventory matches. Use + Custom item.</span>') : '');
+    const repQ = t && /\b(oled|lcd|screen|display|battery|charging|port|camera|back ?glass|speaker|digitizer|housing|repair|replacement)\b/i.test(q);
+    hits.innerHTML = (repQ ? `<div class="banner acc small row" style="gap:8px;justify-content:space-between;margin-bottom:6px"><span>Repairs come from the <b>repair price list</b> (it pulls the part off the shelf and puts its cost on the ticket).</span><button data-iarep class="primary" style="min-height:34px">Open the repair list</button></div>` : '') + (dh.length ? `<div class="stack" style="gap:4px;margin-bottom:6px"><span class="label">Phones in stock</span><div class="tbl"><table><tbody>${dh.map(d => devRowHTML(d, 'data-idv')).join('')}</tbody></table></div></div>` : '') + (hs.length || !dh.length ? (hs.length ? `<div class="tbl"><table><tbody>${hs.map(p => `<tr data-ip="${p.id}" style="cursor:pointer"><td>${esc(p.name)}<div class="small muted">${esc(p.category || '')}</div></td><td class="r small">${p.qty?.[S.store] ?? 0} at ${S.store}</td><td class="r num"><b>${cents(p.price)}</b></td></tr>`).join('')}</tbody></table></div>` : '<span class="small muted">Nothing in inventory matches. Use + Custom item.</span>') : '');
+    hits.querySelector('[data-iarep]') && (hits.querySelector('[data-iarep]').onclick = () => el.querySelector('[data-ia="repair"]')?.click());
     hits.querySelectorAll('[data-idv]').forEach(tr => tr.onclick = () => { const d = S.rgDevs.find(x => x.id === tr.dataset.idv); const cost = devCost(d);
       sheet(`<div class="row" style="justify-content:space-between"><h3>Sell #${d.stockNo} ${esc(d.model)} ${esc(d.storage || '')}</h3><button data-close>Close</button></div>
         <div class="small">${esc([d.carrier, d.color].filter(Boolean).join(' · '))} · IMEI <b class="num">${esc(d.imei || '—')}</b>${d.bbId ? ' · ' + esc(d.bbId) : ''} · ${esc(STATUS_LABEL[d.status] || d.status)}</div>
@@ -4435,6 +4437,8 @@ async function viewInvoice(el){
   else if (!L.length) $('#iv-add').focus();
   $('#iv-add').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); clearTimeout(tm); drawHits(e.target.value).then(() => { const one = hits.querySelectorAll('[data-ip]'); if (one.length === 1) one[0].click(); }); } };
   el.querySelectorAll('[data-ia]').forEach(b => b.onclick = () => { const k = b.dataset.ia;
+    /* repairs come from the repair price list (pulls the part off the shelf, cost on the ticket), then land on this invoice */
+    if (k === 'repair' && t) return chargeSheet(t, c, async () => { try { await Store.makeInvoice(S.user, S.store, t.id, null); } catch (e) { if (!/nothing|no charges/i.test(e.message)) toast(e.message); } viewInvoice(el); }, {tab: 'price', fromInvoice: true});
     if (k === 'regular' || k === 'privacy') return glassPicker(k, t?.device || '', line => { L.push(line); save(L); });
     if (k === 'thanks') { if (L.some(l => l.cat === 'Discount' && /customer appreciation/i.test(l.desc))) return toast('Customer appreciation is already on this invoice.');
       L.push({desc: 'Customer appreciation', cat: 'Discount', price: -10, qty: 1, taxable: true}); return save(L); }
