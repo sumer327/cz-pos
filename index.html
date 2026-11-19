@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795046770";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795048578";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -702,6 +702,11 @@ const DemoStore = {
     if (patch.status && patch.status !== t.status) changes.push(`Status: ${TS[t.status][1]} → ${TS[patch.status][1]}`);
     if ('techId' in patch && patch.techId !== t.techId) changes.push('Tech: ' + (patch.techId ? staffName(patch.techId) : 'unassigned'));
     if ('priority' in patch && +patch.priority !== +t.priority) changes.push('Priority: ' + PRIORITIES[+patch.priority][1]);
+    if ('device' in patch && !String(patch.device || '').trim()) throw new Error('Enter the device.');
+    if ('device' in patch && patch.device !== t.device) changes.push(`Device: ${t.device || '—'} → ${patch.device}`);
+    if ('subject' in patch && patch.subject !== t.subject) changes.push('Subject: ' + (patch.subject || '—'));
+    if ('imei' in patch && (patch.imei || '') !== (t.imei || '')) changes.push('IMEI: ' + (patch.imei || 'removed'));
+    if ('callback' in patch && (patch.callback || '') !== (t.callback || '')) changes.push('Call-back: ' + (patch.callback || 'removed'));
     Object.assign(t, patch, {updatedAt: now()});
     if (changes.length) { t.comments.unshift({id: uid(), at: now(), who: emp.id, text: changes.join(' · '), pub: false, sys: true}); this.log(d, emp.id, store, 'Ticket updated', `#${t.number} ${changes.join(' · ')}`); }
     this.save(d); return t;
@@ -2104,7 +2109,7 @@ async function viewTicket(el){
           <dt>Store</dt><dd>${STORES[t.store]}</dd>
           <dt>Checked in</dt><dd>${new Date(t.createdAt).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})} by ${esc(staffName(t.by))}</dd>
         </dl>
-        ${t.status !== 'resolved' ? `<div class="row"><button id="t-label">Print label</button><button id="t-intake">Print intake receipt</button><button class="primary" id="t-pay">${t.type === 'rework' && !due.length && !tInv.length ? 'Close rework (no charge)' : drafts.length && !due.length ? `Open invoice #${drafts[0].number} · ${cents(owed)}` : due.length || rsUnpaid.length ? 'Make invoice · ' + cents(dueSum + owed) : tInv.length ? 'Close ticket (paid)' : 'Make invoice'}</button>${t.status !== 'customer' ? '<button id="t-ready">Ready for pickup</button>' : ''}</div>` : `<div class="row">${t.invoiceId ? '<span class="pill ok">Paid and resolved</span>' : ''}<button id="t-intake">Print intake receipt</button><button id="t-rework">Customer came back: open rework</button></div>`}
+        ${t.status !== 'resolved' ? `<div class="row"><button id="t-label">Print label</button><button id="t-intake">Print intake receipt</button><button id="t-editd">Edit details</button><button class="primary" id="t-pay">${t.type === 'rework' && !due.length && !tInv.length ? 'Close rework (no charge)' : drafts.length && !due.length ? `Open invoice #${drafts[0].number} · ${cents(owed)}` : due.length || rsUnpaid.length ? 'Make invoice · ' + cents(dueSum + owed) : tInv.length ? 'Close ticket (paid)' : 'Make invoice'}</button>${t.status !== 'customer' ? '<button id="t-ready">Ready for pickup</button>' : ''}</div>` : `<div class="row">${t.invoiceId ? '<span class="pill ok">Paid and resolved</span>' : ''}<button id="t-intake">Print intake receipt</button><button id="t-rework">Customer came back: open rework</button></div>`}
         ${reworks.length ? `<div class="small">Reworks: ${reworks.map(r => `<a data-goto="${r.id}" style="color:var(--accent);cursor:pointer">#${r.number}</a> ${stPill(r.status)}`).join(' ')}</div>` : ''}
       </div>
       ${parent ? `<div class="panel stack" style="border-left:4px solid var(--accent)">
@@ -2212,6 +2217,18 @@ async function viewTicket(el){
     (L, close) => { pcField('pe-pc', v, x => { v = x; }).mount(L.querySelector('#pe-box'));
       L.querySelector('#pe-go').onclick = async () => { try { await Store.setPasscode(S.user, S.store, t.id, v); close(); toast('Passcode saved'); viewTicket(el); } catch (e) { L.querySelector('#pe-e').textContent = e.message; } }; }); };
   $('#t-intake').onclick = () => printIntake(t, c);
+  /* fix a wrong device / subject / IMEI / call-back after check-in (charges already added stay; swap them if the model changed) */
+  $('#t-editd') && ($('#t-editd').onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Edit ticket #${t.number}</h3><button data-close>Close</button></div>
+    <div class="field"><label class="label" for="te-dev">Device</label><input id="te-dev" value="${esc(t.device || '')}" placeholder="iPhone 12 Pro"></div>
+    <div class="field"><label class="label" for="te-sub">Subject</label><input id="te-sub" value="${esc(t.subject || '')}"></div>
+    <div class="grid g2"><div class="field"><label class="label" for="te-imei">IMEI / serial</label><input id="te-imei" value="${esc(t.imei || '')}" autocomplete="off"></div>
+      <div class="field"><label class="label" for="te-cb">Call-back number (if different)</label><input id="te-cb" inputmode="tel" value="${esc(t.callback || '')}"></div></div>
+    ${(t.charges || []).some(x => !x.invoiceId || x.draft) ? '<div class="banner warn small">Changed the model? The charges already on the ticket keep the old model and price. Remove them (✕, or delete the unpaid invoice first) and add the right ones.</div>' : ''}
+    <div class="err" id="te-e" role="alert"></div><button class="primary" id="te-go">Save</button>`,
+    (L, close) => L.querySelector('#te-go').onclick = async () => { const dev = L.querySelector('#te-dev').value.trim(), cb = L.querySelector('#te-cb').value.replace(/\D/g, '');
+      if (!dev) { L.querySelector('#te-e').textContent = 'Enter the device.'; return; } if (cb && cb.length !== 10) { L.querySelector('#te-e').textContent = 'The call-back number needs 10 digits.'; return; }
+      try { await Store.updateTicket(S.user, S.store, t.id, {device: dev, subject: L.querySelector('#te-sub').value.trim(), imei: L.querySelector('#te-imei').value.trim(), callback: cb}); close(); toast('Ticket updated'); viewTicket(el); }
+      catch (e) { L.querySelector('#te-e').textContent = e.message; } }));
   const copy = async (txt, ok) => { try { await navigator.clipboard.writeText(txt); toast(ok); } catch { toast('Copy blocked here. Select the text and copy it.'); } };
   $('#t-copyph') && ($('#t-copyph').onclick = () => copy(c.phone, 'Phone number copied'));
   S.prefillSms = null;
