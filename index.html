@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795049124";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795051089";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -5961,10 +5961,10 @@ const DEV_CATS = [['all', 'All devices', () => true], ['iphone-unl', 'Unlocked i
   ['samsung-unl', 'Unlocked Samsungs', d => devKind(d) === 'samsung' && isUnlocked(d)], ['samsung', 'All Samsungs', d => devKind(d) === 'samsung'], ['ipad', 'iPads', d => devKind(d) === 'ipad'],
   ['mac', 'MacBooks & iMacs', d => devKind(d) === 'mac'], ['watch', 'Apple Watch', d => devKind(d) === 'watch'], ['pixel', 'Pixels', d => devKind(d) === 'pixel'], ['console', 'Consoles', d => devKind(d) === 'console'], ['other', 'Other', d => devKind(d) === 'other']];
 const DEV_STATUS = [['active', 'In inventory', d => !['sold', 'atlas', 'repair'].includes(d.status)],   /* repair stock has its own chip so reps aren't sorting around it */ ['sell', 'Ready to sell', d => ['hot', 'tolist', 'swappa'].includes(d.status)],
-  ['hot', 'Hot stock', d => d.status === 'hot'], ['tolist', 'To list', d => d.status === 'tolist'], ['swappa', 'On Swappa', d => d.status === 'swappa'], ['repair', 'Repair stock', d => d.status === 'repair'],
+  ['hot', 'Hot stock', d => d.status === 'hot'], ['tolist', 'To list', d => d.status === 'tolist'], ['swappa', 'On Swappa', d => d.status === 'swappa'], ['repair', 'Repair stock →', d => d.status === 'repair'],
   ['testing', 'Pending', d => d.status === 'testing'], ['wholesale', 'Wholesale', d => d.status === 'wholesale'], ['sold', 'Sold', d => ['sold', 'atlas'].includes(d.status)], ['all', 'Everything', () => true]];
 async function viewInventory(el){
-  const F = S.inv; if (!DEV_STATUS.some(x => x[0] === F.status)) F.status = 'active'; if (!DEV_CATS.some(x => x[0] === F.cat)) F.cat = 'all';
+  const F = S.inv; if (!DEV_STATUS.some(x => x[0] === F.status) || F.status === 'repair') F.status = 'active'; if (!DEV_CATS.some(x => x[0] === F.cat)) F.cat = 'all';
   const all = await Store.devices();
   const tabs = '';
   const here = all.filter(d => (F.store === 'all' || d.store === (F.store === 'mine' ? S.store : F.store)));
@@ -6007,7 +6007,8 @@ async function viewInventory(el){
     </tbody></table></div></div>`;
   $('#iv-st') && ($('#iv-st').value = F.store);
   el.querySelectorAll('[data-dcat]').forEach(b => b.onclick = () => { F.cat = b.dataset.dcat; viewInventory(el); });
-  el.querySelectorAll('[data-dst]').forEach(b => b.onclick = () => { F.status = b.dataset.dst; viewInventory(el); });
+  /* repair stock lives on Repairs › Repair stock only: the chip just takes you there */
+  el.querySelectorAll('[data-dst]').forEach(b => b.onclick = () => { if (b.dataset.dst === 'repair') return go('repairs'); F.status = b.dataset.dst; viewInventory(el); });
   el.querySelectorAll('[data-sort]').forEach(b => b.onclick = () => { const k = b.dataset.sort; if (F.sort === k) F.dir = F.dir === 'desc' ? 'asc' : 'desc'; else { F.sort = k; F.dir = ['cost', 'price', 'swappa', 'profit'].includes(k) ? 'desc' : 'asc'; } viewInventory(el); });
   const qi = $('#iv-q'); qi.oninput = () => { F.q = qi.value; viewInventory(el).then(() => { const n = $('#iv-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); };
   $('#iv-st') && ($('#iv-st').onchange = e => { F.store = e.target.value; viewInventory(el); });
