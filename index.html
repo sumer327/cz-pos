@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795043929";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795046770";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -6398,16 +6398,17 @@ async function specialOrderSheet(ctx, after){
     <div class="statusbar" role="group" aria-label="Where the part comes from"><button data-som="sentrix">MobileSentrix</button><button data-som="link">I have a link (Amazon, eBay, other)</button></div>
     <div id="so-body" class="stack"></div>
     <label class="row small" style="gap:8px"><input type="checkbox" id="so-rush" style="width:auto;min-height:auto"> Rush: customer is waiting</label>
-    <p class="small muted" style="margin:0">Josh gets a Slack message in the ${STORES[ctx.store]} channel as soon as you save.</p>
+    <p class="small muted" style="margin:0">Josh only gets a Slack message (${STORES[ctx.store]} channel) for link orders (Amazon, eBay, other) or a rush. Regular Sentrix parts just go on the next Mon/Thu order.</p>
     <div class="err" id="so-err" role="alert"></div>`,
   (L, close) => {
     const order = async o => { const rush = L.querySelector('#so-rush').checked; const err = L.querySelector('#so-err'); err.textContent = ''; try {
       const row = await Store.orderPart(S.user, ctx.store, {name: o.name, quality: o.quality || '', productId: o.productId || '', cost: o.cost || null, price: o.price || null, url: o.url || '', source: o.source || 'sentrix', qty: o.qty || 1, rush,
         forType: ctx.forType, forId: ctx.forId || null, forLabel: ctx.forLabel || ''});
       if (ctx.replaceId) { try { await Store.cancelPartOrder(S.user, ctx.store, ctx.replaceId); } catch (e) { toast('New part ordered, but the old one could not be removed: ' + e.message); } }
-      const al = row?.id ? await Store.partAlert(row.id) : {ok: false};
+      const alert = o.source === 'link' || rush;   /* plain Sentrix parts ride the next Mon/Thu order: no Slack */
+      const al = alert && row?.id ? await Store.partAlert(row.id) : {ok: true, none: true};
       close();
-      toast((o.source === 'link' ? 'Sent to Josh to order.' + (o.price && ctx.forType === 'ticket' ? ` ${cents(o.price)} charge added to the ticket.` : '') : rush ? 'Rush order saved.' : 'On the next Sentrix order (Mon/Thu).') + (al.ok ? ' Josh was tagged on Slack.' : ` Slack message didn't go out${al.error ? ' (' + al.error + ')' : ''}: tell Josh.`) + ' The ticket shows when it arrives.');
+      toast((o.source === 'link' ? 'Sent to Josh to order.' + (o.price && ctx.forType === 'ticket' ? ` ${cents(o.price)} charge added to the ticket.` : '') : rush ? 'Rush order saved.' : 'On the next Sentrix order (Mon/Thu).') + (al.none ? '' : al.ok ? ' Josh was tagged on Slack.' : ` Slack message didn't go out${al.error ? ' (' + al.error + ')' : ''}: tell Josh.`) + ' The ticket shows when it arrives.');
       after && after();
     } catch (e) { err.textContent = e.message; } };
     const body = () => {
