@@ -1,4 +1,3 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"></head><body>
 <meta charset="utf-8">
 <title>Cellular Zone POS</title>
 <meta name="claude:viewport-fit-sides" content="cover">
@@ -266,8 +265,6 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795117277";</script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
    Cellular Zone POS — Phase 1
@@ -4209,7 +4206,11 @@ async function viewTechboard(el){
   const parts = all.filter(t => t.store === S.store && ['parts', 'order'].includes(t.status) && mine(t)).length;
   /* resolved today: so a tech can go back in and add notes after closing it */
   const today0 = new Date(); today0.setHours(0, 0, 0, 0);
-  const doneToday = all.filter(t => t.store === S.store && t.status === 'resolved' && mine(t) && new Date(t.resolvedAt || t.updatedAt) >= today0).sort((a, b) => new Date(b.resolvedAt || b.updatedAt) - new Date(a.resolvedAt || a.updatedAt));
+  /* also: moved from In Progress to a waiting-on-customer status today (Ready for Pickup, Waiting on Approval, Customer Reply) */
+  const WAITC = ['customer', 'approval', 'reply'];
+  const movedAt = t => { if (!WAITC.includes(t.status)) return null; const c = (t.comments || []).filter(c => /^Status: In Progress → /.test(c.text || '') && new Date(c.at) >= today0).sort((a, b) => new Date(b.at) - new Date(a.at))[0]; return c ? c.at : null; };
+  const doneAt = t => t.status === 'resolved' ? (t.resolvedAt || t.updatedAt) : movedAt(t);
+  const doneToday = all.filter(t => t.store === S.store && mine(t) && !t.deletedAt && ((t.status === 'resolved' && new Date(t.resolvedAt || t.updatedAt) >= today0) || movedAt(t))).sort((a, b) => new Date(doneAt(b)) - new Date(doneAt(a)));
   const rs = devs.filter(d => d.store === S.store && d.status === 'repair' && mine(d)).sort((a, b) => (a.queuePos ?? 9999) - (b.queuePos ?? 9999) || new Date(a.createdAt) - new Date(b.createdAt));
   const rsUn = S.tbTech === 'all' || UN ? [] : devs.filter(d => d.store === S.store && d.status === 'repair' && !d.techId);
   const due = t => { if (t.waiting) return '<span class="pill bad">Customer waiting</span>'; if (!t.dueAt) return '<span class="pill">No pickup time</span>';
@@ -4245,8 +4246,8 @@ async function viewTechboard(el){
       <div class="stack"><h3>Repair lineup · ${line.length}${parts ? ` <span class="small muted">(+${parts} waiting for parts)</span>` : ''}</h3>
         ${line.map((t, i) => card(t, i, line.length)).join('') || '<p class="muted">Nothing in the lineup. 🎉</p>'}
         ${unas.length ? `<h3 style="margin-top:8px">Unassigned · ${unas.length}</h3>${unas.map(t => `<div class="panel row" style="padding:10px;justify-content:space-between;gap:8px"><span><a data-tk="${t.id}" style="color:var(--accent);cursor:pointer;font-weight:700">#${t.number}</a> ${esc(t.device || '')} · ${esc(t.subject || '')}</span><span class="row" style="gap:6px">${due(t)}<button data-take="${t.id}" style="min-height:34px">Take it</button></span></div>`).join('')}` : ''}
-        <h3 style="margin-top:8px">Resolved today · ${doneToday.length}</h3>
-        ${doneToday.map(t => `<div class="panel row" style="padding:10px;justify-content:space-between;gap:8px;flex-wrap:nowrap"><span style="min-width:0"><a data-tk="${t.id}" style="color:var(--accent);cursor:pointer;font-weight:700">#${t.number}</a> <b>${esc(t.device || '')}</b> · ${esc(t.subject || '')}<span class="small muted" style="display:block">${esc(((C[t.customerId] || {}).name || 'Walk-in').split(' ')[0])} · closed ${fmtTime(t.resolvedAt || t.updatedAt)}${t.techId ? ' · ' + esc(staffName(t.techId).split(' ')[0]) : ''}</span></span><button data-tk="${t.id}" style="min-height:36px;padding:2px 12px;flex:none">Open · add notes</button></div>`).join('') || '<p class="muted small" style="margin:0">Nothing resolved yet today.</p>'}
+        <h3 style="margin-top:8px">Resolved / waiting on customer today · ${doneToday.length}</h3>
+        ${doneToday.map(t => `<div class="panel row" style="padding:10px;justify-content:space-between;gap:8px;flex-wrap:nowrap"><span style="min-width:0"><a data-tk="${t.id}" style="color:var(--accent);cursor:pointer;font-weight:700">#${t.number}</a> <b>${esc(t.device || '')}</b> · ${esc(t.subject || '')}<span class="small muted" style="display:block">${esc(((C[t.customerId] || {}).name || 'Walk-in').split(' ')[0])} · ${t.status === 'resolved' ? 'closed' : esc(TS[t.status][1]) + ' since'} ${fmtTime(doneAt(t))}${t.techId ? ' · ' + esc(staffName(t.techId).split(' ')[0]) : ''}</span></span><button data-tk="${t.id}" style="min-height:36px;padding:2px 12px;flex:none">Open · add notes</button></div>`).join('') || '<p class="muted small" style="margin:0">Nothing resolved or handed back to the customer yet today.</p>'}
       </div>
       <div class="stack"><h3>Repair stock (our phones) · ${rs.length}</h3>
         ${rs.map((d, i) => dcard(d, i, rs.length)).join('') || '<p class="muted">No repair-stock phones assigned.</p>'}
@@ -7304,5 +7305,3 @@ boot();
   setTimeout(check, 20000);
 })();
 </script>
-
-</body></html>
