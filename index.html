@@ -94,6 +94,8 @@ tr.click{cursor:pointer}tr.click:hover td{background:var(--soft)}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:12px 18px;border-radius:999px;font-weight:500;z-index:50;max-width:calc(100% - 32px)}
 .sheet{position:fixed;inset:0;background:rgb(0 0 0 / .45);display:flex;align-items:flex-end;justify-content:center;z-index:40;padding:16px;padding-bottom:calc(16px + env(safe-area-inset-bottom,0px))}
 .sheet .panel{width:100%;max-width:560px;max-height:88vh;overflow:auto}
+.sheet .panel > *{flex-shrink:0}   /* long pop-ups scroll as a whole; nothing inside gets squeezed */
+.sheet .panel.wide{max-width:880px}
 @media (min-width:700px){.sheet{align-items:center}}
 .err{color:var(--bad);font-size:13px}
 /* RepairShopr-style app bar: dark strip, module links left, search + New + clock + user right */
@@ -264,7 +266,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795052854";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795053395";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -3136,7 +3138,7 @@ async function regActivity(day, store = S.store){
   const table = `<div class="tbl"><table><thead><tr><th>Time</th><th>What</th><th>By</th><th>How</th><th class="r">Amount</th></tr></thead><tbody>
     ${rows.map(r => `<tr><td class="small num">${fmtTime(r.at)}</td><td>${esc(r.what)}</td><td class="small">${esc(r.who)}</td><td class="small">${esc(r.method || '')}${r.method === 'Other' ? `<div style="color:${r.note ? 'inherit' : 'var(--bad)'}"><b>${r.note ? 'Note:' : 'No note'}</b> ${esc(r.note)}</div>` : ''}</td><td class="r num" style="${r.amt < 0 ? 'color:var(--bad)' : ''}">${cents(r.amt)}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">Nothing yet.</td></tr>'}
     </tbody></table></div>`;
-  const html = `<details class="panel" style="padding:10px"><summary style="cursor:pointer"><b>Today's transactions (${rows.length})</b> · ${Object.entries(by).map(([k, v]) => `${esc(k)} ${cents(v)}`).join(' · ') || 'none yet'}</summary>
+  const html = `<details class="panel" style="padding:10px;flex:none"><summary style="cursor:pointer"><b>Today's transactions (${rows.length})</b> · ${Object.entries(by).map(([k, v]) => `${esc(k)} ${cents(v)}`).join(' · ') || 'none yet'}</summary>
     <div style="margin-top:8px">${table}</div><p class="small muted" style="margin:6px 0 0">Buybacks are negative. Cash buybacks come out of the buyback fund; Zelle / Cash App / Apple Pay / PayPal are sent by Sam.</p></details>`;
   return {html, table, rows, by, discounts};
 }
@@ -3241,6 +3243,7 @@ async function registerPanel(box, again){
       <div class="field"><label class="label" for="cr-n">Notes (required if anything is $5+ over or short)</label><input id="cr-n"></div>
       ${act.html}
       <div class="err" id="cr-e" role="alert"></div><button class="primary" id="cr-go">Close register</button>`, (L, close) => {
+        L.querySelector('.sheet .panel')?.classList.add('wide');   /* room for today's transactions table */
         const ins = [...L.querySelectorAll('[data-den]')];
         const total = () => Math.round(ins.reduce((a, i) => a + (parseInt(i.value, 10) || 0) * +i.dataset.den, 0) * 100) / 100;
         const dIn = L.querySelector('#cr-d'); let dTouched = false;
