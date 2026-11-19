@@ -3069,7 +3069,7 @@ async function viewCalls(el){
   const calls = inStore.filter(isCall); const nPaid = calls.filter(g => g.paid).length, nOrg = calls.filter(g => g.source && !g.paid).length, nUnk = calls.filter(g => !g.source).length;
   el.innerHTML = `<div class="stack">
     <div class="row" style="justify-content:space-between"><div><h2>Calls &amp; texts</h2><p class="muted small" style="margin:0">Phone calls and texts to the store numbers, live from GoHighLevel. Facebook and Instagram messages stay in GoHighLevel. Each call shows where it came from (Google Ads vs Google organic) based on the tracking number they dialed.</p></div>
-      ${can(3) ? `<select id="cf-store" aria-label="Store" style="width:auto"><option value="mine">${STORES[S.store]}</option><option value="all">All stores</option>${Object.entries(STORES).filter(([k]) => k !== S.store).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>` : ''}</div>
+      <div class="row" style="gap:8px;flex:none"><button class="primary" id="cf-new">+ Text a number</button>${can(3) ? `<select id="cf-store" aria-label="Store" style="width:auto"><option value="mine">${STORES[S.store]}</option><option value="all">All stores</option>${Object.entries(STORES).filter(([k]) => k !== S.store).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>` : ''}</div></div>
     <div class="statusbar" role="group" aria-label="Filter calls"><button data-cs="all" aria-pressed="${F === 'all'}">Everything (${inStore.length})</button><button data-cs="paid" aria-pressed="${F === 'paid'}">Paid calls (${nPaid})</button><button data-cs="organic" aria-pressed="${F === 'organic'}">Organic calls (${nOrg})</button><button data-cs="unknown" aria-pressed="${F === 'unknown'}">Source unknown (${nUnk})</button><button data-cs="texts" aria-pressed="${F === 'texts'}">Texts (${inStore.length - calls.length})</button></div>
     <div class="tbl"><table><thead><tr><th>When</th><th>Type</th><th>Source</th><th>Caller</th><th>Customer</th><th>Open tickets</th><th></th></tr></thead><tbody>
     ${rows.map(g => { const cu = g.customerId ? C[g.customerId] : null; const open = cu ? tix.filter(t => t.customerId === cu.id && t.status !== 'resolved') : [];
@@ -3081,6 +3081,21 @@ async function viewCalls(el){
       <td>${open.map(t => `<a data-t="${t.id}" style="cursor:pointer;display:inline-block;margin:2px 4px 2px 0">#${t.number} ${stPill(t.status)}</a>`).join('') || '<span class="muted small">—</span>'}</td>
       <td class="r" style="white-space:nowrap"><button data-tx="${g.id}" style="min-height:34px;padding:4px 10px">${g.kind === 'sms' ? 'Reply' : 'Text'}</button> <button data-nt="${g.id}" style="min-height:34px;padding:4px 10px">${open.length ? 'New ticket' : 'Start ticket'}</button></td></tr>`; }).join('') || '<tr><td colspan="7" class="muted">Nothing here in the last 3 days.</td></tr>'}
     </tbody></table></div></div>`;
+  /* text any number, e.g. someone who called the store's direct line (not the GHL number) */
+  $('#cf-new').onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Text a number</h3><button data-close>Close</button></div>
+    <p class="small muted" style="margin:0">For someone who isn't in the list, like a customer who called the store's direct line. The text goes out from the ${esc(STORES[S.store])} number and the reply comes back here.</p>
+    <div class="field"><label class="label" for="nx-p">Phone number</label><input id="nx-p" inputmode="tel" autocomplete="off" placeholder="(210) 555-1234"></div>
+    <div class="field"><label class="label" for="nx-n">Name (optional)</label><input id="nx-n" autocomplete="off" placeholder="First name"></div>
+    <div class="small muted" id="nx-f"></div><div class="err" id="nx-e" role="alert"></div>
+    <div class="row"><button class="primary" id="nx-go">Continue</button></div>`, (L, close) => {
+    const P = L.querySelector('#nx-p'), N = L.querySelector('#nx-n'); setTimeout(() => P.focus(), 50);
+    const digits = () => { let d = P.value.replace(/\D/g, ''); if (d.length === 11 && d[0] === '1') d = d.slice(1); return d; };
+    const known = () => digits().length === 10 ? custs.find(c => String(c.phone || '').replace(/\D/g, '').slice(-10) === digits()) : null;
+    P.oninput = () => { const c = known(); L.querySelector('#nx-f').textContent = c ? 'Customer on file: ' + c.name : ''; if (c && !N.value) N.placeholder = c.name; };
+    const go1 = () => { const d = digits(); if (d.length !== 10) { L.querySelector('#nx-e').textContent = 'Enter the 10-digit phone number.'; return; }
+      const c = known(); close(); convoSheet({phone: d, name: N.value.trim() || c?.name || '', store: S.store}, c || null); };
+    L.querySelector('#nx-go').onclick = go1; [P, N].forEach(i => i.onkeydown = e => { if (e.key === 'Enter') go1(); });
+  });
   $('#cf-store') && ($('#cf-store').value = S.cf.store, $('#cf-store').onchange = e => { S.cf.store = e.target.value; viewCalls(el); });
   el.querySelectorAll('[data-cs]').forEach(b => b.onclick = () => { S.cf.src = b.dataset.cs; viewCalls(el); });
   const openCv = id => { const g = rows.find(x => String(x.id) === String(id)); if (g) convoSheet(g, g.customerId ? C[g.customerId] : null); };
