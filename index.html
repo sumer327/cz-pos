@@ -264,7 +264,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795048882";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795049124";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -290,7 +290,7 @@ const sessRead = () => { try { const s = JSON.parse(localStorage.getItem(SESS_K)
 const sessWrite = () => { if (!S.user) return; try { localStorage.setItem(SESS_K, JSON.stringify({id: S.user.id, store: S.store, mode: Store.mode, pin: Store.pinFor ? Store.pinFor(S.user) || null : null, lastAct: S.lastAct})); } catch {} };
 const sessClear = () => { try { localStorage.removeItem(SESS_K); } catch {} };
 const COST_OPEN = true;   /* TEMPORARY (Nov 11): reps can enter device cost while the counted phones get filled in. Set false to lock again (and re-lock pos_update_device). */
-const GLASS = {regular: 29.99, privacy: 34.99, replace: 5};   /* tempered glass: any model; lifetime warranty = $5 replacement */
+const GLASS = {regular: 29.99, privacy: 34.99, replace: 5, replaceTab: 10};   /* tempered glass: any model; lifetime warranty = $5 replacement */
 /* Same statuses, issue types and priorities as Cellular Zone's RepairShopr account (checked Nov 9 2026) */
 const TSTATUS = [['new','New','st-new'],['progress','In Progress','st-prog'],['approval','Waiting on Approval','st-appr'],['device','Awaiting Device','st-dev'],
   ['scheduled','Scheduled','st-sched'],['order','Need to Order','st-order'],['parts','Waiting for Parts','st-parts'],['customer','Ready for Pickup','st-cust'],['reply','Customer Reply','st-reply'],
@@ -2917,7 +2917,7 @@ async function chargeSheet(t, c, after, opts = {}){
     L.querySelectorAll('[data-close]').forEach(b => b.onclick = () => { close(); after && after(); });
     L.querySelector('.sheet').addEventListener('click', e => { if (e.target.classList.contains('sheet')) after && after(); });
     body(); foot(L, close);
-    if (opts.pendingAdd) { const x = opts.pendingAdd; delete opts.pendingAdd; add({desc: x.desc, cat: x.cat, price: x.price, glass: x.glass, ...(x.productId ? {productId: x.productId} : {})}); }
+    if (opts.pendingAdd) { const x = opts.pendingAdd; delete opts.pendingAdd; add({desc: x.desc, cat: x.cat, price: x.price, glass: x.glass, ...(x.orig ? {orig: x.orig, wty: true} : {}), ...(x.productId ? {productId: x.productId} : {})}); }
   });
   return L0;
 }
@@ -4246,6 +4246,8 @@ async function glassPicker(kind, device, onPick){
   const all = S.prods.filter(isGlassProd); let q = device || '';
   sheet(`<div class="row" style="justify-content:space-between"><h3>Tempered glass · pick the model</h3><button data-close>Close</button></div>
     <div class="row" style="gap:6px"><button data-gk="regular">Regular ${cents(GLASS.regular)}</button><button data-gk="privacy">Privacy ${cents(GLASS.privacy)}</button></div>
+    <label class="row" style="gap:10px;cursor:pointer;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);flex-wrap:nowrap"><input type="checkbox" id="gp-w" style="width:22px;height:22px;flex:none">
+      <span><b>Under lifetime warranty</b> <span class="small muted">· replacement for glass we sold them: ${cents(GLASS.replace)} phones, ${cents(GLASS.replaceTab)} iPads/tablets (discount added for you)</span></span></label>
     <div class="field"><label class="label" for="gp-q">Model</label><input id="gp-q" value="${esc(q)}" placeholder="15 pro max, s24 ultra…" autocomplete="off"></div>
     <div id="gp-list" class="stack" style="gap:6px;max-height:50vh;overflow:auto"></div>
     <span class="small muted">Every glass sold comes out of this store's count and gets the lifetime warranty (replacement ${cents(GLASS.replace)}).</span>`,
@@ -4262,7 +4264,10 @@ async function glassPicker(kind, device, onPick){
         + `<button data-gp="" style="min-height:40px" class="small">Not in inventory: add ${kind === 'privacy' ? 'privacy ' : ''}glass for ${esc(q || 'this phone')} without a count</button>`;
       L.querySelectorAll('[data-gp]').forEach(b => b.onclick = () => { const p = all.find(x => x.id === b.dataset.gp);
         if (p && !(p.qty?.[S.store] > 0)) toast(`${STORES[S.store]} shows 0 of this glass. It still sells; fix the count in Inventory.`);
-        close(); onPick({desc: (p ? p.name : `${kind === 'privacy' ? 'Privacy tempered glass' : 'Tempered glass'}${q ? ' · ' + q.trim() : ''}`) + ' (lifetime warranty)', cat: 'Tempered glass', price: GLASS[kind], qty: 1, taxable: true, glass: kind, device: q.trim() || device || '', ...(p ? {productId: p.id} : {})}); }); };
+        const w = L.querySelector('#gp-w').checked, tab = /ipad|tablet|\btab\b|galaxy tab/i.test((p ? p.name : '') + ' ' + q + ' ' + (device || ''));
+        const base = (p ? p.name : `${kind === 'privacy' ? 'Privacy tempered glass' : 'Tempered glass'}${q ? ' · ' + q.trim() : ''}`);
+        close(); onPick({desc: base + (w ? ' (lifetime warranty replacement)' : ' (lifetime warranty)'), cat: 'Tempered glass', price: w ? (tab ? GLASS.replaceTab : GLASS.replace) : GLASS[kind], qty: 1, taxable: true, glass: kind, device: q.trim() || device || '',
+          ...(w ? {orig: GLASS[kind], wty: true} : {}), ...(p ? {productId: p.id} : {})}); }); };
     L.querySelectorAll('[data-gk]').forEach(b => b.onclick = () => { kind = b.dataset.gk; draw(); });
     const inp = L.querySelector('#gp-q'); inp.oninput = () => { q = inp.value; draw(); }; draw(); setTimeout(() => { inp.focus(); inp.select(); }, 50);
   });
