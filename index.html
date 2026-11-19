@@ -266,7 +266,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795115299";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795117277";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -2438,6 +2438,7 @@ async function viewNewTicket(el){
       <div class="field"><label class="label" for="nt-cb">Call-back number <span class="muted" style="font-weight:400">(optional)</span></label><input id="nt-cb" inputmode="tel" value="${esc(D.callback || '')}" placeholder="Only if different from the number on the account" autocomplete="off"></div>
       <div class="grid g2" id="nt-bhbox" ${bhAtCheckin(D.device, D.issue) ? '' : 'hidden'}>
         <div class="field"><label class="label" for="nt-bh">Battery health % <span class="muted" style="font-weight:400">(iPhone: required)</span></label><input id="nt-bh" inputmode="numeric" value="${esc(D.bh || '')}" placeholder="87"><div class="small muted">Settings → Battery → Battery Health</div></div>
+        ${D.addBatt ? `<div class="banner ok small" style="grid-column:1/-1">🔋 <b>${esc(D.addBatt.desc)}</b> at <b>${cents(D.addBatt.deal)}</b> (usual ${cents(D.addBatt.usual)}) goes on the ticket when you create it. <button type="button" id="nt-battx" style="min-height:30px;padding:2px 10px;margin-left:6px">Remove</button></div>` : ''}
         <div class="field"><label class="label" for="nt-bhs">Or N/A</label><select id="nt-bhs"><option value="">—</option>${["N/A", "Disabled / passcode unknown", "No display / can't see the screen", "Won't turn on", "Boot looping"].map(o => `<option ${D.bhs === o ? 'selected' : ''}>${o}</option>`).join('')}</select></div>
       </div>
       <div class="field"><span class="label">Passcode, so the tech can test it</span><div id="nt-pcbox" class="stack" style="gap:8px"></div></div>
@@ -2466,6 +2467,11 @@ async function viewNewTicket(el){
   $('#nt-chg') && ($('#nt-chg').onclick = () => { keep(); D.customerId = null; viewNewTicket(el); });
   $('#nt-newc') && ($('#nt-newc').onclick = () => { keep(); customerSheet({name: /\d/.test(D.cq || '') ? '' : D.cq, phone: /\d/.test(D.cq || '') ? D.cq : ''}, row => { D.customerId = row.id; viewNewTicket(el); }); });
   const bhShow = () => { $('#nt-bhbox').hidden = !bhAtCheckin($('#nt-dev').value, $('#nt-iss').value); };
+  /* battery health typed in → offer the $20-off battery right here (once per ticket), before the ticket is created */
+  $('#nt-bh').addEventListener('change', () => { keep(); const b = (D.bh || '').trim();
+    if (D.battAsked || !(+b >= 1 && +b <= 100) || !bhAtCheckin(D.device, D.issue) || /batt/i.test((D.subject || '') + ' ' + (D.issue || ''))) return;
+    D.battAsked = true; batteryUpsell({device: D.device.trim(), subject: D.subject, issue: D.issue, store: S.store}, b, {onYes: o => { keep(); D.addBatt = o; const y = window.scrollY; viewNewTicket(el).then(() => window.scrollTo(0, y)); toast('Battery will be added when you create the ticket'); }}); });
+  $('#nt-battx') && ($('#nt-battx').onclick = () => { keep(); D.addBatt = null; const y = window.scrollY; viewNewTicket(el).then(() => window.scrollTo(0, y)); });
   $('#nt-iss').onchange = () => { $('#nt-iss').dataset.touched = 1; bhShow(); };
   if (D.issue) $('#nt-iss').dataset.touched = 1;
   $('#nt-dev').oninput = () => { if (!$('#nt-iss').dataset.touched) { const g = issueGuess($('#nt-dev').value); if (g) $('#nt-iss').value = g; } $('#nt-testp').hidden = !testable($('#nt-dev').value); bhShow(); };
@@ -2485,8 +2491,10 @@ async function viewNewTicket(el){
     if (+D.estimate > 0) { try { await Store.ticketCharge(S.user, S.store, t.id, {desc: D.subject.trim(), cat: /diag/i.test(D.subject) ? 'Diagnostic' : /console/i.test(D.issue) ? 'Console repair' : 'Repair', price: +D.estimate}); } catch (e) { toast("Ticket made, but the quoted charge didn't save: " + e.message); } }
     if (bhN && (bhV || D.bhs)) { try { await Store.updateTicket(S.user, S.store, t.id, bhV ? {bh: +bhV} : {bhSkip: D.bhs}); } catch (e) { toast("Ticket made, but the battery health didn't save: " + e.message); } }
     if (testable(D.device) && testsDone(D.tests)) { try { await Store.saveTicketTest(S.user, S.store, t.id, 'checkin', D.tests, (D.testNote || '').trim()); } catch (e) { toast("Ticket made, but the check-in test didn't save: " + e.message); } }
+    if (D.addBatt) { try { const p = await addBatteryCharge(t, D.addBatt); toast('Battery added at ' + cents(D.addBatt.deal) + (p ? ' · battery pulled from stock' : ' · no battery on the shelf: special order it')); } catch (x) { toast("Ticket made, but the battery didn't save: " + x.message); } }
+    const askAfter = bhN && !D.battAsked && !D.addBatt;   /* N/A picked or the field skipped: still offer it once, after the ticket is made */
     S.draft = {}; S.justCreated = t.id; go('ticket', {ticketId: t.id});
-    if (bhN) batteryUpsell({...t, subject: D.subject, issue: D.issue, device: D.device.trim()}, bhV || null);
+    if (askAfter) batteryUpsell({...t, subject: D.subject, issue: D.issue, device: D.device.trim()}, bhV || null);
   };
 }
 
@@ -2559,8 +2567,11 @@ const partQual = n => /oled|xo7|x07|genuine|oem|service pack/i.test(n) ? 'oled' 
 const PART_TYPES = {battery: /batter/i, port: /charg|port/i, back: /back glass|back housing|housing|frame/i, camera: /camera|lens/i, speaker: /speaker|mesh/i};
 const repairType = name => /lcd|oled|display|digitizer|glass \+ lcd/i.test(name) && !/back glass/i.test(name) ? 'display' : Object.keys(PART_TYPES).find(k => PART_TYPES[k].test(name)) || null;
 const partIsType = (p, type) => !type ? true : type === 'display' ? (p.kind === 'Screen' || /lcd|oled|xo7|x07|aq7|incell|digitizer|display/i.test(p.name)) && !/batter|charg|port|camera|back|speaker/i.test(p.name) : PART_TYPES[type].test(p.name);
+/* device family: an iPhone 11 must never match iPad Pro 11" parts (and the other way round) */
+const devFam = x => /\bipad\b/i.test(x) ? 'ipad' : /\biphone\b/i.test(x) ? 'iphone' : /\b(galaxy|samsung)\b/i.test(x) ? 'galaxy' : /\bpixel\b/i.test(x) ? 'pixel' : /\b(switch|ps[45]|playstation|xbox)\b/i.test(x) ? 'console' : null;
 function partsFor(parts, device, want, store, type){
-  const key = partKey(device); if (!key) return []; parts = parts.filter(p => partIsType(p, type));
+  const key = partKey(device); if (!key) return []; const fam = devFam(device);
+  parts = parts.filter(p => partIsType(p, type) && (!fam || !devFam(p.name) || devFam(p.name) === fam));
   const esc2 = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const strict = new RegExp('[\\s/]' + esc2 + '(?=[\\s/])(?!\\s*(max|mini|ultra|pro|\\+|fe|e|lite)\\b)(?!\\+)');
   let hits = parts.filter(p => strict.test(partNorm(p.name)));
@@ -3022,6 +3033,9 @@ async function renderThread(box, store, c){
     }).join('') : '<span class="small muted">No calls or texts with this number yet.</span>';
   } catch (e) { box.className = 'small'; box.innerHTML = e.soft || /isn't connected/i.test(e.message) ? `<span class="muted">${esc(e.message)} Call and text history shows here once it is.</span>` : `<span style="color:var(--warn)">Couldn't load GoHighLevel: ${esc(e.message)}</span>`; }
 }
+/* the "Send address" text, per store */
+const STORE_ADDR = {BV: 'Our address is 17910 Bulverde Rd, St. 106, 78259 - Off 1604/Bulverde Road next to the Smoothie King',
+  DZ: 'Our address is 6565 Babcock Rd, 78249 - Off I-10/De Zavala', PT: 'Our address is 9230 Potranco Rd, 78251 - Off 151/Potranco'};
 /* open a conversation from the inbox: history from GoHighLevel and a box to text back from the store number */
 function convoSheet(g, cu){
   const who = {name: cu?.name || g.name || '', phone: cu?.phone || g.phone}; const store = g.store || S.store;
@@ -3030,11 +3044,14 @@ function convoSheet(g, cu){
     <div id="cv-th" class="small muted" style="max-height:46vh;overflow:auto">Loading…</div>
     <div class="field"><label class="label" for="cv-msg">Text back (from the ${esc(STORES[store] || '')} number)</label><textarea id="cv-msg" rows="3" placeholder="Type your reply"></textarea><div class="small muted" id="cv-n"></div></div>
     <div class="err" id="cv-e" role="alert"></div>
-    <div class="row" style="gap:8px"><button class="primary" id="cv-go">Send text</button>${cu ? '<button id="cv-cu">Open customer</button>' : ''}</div>`, (L, close) => {
+    <div class="row" style="gap:8px"><button class="primary" id="cv-go">Send text</button>${STORE_ADDR[store] ? '<button id="cv-addr">Send address</button>' : ''}${cu ? '<button id="cv-cu">Open customer</button>' : ''}</div>`, (L, close) => {
     const th = L.querySelector('#cv-th'); renderThread(th, store, who).then(() => { th.scrollTop = 0; });
     const m = L.querySelector('#cv-msg'); setTimeout(() => m.focus(), 50);
     m.oninput = () => { L.querySelector('#cv-n').textContent = m.value.length ? `${m.value.length} characters${m.value.length > 160 ? ' · sends as ' + Math.ceil(m.value.length / 153) + ' texts' : ''}` : ''; };
     L.querySelector('#cv-cu') && (L.querySelector('#cv-cu').onclick = () => { close(); go('customer', {customerId: cu.id}); });
+    L.querySelector('#cv-addr') && (L.querySelector('#cv-addr').onclick = async e => { e.target.disabled = true;
+      try { const r = await Store.ghlSend(S.user, store, {customer: who, ticketId: null, message: STORE_ADDR[store]}); toast(r?.demo ? 'Demo: address logged, not actually sent' : 'Address sent'); await renderThread(th, store, who); }
+      catch (err) { L.querySelector('#cv-e').textContent = err.message; } e.target.disabled = false; });
     L.querySelector('#cv-go').onclick = async e => { const msg = m.value.trim(); if (!msg) { L.querySelector('#cv-e').textContent = 'Type a message.'; return; }
       e.target.disabled = true;
       try { const r = await Store.ghlSend(S.user, store, {customer: who, ticketId: null, message: msg}); toast(r?.demo ? 'Demo: text logged, not actually sent' : 'Text sent'); m.value = ''; m.oninput(); await renderThread(th, store, who); }
@@ -3116,8 +3133,10 @@ async function viewInbox(el){
   box.querySelectorAll('[data-lt]').forEach(b => b.onclick = () => { const l = leads.find(x => x.id === b.dataset.lt); const first = l.name.split(' ')[0];
     sheet(`<div class="row" style="justify-content:space-between"><h3>Text ${esc(l.name)}</h3><button data-close>Close</button></div>
       <textarea id="lt-msg" rows="4">${esc(`Hi ${first}, this is Cellular Zone${l.store ? ' ' + STORES[l.store] : ''}. Thanks for reaching out about your ${l.device}. ${/sell|buyback/i.test(l.source + l.request) ? 'We can take a look and pay you today. Can you swing by one of our 3 locations? Open till 8.' : 'We have the part in stock and it takes about 30 minutes. Can you come in today? Open till 8.'}`)}</textarea>
-      <button class="primary" id="lt-go">Send text</button>`, (L, close) => L.querySelector('#lt-go').onclick = async () => {
-        try { const r = await Store.ghlSend(S.user, l.store || S.store, {customer: {name: l.name, phone: l.phone}, message: L.querySelector('#lt-msg').value}); await Store.updateLead(S.user, l.id, {status: l.status === 'new' ? 'contacted' : l.status}, 'Texted'); close(); toast(r.demo ? 'Demo: text logged, not actually sent' : 'Text sent'); viewInbox(el); } catch (e) { toast(e.message); } }); });
+      <div class="row" style="gap:8px"><button class="primary" id="lt-go">Send text</button>${STORE_ADDR[l.store || S.store] ? '<button id="lt-addr">Send address</button>' : ''}</div>`, (L, close) => (L.querySelector('#lt-addr') && (L.querySelector('#lt-addr').onclick = async e => { e.target.disabled = true;
+        try { const r = await Store.ghlSend(S.user, l.store || S.store, {customer: {name: l.name, phone: l.phone}, message: STORE_ADDR[l.store || S.store]}); await Store.updateLead(S.user, l.id, {status: l.status === 'new' ? 'contacted' : l.status}, 'Texted the address'); close(); toast(r.demo ? 'Demo: address logged, not actually sent' : 'Address sent'); viewInbox(el); }
+        catch (err) { toast(err.message); e.target.disabled = false; } }), L.querySelector('#lt-go').onclick = async () => {
+        try { const r = await Store.ghlSend(S.user, l.store || S.store, {customer: {name: l.name, phone: l.phone}, message: L.querySelector('#lt-msg').value}); await Store.updateLead(S.user, l.id, {status: l.status === 'new' ? 'contacted' : l.status}, 'Texted'); close(); toast(r.demo ? 'Demo: text logged, not actually sent' : 'Text sent'); viewInbox(el); } catch (e) { toast(e.message); } })); });
   box.querySelectorAll('[data-lgo]').forEach(b => b.onclick = async () => { const l = leads.find(x => x.id === b.dataset.lgo);
     let c = C.find(x => x.phone === l.phone);
     if (!c) c = await Store.saveCustomer(S.user, S.store, {name: l.name, phone: l.phone, email: l.email, heardFrom: /widget|website/i.test(l.source || '') ? 'Website' : (l.source || 'Website')});
@@ -6610,7 +6629,11 @@ async function batteryOffer(device){
     return {device: rqDevice(x.k, x.m), desc: `${rqDevice(x.k, x.m)} ${rqRepairName(x.k, x.m, x.c.cols[i])}`, usual, deal: Math.round((usual - BATT_DEAL) * 100) / 100};
   } catch { return null; } }
 /* after check-in on a repair that isn't the battery: remind the rep to offer the battery at $20 off */
-async function batteryUpsell(t, bh){
+async function addBatteryCharge(t, o){
+  const parts = await Store.parts().catch(() => []); const cand = partsFor(parts, o.device, null, t.store, 'battery'); const p = cand.find(x => (x.qty?.[t.store] || 0) > 0);
+  await Store.ticketCharge(S.user, S.store, t.id, {desc: o.desc + ` ($${BATT_DEAL} off with repair)`, cat: 'Repair', price: o.deal, orig: o.usual, ...(p ? {partId: p.id} : {})});
+  return p; }
+async function batteryUpsell(t, bh, opts = {}){
   if (/batt/i.test((t.subject || '') + ' ' + (t.issue || ''))) return;
   const o = await batteryOffer(t.device); if (!o) return;
   const low = bh && +bh < 85;
@@ -6621,7 +6644,7 @@ async function batteryUpsell(t, bh){
     <div class="row" style="gap:16px;align-items:baseline;justify-content:center"><span>Usual price <s class="num" style="font-size:22px;color:var(--muted)">${cents(o.usual)}</s></span><span>With this repair <b class="num" style="font-size:30px;color:var(--ok)">${cents(o.deal)}</b></span></div>
     <div class="err" id="bu-e" role="alert"></div>
     <div class="row" style="gap:8px"><button class="primary" id="bu-yes" style="flex:1;min-height:48px">They want it: add the battery at ${cents(o.deal)}</button><button data-close style="min-height:48px">No thanks</button></div>`,
-  (L, close) => L.querySelector('#bu-yes').onclick = async e => { e.target.disabled = true;
+  (L, close) => L.querySelector('#bu-yes').onclick = async e => { if (opts.onYes) { close(); return opts.onYes(o); } e.target.disabled = true;
     try { const parts = await Store.parts().catch(() => []); const cand = partsFor(parts, o.device, null, t.store, 'battery'); const p = cand.find(x => (x.qty?.[t.store] || 0) > 0);
       await Store.ticketCharge(S.user, S.store, t.id, {desc: o.desc + ` ($${BATT_DEAL} off with repair)`, cat: 'Repair', price: o.deal, orig: o.usual, ...(p ? {partId: p.id} : {})});
       close(); toast('Battery added at ' + cents(o.deal) + (p ? ' · battery pulled from stock' : ' · no battery on the shelf: special order it')); if (S.tab === 'ticket') go('ticket', {ticketId: t.id}); }
