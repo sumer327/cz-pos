@@ -664,7 +664,7 @@ const DemoStore = {
   },
   /* customers + tickets + invoices */
   async customers(){ return this.db().customers; },
-  async search(){}, async loadCustomer(){}, async loadTicket(){}, async rsPull(){ return null; },
+  async search(){}, async invoiceByNumber(n){ return this.db().invoices.find(i => +i.number === +n) || null; }, async loadCustomer(){}, async loadTicket(){}, async rsPull(){ return null; },
   async customerByPhone(ph){ return this.db().customers.find(c => c.phone === ph) || null; },
   async products(){ const d = this.db(); if (!d.products){ d.products = DEMO_PRODUCTS.map(([name, category, price, cost, q]) => ({id: uid(), name, category, price, cost, upc: '', qty: {DZ: q[0], BV: q[1], PT: q[2]}, maintainStock: true, disabled: false})); this.save(d); } return d.products; },
   async saveProduct(emp, store, p){ const d = this.db(); await this.products(); const d2 = this.db(); let row = p.id && d2.products.find(x => x.id === p.id);
@@ -1340,6 +1340,7 @@ const LiveStore = {
   async ticketInvoices(id){ const {data, error} = await this.sb.from('invoices_v').select('*').eq('ticketId', id).order('at', {ascending: false}); if (error) throw error; this.keep(this.cI, data); return data; },
   async invoices(from, to){ const {data, error} = await this.sb.from('invoices_v').select('*').gte('at', from.toISOString()).lt('at', to.toISOString()).or('paid.eq.true,rsId.not.is.null'); if (error) throw error; return data; },
   async invoice(id){ const {data, error} = await this.sb.from('invoices_v').select('*').eq('id', id).maybeSingle(); if (error) throw error; if (data) this.keep(this.cI, [data]); return data; },
+  async invoiceByNumber(n){ const {data} = await this.sb.from('invoices_v').select('*').eq('number', +n).limit(1); return data?.[0] || null; },
   async makeInvoice(emp, store, ticketId, chargeIds){ const r = await this.rpc('pos_make_invoice', {p_pin: this.pinFor(emp), p_store: store, p_ticket: ticketId, p_charge_ids: chargeIds || null}); this.cT.delete(ticketId); await this.loadTicket(ticketId).catch(() => {}); this.keep(this.cI, [r]); return r; },
   async saveInvoice(emp, store, id, lines){ const r = await this.rpc('pos_save_invoice', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_lines: lines}); this.keep(this.cI, [r]); if (r.ticketId) this.cT.delete(r.ticketId); return r; },
   async voidInvoice(emp, store, id){ const r = await this.rpc('pos_void_invoice', {p_pin: this.pinFor(emp), p_store: store, p_id: id}); this.cI.delete(id); if (r.ticketId) { this.cT.delete(r.ticketId); await this.loadTicket(r.ticketId).catch(() => {}); } return r; },
@@ -1932,7 +1933,7 @@ async function renderShell(){
     <span class="logo">Cellular Zone${Store.mode === 'demo' ? ' <span class="pill warn" style="margin-left:4px">Demo</span>' : ''}</span>
     <div class="dd-wrap"><button class="chip" id="storebtn" aria-haspopup="true" title="Switch store">${STORES[S.store]} <span class="dim">▾</span></button>
       <div class="menu" id="storemenu" hidden style="left:0;right:auto">${Object.entries(STORES).map(([k, v]) => `<button data-store="${k}" ${k === S.store ? 'aria-current="true"' : ''}>${k === S.store ? '✓ ' : ''}${v} <span class="muted small">· ${k}</span></button>`).join('')}</div></div>
-    <label class="gs"><span aria-hidden="true">🔍</span><input id="gsearch" type="search" placeholder="Search customers, tickets, IMEI, stock #…" aria-label="Search" autocomplete="off"><kbd title="Press / to search">/</kbd></label>
+    <label class="gs"><span aria-hidden="true">🔍</span><input id="gsearch" type="search" placeholder="Search customers, tickets, invoice #, IMEI, stock #…" aria-label="Search" autocomplete="off"><kbd title="Press / to search">/</kbd></label>
     <div class="dd-wrap"><button class="ab new" id="newbtn" aria-haspopup="true">+ New ▾</button><div class="menu" id="newmenu" hidden>
       <button data-n="ticket">New ticket</button><button data-n="customer">New customer</button><button data-n="buyback">Buy a device</button><button data-n="sale">Quick sale</button><button data-n="transfer">Transfer to another store</button></div></div>
     <div class="dd-wrap"><button class="ab bell" id="bellbtn" aria-label="Alerts, ${unread.length} unread" aria-haspopup="true" title="Alerts">🔔${unread.length ? `<span class="bdg">${unread.length}</span>` : ''}</button>
@@ -3189,21 +3190,52 @@ async function glassReplaceSheet(phone0, add){
 }
 
 /* every sale, card payment and buyback that makes up a register day's numbers */
+/* transactions list: filter by payment type, and tap an invoice # to see what was on it without leaving the close-register screen */
+document.addEventListener('click', e => {
+  const f = e.target.closest('[data-rmf]');
+  if (f) { const box = f.closest('.ra-box'); const k = f.dataset.rmf; box.querySelectorAll('[data-rmf]').forEach(b => b.setAttribute('aria-pressed', String(b === f)));
+    let n = 0, sum = 0; box.querySelectorAll('tr[data-m]').forEach(tr => { const on = !k || tr.dataset.m === k; tr.hidden = !on; if (on) { n++; sum += parseFloat((tr.lastElementChild.textContent || '').replace(/[^0-9.-]/g, '')) || 0; } });
+    const t = box.querySelector('[data-rmt]'); t.hidden = !k; t.textContent = k ? `${n} ${k} transaction${n === 1 ? '' : 's'} · ${cents(sum)}` : ''; return; }
+  const a = e.target.closest('[data-rinv]'); if (a) { e.preventDefault(); invoicePeek(a.dataset.rinv); }
+});
+async function invoicePeek(id){
+  const inv = await Store.invoice(id).catch(() => null); if (!inv) return toast('Invoice not found.');
+  const ref = await Store.invoiceRefs(inv.customerId ? [inv.customerId] : [], inv.ticketId ? [inv.ticketId] : []).catch(() => ({cust: {}, tix: {}}));
+  const c = ref.cust[inv.customerId], t = ref.tix[inv.ticketId];
+  const box = document.createElement('div'); box.className = 'sheet'; box.style.zIndex = 60;
+  box.innerHTML = `<div class="panel stack" role="dialog" aria-modal="true"><div class="row" style="justify-content:space-between"><h3>${inv.refundOf ? 'Refund' : 'Invoice'} #${inv.number}</h3><button data-pk="x">Close</button></div>
+    <div class="small muted">${fmtTime(inv.at)} · ${STORES[inv.store] || inv.store}${inv.by ? ' · rung up by ' + esc(staffName(inv.by)) : ''}${c ? ' · ' + esc(c.name) : ''}${t ? ' · ticket #' + t.number : ''}</div>
+    <div class="tbl"><table><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Price</th></tr></thead><tbody>${(inv.lines || []).map(l => `<tr><td>${esc(l.desc)}${+l.orig > +l.price ? `<div class="small muted">regular ${cents(l.orig)}</div>` : ''}</td><td class="r num">${+l.qty || 1}</td><td class="r num">${cents((+l.price || 0) * (+l.qty || 1))}</td></tr>`).join('')}
+      <tr style="font-weight:700"><td>Total</td><td></td><td class="r num">${cents(inv.total)}</td></tr></tbody></table></div>
+    <div class="stack" style="gap:2px"><b class="small">Paid with</b>${payParts(inv).map(p => `<div class="row small" style="justify-content:space-between"><span>${esc(p.method || '')}${p.note ? ' · ' + esc(p.note) : ''}</span><span class="num">${cents(+p.amount || 0)}</span></div>`).join('')}</div>
+    <div class="row"><button data-pk="go">Open the full invoice</button>${t ? '<button data-pk="t">Open ticket</button>' : ''}</div></div>`;
+  document.body.appendChild(box);
+  const shut = () => box.remove();
+  box.addEventListener('click', e => { if (e.target === box) return shut(); const k = e.target.closest('[data-pk]')?.dataset.pk; if (!k) return;
+    if (k === 'x') return shut();
+    const dest = () => { shut(); $('#layer').innerHTML = ''; k === 'go' ? go('invoice', {invoiceId: inv.id}) : go('ticket', {ticketId: t.id}); };
+    if ($('#layer').innerHTML.trim()) { e.target.textContent = 'Tap again to leave this screen'; if (e.target.dataset.sure) dest(); else e.target.dataset.sure = 1; } else dest(); });
+}
 async function regActivity(day, store = S.store){
   const t0 = new Date(day + 'T00:00'), t1 = new Date(t0); t1.setDate(t1.getDate() + 1);
   const [invs, bbs] = await Promise.all([Store.invoices(t0, t1).catch(() => []), Store.buybacks(t0, t1).catch(() => [])]);
   const iv = invs.filter(i => i.store === store && i.paid !== false && (!i.rsId || i.by)).sort((a, b) => new Date(a.at) - new Date(b.at));
   const bb = bbs.filter(b => b.store === store).sort((a, b) => new Date(a.at) - new Date(b.at));
-  const rows = [...iv.flatMap(i => payParts(i).map(p => ({at: i.at, what: `${i.refundOf ? 'Refund' : 'Sale'} #${i.number}`, who: i.by ? staffName(i.by) : '', method: p.method, note: p.note || '', amt: +p.amount || 0, kind: i.refundOf ? 'refund' : 'sale'}))),
-    ...bb.map(b => ({at: b.at, what: `Buyback ${b.store}${b.receiptNo}`, who: staffName(b.by), method: b.payout, amt: -(+b.paid || 0), kind: 'buyback', bb: b}))].sort((a, b) => new Date(a.at) - new Date(b.at));
-  const by = {}; rows.forEach(r => { const k = /^square/i.test(r.method) ? 'Square (card)' : r.method || 'Other'; by[k] = (by[k] || 0) + r.amt; });
+  const ref = await Store.invoiceRefs([...new Set(iv.map(i => i.customerId).filter(Boolean))], [...new Set(iv.map(i => i.ticketId).filter(Boolean))]).catch(() => ({cust: {}, tix: {}}));
+  const items = i => (i.lines || []).filter(l => !['Discount', 'Diagnostic credit'].includes(l.cat) && +l.price >= 0).map(l => ((+l.qty || 1) > 1 ? l.qty + '× ' : '') + l.desc).join(', ');
+  const rows = [...iv.flatMap(i => payParts(i).map(p => ({at: i.at, what: `${i.refundOf ? 'Refund' : 'Invoice'} #${i.number}`, invId: i.id, who: i.by ? staffName(i.by) : '', method: p.method, note: p.note || '', amt: +p.amount || 0, kind: i.refundOf ? 'refund' : 'sale',
+      cust: (ref.cust[i.customerId] || {}).name || '', tkt: (ref.tix[i.ticketId] || {}).number || null, items: items(i), split: payParts(i).length > 1 ? cents(i.total) + ' total, split' : ''}))),
+    ...bb.map(b => ({at: b.at, what: `Buyback ${b.store}${b.receiptNo}`, who: staffName(b.by), method: b.payout, amt: -(+b.paid || 0), kind: 'buyback', bb: b, cust: [b.seller?.firstName, b.seller?.lastName].filter(Boolean).join(' ') || b.sellerName || '', items: [b.model, b.storage].filter(Boolean).join(' ')}))].sort((a, b) => new Date(a.at) - new Date(b.at));
+  const mKey = m => /^square/i.test(m || '') ? 'Square (card)' : m || 'Other';
+  const by = {}, nBy = {}; rows.forEach(r => { const k = mKey(r.method); by[k] = (by[k] || 0) + r.amt; nBy[k] = (nBy[k] || 0) + 1; });
   // discounts given: ▾ on a line (regular price → paid) and Discount lines
   const discounts = iv.filter(i => !i.refundOf).flatMap(i => (i.lines || []).map(l => { const q = +l.qty || 1;
     const amt = +l.orig > +l.price ? (+l.orig - +l.price) * q : l.cat === 'Discount' && +l.price < 0 ? -(+l.price) * q : 0;
     return amt > 0.004 ? {at: i.at, inv: i.number, who: i.by ? staffName(i.by) : '', desc: l.cat === 'Discount' ? l.desc : `${l.desc} (regular ${cents(l.orig)})`, amt: Math.round(amt * 100) / 100} : null; }).filter(Boolean));
-  const table = `<div class="tbl"><table><thead><tr><th>Time</th><th>What</th><th>By</th><th>How</th><th class="r">Amount</th></tr></thead><tbody>
-    ${rows.map(r => `<tr><td class="small num">${fmtTime(r.at)}</td><td>${esc(r.what)}</td><td class="small">${esc(r.who)}</td><td class="small">${esc(r.method || '')}${r.method === 'Other' ? `<div style="color:${r.note ? 'inherit' : 'var(--bad)'}"><b>${r.note ? 'Note:' : 'No note'}</b> ${esc(r.note)}</div>` : ''}</td><td class="r num" style="${r.amt < 0 ? 'color:var(--bad)' : ''}">${cents(r.amt)}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">Nothing yet.</td></tr>'}
-    </tbody></table></div>`;
+  const table = `<div class="ra-box stack" style="gap:6px">${Object.keys(by).length > 1 ? `<div class="statusbar" role="group" aria-label="Show payment type"><button type="button" data-rmf="" aria-pressed="true">All (${rows.length})</button>${Object.keys(by).map(k => `<button type="button" data-rmf="${esc(k)}" aria-pressed="false">${esc(k)} (${nBy[k]}) · ${cents(by[k])}</button>`).join('')}</div>` : ''}
+    <div class="tbl"><table><thead><tr><th>Time</th><th>What</th><th>For</th><th>By</th><th>How</th><th class="r">Amount</th></tr></thead><tbody>
+    ${rows.map(r => `<tr data-m="${esc(mKey(r.method))}"><td class="small num">${fmtTime(r.at)}</td><td style="white-space:nowrap">${r.invId ? `<a data-rinv="${r.invId}" style="color:var(--accent);cursor:pointer;font-weight:700" title="See what was on it">${esc(r.what)}</a>` : esc(r.what)}${r.tkt ? `<div class="small muted">Ticket #${r.tkt}</div>` : ''}</td><td class="small" style="max-width:280px">${r.cust ? `<b>${esc(r.cust)}</b><br>` : ''}<span class="muted">${esc(r.items || '')}</span>${r.split ? `<div class="muted">${r.split}</div>` : ''}</td><td class="small">${esc(r.who)}</td><td class="small">${esc(r.method || '')}${r.method === 'Other' ? `<div style="color:${r.note ? 'inherit' : 'var(--bad)'}"><b>${r.note ? 'Note:' : 'No note'}</b> ${esc(r.note)}</div>` : ''}</td><td class="r num" style="${r.amt < 0 ? 'color:var(--bad)' : ''}">${cents(r.amt)}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">Nothing yet.</td></tr>'}
+    </tbody></table></div><div class="small muted" data-rmt hidden></div></div>`;
   const html = `<details class="panel" style="padding:10px;flex:none"><summary style="cursor:pointer"><b>Today's transactions (${rows.length})</b> · ${Object.entries(by).map(([k, v]) => `${esc(k)} ${cents(v)}`).join(' · ') || 'none yet'}</summary>
     <div style="margin-top:8px">${table}</div><p class="small muted" style="margin:6px 0 0">Buybacks are negative. Cash buybacks come out of the buyback fund; Zelle / Cash App / Apple Pay / PayPal are sent by Sam.</p></details>`;
   return {html, table, rows, by, discounts};
@@ -3882,6 +3914,7 @@ async function viewCustomer(el){
 async function viewSearch(el){
   const q = S.q.toLowerCase(), qd = q.replace(/\D/g, '');
   el.innerHTML = '<p class="muted">Searching…</p>'; await Store.search(S.q);
+  const inv = /^#?\d{4,7}$/.test(S.q.trim()) ? await Store.invoiceByNumber(qd).catch(() => null) : null;
   const [custs, tix, devs] = await Promise.all([Store.customers(), Store.tickets(), Store.devices()]);
   const C = custById(custs);
   const ct = custs.filter(c => c.name.toLowerCase().includes(q) || (qd.length >= 3 && (c.phone || '').includes(qd)) || (q.length >= 3 && (c.email || '').toLowerCase().includes(q)));
@@ -3891,9 +3924,12 @@ async function viewSearch(el){
     ${tt.length ? `<div class="tbl"><table><thead><tr><th>Ticket</th><th>Subject</th><th>Customer</th><th>Status</th></tr></thead><tbody>${tt.slice(0, 50).map(t => `<tr class="click" data-t="${t.id}"><td class="num">${t.number}</td><td>${esc(t.subject)}</td><td>${esc(C[t.customerId]?.name || '')}</td><td>${stPill(t.status)}</td></tr>`).join('')}</tbody></table></div>` : ''}
     ${ct.length ? `<div class="tbl"><table><thead><tr><th>Customer</th><th>Phone</th></tr></thead><tbody>${ct.slice(0, 50).map(c => `<tr class="click" data-c="${c.id}"><td>${esc(c.name)}</td><td class="num">${fmtPhone(c.phone)}</td></tr>`).join('')}</tbody></table></div>` : ''}
     ${dd.length ? `<div class="tbl"><table><thead><tr><th>Device in inventory</th><th>Status</th><th>Store</th></tr></thead><tbody>${dd.map(d => `<tr class="click" data-dv="${d.id}"><td>#${d.stockNo} ${esc(d.model)} ${esc(d.storage)} <span class="mono small">${esc(d.imei)}</span></td><td>${STATUS_LABEL[d.status]}</td><td>${d.store}</td></tr>`).join('')}</tbody></table></div>` : ''}
-    ${!tt.length && !ct.length && !dd.length ? '<p class="muted">Nothing found. Try the last 4 of the phone number or the ticket number.</p>' : ''}</div>`;
+    ${inv ? `<div class="tbl"><table><thead><tr><th>Invoice</th><th>When</th><th>Store</th><th class="r">Total</th></tr></thead><tbody><tr class="click" data-iv="${inv.id}"><td class="num">#${inv.number}${inv.refundOf ? ' (refund)' : ''}</td><td class="small">${fmtTime(inv.at)} · ${fmtDate(inv.at)}</td><td>${inv.store}</td><td class="r num">${cents(inv.total)}</td></tr></tbody></table></div>` : ''}
+    ${!inv && !tt.length && !ct.length && !dd.length ? '<p class="muted">Nothing found. Try the last 4 of the phone number or the ticket number.</p>' : ''}</div>`;
   el.querySelectorAll('tr[data-t]').forEach(tr => tr.onclick = () => go('ticket', {ticketId: tr.dataset.t}));
   el.querySelectorAll('tr[data-c]').forEach(tr => tr.onclick = () => go('customer', {customerId: tr.dataset.c}));
+  el.querySelectorAll('tr[data-iv]').forEach(tr => tr.onclick = () => go('invoice', {invoiceId: tr.dataset.iv}));
+  if (inv && !tt.length && !ct.length && !dd.length) return go('invoice', {invoiceId: inv.id});
   el.querySelectorAll('tr[data-dv]').forEach(tr => tr.onclick = () => { const d = dd.find(x => x.id === tr.dataset.dv); d.status === 'repair' ? go('repair', {deviceId: d.id}) : deviceSheet(d, () => viewSearch(el)); });
   if (dd.length === 1 && !tt.length && !ct.length) { const d = dd[0]; d.status === 'repair' ? go('repair', {deviceId: d.id}) : deviceSheet(d, () => go('inventory')); }
 }
