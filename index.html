@@ -2519,7 +2519,11 @@ async function viewNewTicket(el){
       estimate: null, imei: D.imei.trim(), passcode: (D.passcode || '').trim(), callback: cbd || null, techId: $('#nt-tech').value || null, notes: D.notes.trim()}); }
     catch (x) { delete form.dataset.busy; if (sb) { sb.disabled = false; sb.textContent = sb.dataset.lbl; } $('#nt-err').textContent = x.message; return; }
     /* a price carried over from the Quote tool goes straight on as the first charge (no separate "quoted price" to keep in sync) */
-    if (+D.estimate > 0) { try { await Store.ticketCharge(S.user, S.store, t.id, {desc: D.subject.trim(), cat: /diag/i.test(D.subject) ? 'Diagnostic' : /console/i.test(D.issue) ? 'Console repair' : 'Repair', price: +D.estimate}); } catch (e) { toast("Ticket made, but the quoted charge didn't save: " + e.message); } }
+    if (+D.estimate > 0) { try { const cat = /diag/i.test(D.subject) ? 'Diagnostic' : /console/i.test(D.issue) ? 'Console repair' : 'Repair';
+        /* a quoted repair pulls the matching part from stock, same as Add charge does (so cost and profit are right) */
+        let pid = null; if (cat === 'Repair') { const want = repairWants(D.subject); if (want !== 'none') { const cand = partsFor(await Store.parts().catch(() => []), D.device.trim(), want, S.store, repairType(D.subject));
+          pid = (cand.find(p => (p.qty?.[S.store] || 0) > 0 && (!want || partQual(p.name) === want)) || cand.find(p => (p.qty?.[S.store] || 0) > 0))?.id || null; } }
+        await Store.ticketCharge(S.user, S.store, t.id, {desc: D.subject.trim(), cat, price: +D.estimate, ...(pid ? {partId: pid} : {})}); } catch (e) { toast("Ticket made, but the quoted charge didn't save: " + e.message); } }
     if (bhN && (bhV || D.bhs)) { try { await Store.updateTicket(S.user, S.store, t.id, bhV ? {bh: +bhV} : {bhSkip: D.bhs}); } catch (e) { toast("Ticket made, but the battery health didn't save: " + e.message); } }
     if (testable(D.device) && testsDone(D.tests)) { try { await Store.saveTicketTest(S.user, S.store, t.id, 'checkin', D.tests, (D.testNote || '').trim()); } catch (e) { toast("Ticket made, but the check-in test didn't save: " + e.message); } }
     if (D.addBatt) { try { const p = await addBatteryCharge(t, D.addBatt); toast('Battery added at ' + cents(D.addBatt.deal) + (p ? ' · battery pulled from stock' : ' · no battery on the shelf: special order it')); } catch (x) { toast("Ticket made, but the battery didn't save: " + x.message); } }
@@ -5049,6 +5053,47 @@ function visitBosSheet(L){
 /* several device labels in one print job, one label per page */
 function printLabels(devs){ if (!devs.length) return; const hs = devs.map(labelHTML); const css = hs[0].css.replace('body{width', '.lb{width') + '.lb{page-break-after:always;break-after:page}.lb:last-child{page-break-after:auto;break-after:auto}';
   printHTML(devs.length + ' labels', hs.map(h => `<div class="lb">${h.body}</div>`).join(''), css); }
+/* Buyback record: everything about how we bought a device (the digital version of the old hand-signed buy form):
+   seller + ID, the counter test (pass / fail per item), condition, battery, notes, the IMEI check, what we paid and how. */
+async function buybackRecordSheet(bbId, dvId){
+  const [bb, devs] = await Promise.all([Store.buyback(bbId), Store.devices()]); const dv = devs.find(x => x.id === dvId) || null;
+  if (!bb) { toast('Buyback not found.'); return; }
+  let ic = []; if (Store.sb && dv?.imei) { const {data} = await Store.sb.from('imei_checks').select('at,service_name,verdict,flags,lines,override_reason,override_by').eq('imei', normImei(dv.imei)).order('at', {ascending: false}).limit(6); ic = data || []; }
+  const s = bb.seller || {}; const us = d => d ? new Date(d + 'T12:00').toLocaleDateString('en-US') : '';
+  const grade = dv ? (CONDS.find(c => c[0] === dv.cond) || [, dv.cond || ''])[1] : '';
+  const res = k => dv?.checklist?.[k]; const fails = CHECKS.filter(([k]) => res(k) === 'fail');
+  const pill = v => v === 'pass' ? '<span class="pill ok">Pass</span>' : v === 'fail' ? '<span class="pill bad">Fail</span>' : v === 'na' ? '<span class="pill">N/A</span>' : '<span class="pill">Not tested</span>';
+  const row = (k, v) => v ? `<div class="row small" style="justify-content:space-between;gap:12px;flex-wrap:nowrap;border-bottom:1px solid var(--line);padding:5px 0"><span class="muted" style="flex:none">${k}</span><span style="text-align:right">${v}</span></div>` : '';
+  const idNo = String(s.idNumber || ''); const idShow = can(2) ? idNo : idNo ? '••••' + idNo.slice(-4) : '';
+  const sect = (t, h) => `<div class="stack" style="gap:2px"><h4 style="margin:6px 0 2px">${t}</h4>${h}</div>`;
+  sheet(`<div class="row" style="justify-content:space-between"><h3>Buyback ${esc(bb.bbId || (bb.store + bb.receiptNo))}${dv ? ` · #${dv.stockNo}` : ''}</h3><button data-close>Close</button></div>
+    <div class="small muted">${fmtDate(bb.at)} ${fmtTime(bb.at)} · ${STORES[bb.store] || bb.store} · bought by ${esc(bb.by ? staffName(bb.by) : '')}${bb.override ? ` · <b style="color:var(--warn)">over max, approved by ${esc(staffName(bb.override))}</b>` : ''}</div>
+    <div class="grid g2" style="gap:14px;align-items:start">
+      <div class="stack" style="gap:8px">
+        ${sect('Device', dv ? row('Device', `<b>${esc([dv.model, dv.storage].filter(Boolean).join(' '))}</b>`) + row('Color', esc(dv.color || '')) + row('Carrier / lock', esc(dv.carrier || '')) + row('IMEI / serial', `<span class="mono">${esc(dv.imei || '')}</span>`)
+          + row('Condition', `<b>${esc(grade)}</b>`) + row('Battery health', dv.battery ? `<b>${dv.battery}%</b>` : '') : '<p class="small muted">The device is no longer on file.</p>')}
+        ${sect('Counter test', dv?.checklist && Object.keys(dv.checklist).length ? `<div class="small" style="margin-bottom:4px">${fails.length ? `<b style="color:var(--bad)">Failed ${fails.length}:</b> ${esc(fails.map(c => c[1]).join(' · '))}` : '<b style="color:var(--ok)">Passed everything tested</b>'}</div>`
+          + CHECKS.map(([k, l]) => row(esc(l), pill(res(k)))).join('') : '<p class="small muted">No counter test saved (bought before the POS, or the test was skipped).</p>')}
+        ${dv?.needs?.length ? sect('Needs', `<div class="small">${esc(dv.needs.join(' · '))}</div>`) : ''}
+        ${sect('Notes', `<div class="small" style="white-space:pre-wrap">${esc(dv?.notes || '') || '<span class="muted">No notes.</span>'}</div>`)}
+      </div>
+      <div class="stack" style="gap:8px">
+        ${sect('Seller', row('Name', `<b>${esc([s.firstName, s.lastName].filter(Boolean).join(' '))}</b>`) + row('Phone', fmtPhone(s.phone || bb.phone || '')) + row('Email', esc(s.email || ''))
+          + row('Address', esc([s.address, s.city, s.state, s.zip].filter(Boolean).join(', '))) + row('Date of birth', us(s.dob)) + row('Photo ID', esc([s.idType, s.idState, idShow].filter(Boolean).join(' · ')) + (s.idExp ? ` · exp ${us(s.idExp)}` : ''))
+          + row('ID note', esc(bb.idNote || '')) + row('Heard about us', esc(s.heardFrom || '')))}
+        ${sect('Payment', row('Max buy', bb.max ? cents(bb.max) : '') + row('Paid', `<b>${cents(bb.paid)}</b>`) + row('Paid by', esc(bb.payout || '')) + row('Sent to', esc(bb.payoutTo || s.payoutTo || '')))}
+        ${sect('IMEI check', ic.length ? ic.map(c => `<div class="small" style="border-bottom:1px solid var(--line);padding:5px 0"><b>${esc(c.service_name || '')}</b> · ${c.verdict === 'clean' ? '<span class="pill ok">Clean</span>' : c.verdict === 'bad' ? '<span class="pill bad">Problem</span>' : c.verdict === 'warn' ? '<span class="pill warn">Check</span>' : `<span class="pill">${esc(c.verdict || '')}</span>`} <span class="muted">${fmtDate(c.at)}</span>
+            ${(c.flags || []).length ? `<div style="color:var(--bad)">${esc(c.flags.join(' · '))}</div>` : ''}${c.override_reason ? `<div style="color:var(--warn)">Overridden${c.override_by ? ' by ' + esc(staffName(c.override_by)) : ''}: ${esc(c.override_reason)}</div>` : ''}
+            <details><summary class="muted" style="cursor:pointer">Full result</summary>${(c.lines || []).map(l => `<div>${l.k ? esc(l.k) + ': ' : ''}<span style="${l.tone === 'bad' ? 'color:var(--bad)' : l.tone === 'warn' ? 'color:var(--warn)' : ''}">${esc(l.v)}</span></div>`).join('')}</details></div>`).join('')
+          : '<p class="small muted">No IMEI check on file for this IMEI.</p>')}
+        ${dv ? sect('Now', row('Status', esc(STATUS_LABEL[dv.status] || dv.status)) + row('Our cost', cents((+dv.cost || 0) + (+dv.partsCost || 0)) + (+dv.partsCost ? ` <span class="muted">(${cents(dv.cost)} + ${cents(dv.partsCost)} parts)</span>` : '')) + (dv.status === 'sold' && dv.soldPrice ? row('Sold', `${cents(dv.soldPrice)}${dv.soldAt ? ' · ' + fmtDate(dv.soldAt) : ''}${dv.channel ? ' · ' + esc(dv.channel) : ''}`) : '')) : ''}
+      </div></div>
+    <div class="row" style="gap:8px"><button class="primary" id="bbr-bos">Bill of sale (signed form)</button>${dv ? '<button id="bbr-dev">Open device</button>' : ''}</div>`, (L, close) => {
+    L.querySelector('.sheet .panel').classList.add('wide');
+    L.querySelector('#bbr-bos').onclick = () => bosSheet(bb.id, dvId);
+    L.querySelector('#bbr-dev') && (L.querySelector('#bbr-dev').onclick = () => { close(); deviceSheet(dv, () => {}); });
+  });
+}
 async function bosSheet(bbId, dvId){
   const [bb, devs] = await Promise.all([Store.buyback(bbId), Store.devices()]); const dv = devs.find(x => x.id === dvId);
   if (!bb || !dv) { toast('Bill of sale not found.'); return; }
@@ -5333,13 +5378,13 @@ async function viewBbLog(el){
       <td>${stPill(d)}</td>
       <td class="r"><button data-blb="${b.id}" style="min-height:32px;padding:2px 10px">Bill of sale</button></td></tr>`).join('') || '<tr><td colspan="11" class="muted">No buys match.</td></tr>'}
     </tbody></table></div>
-    <p class="small muted" style="margin:0">Buys made in the POS show here. Click a row to open the device.</p></div>`;
+    <p class="small muted" style="margin:0">Buys made in the POS show here. Click a row to see how we bought it: the counter test, condition, notes, IMEI check, seller and payment.</p></div>`;
   $('#bl-back').onclick = () => go('buyback');
   const inp = $('#bl-q'); let tm; inp.oninput = () => { clearTimeout(tm); tm = setTimeout(() => { S.bblQ = inp.value; viewBbLog(el).then(() => { const n = $('#bl-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 300); };
   el.querySelectorAll('[data-bp]').forEach(x => x.onclick = () => { S.bblPer = x.dataset.bp; viewBbLog(el); });
   el.querySelectorAll('[data-bs]').forEach(x => x.onclick = () => { S.bblSt = x.dataset.bs; viewBbLog(el); });
   el.querySelectorAll('[data-blb]').forEach(x => x.onclick = e => { e.stopPropagation(); const r = rows.find(r => r.b.id === x.dataset.blb); bosSheet(r.b.id, r.b.deviceId); });
-  el.querySelectorAll('[data-bl]').forEach(tr => tr.onclick = () => { const r = rows.find(r => r.b.id === tr.dataset.bl); if (r.d) deviceSheet(r.d, () => viewBbLog(el)); else toast('That device is no longer on file.'); });
+  el.querySelectorAll('[data-bl]').forEach(tr => tr.onclick = () => { const r = rows.find(r => r.b.id === tr.dataset.bl); buybackRecordSheet(r.b.id, r.b.deviceId); });
 }
 const normImei = s => String(s || '').replace(/[^0-9a-z]/gi, '').toUpperCase();
 const luhnOk = n => { let t = 0; for (let i = 0; i < n.length; i++) { let x = +n[n.length - 1 - i]; if (i % 2) { x *= 2; if (x > 9) x -= 9; } t += x; } return t % 10 === 0; };
@@ -5681,7 +5726,7 @@ async function viewRepair(el){
           ${fails.length ? `<dt>Failed tests</dt><dd>${fails.map(f => esc(f[1])).join('; ')}</dd>` : ''}</dl>
         ${d.status === 'repair' ? `<div class="grid g2"><div class="field"><label class="label" for="r-st">Repair status</label><select id="r-st">${REPAIR_ST.map(([k, l]) => `<option value="${k}" ${(d.repairStatus || 'diag') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
           <div class="field"><label class="label" for="r-tech">Tech</label><select id="r-tech"><option value="">Unassigned</option>${S.staff.filter(e => e.active || e.id === d.techId).map(e => `<option value="${e.id}" ${d.techId === e.id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select></div></div>` : ''}
-        <div class="row"><button id="r-label">Print label</button><button id="r-edit">Edit details</button>${d.buybackId ? '<button id="r-bos">Bill of sale</button>' : ''}</div>
+        <div class="row"><button id="r-label">Print label</button><button id="r-edit">Edit details</button>${d.buybackId ? '<button id="r-bbr">How we bought it</button><button id="r-bos">Bill of sale</button>' : ''}</div>
       </div>
       <div class="panel stack">
         <h3>What it needs</h3>
@@ -5713,6 +5758,7 @@ async function viewRepair(el){
   $('#r-label').onclick = () => labelSheet(d);
   $('#r-edit').onclick = () => deviceEditSheet(d, () => viewRepair(el));
   $('#r-bos') && ($('#r-bos').onclick = () => bosSheet(d.buybackId, d.id));
+  $('#r-bbr') && ($('#r-bbr').onclick = () => buybackRecordSheet(d.buybackId, d.id));
   el.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => up({needs: d.needs.filter((_, i) => i !== +b.dataset.rm)}));
   $('#r-addneed').onclick = () => { const v = $('#r-need').value.trim(); if (!v) return; up({needs: [...(d.needs || []), v]}); };
   $('#r-addnote').onclick = () => { const v = $('#r-note').value.trim(); if (!v) { toast('Type the note first.'); return; } up({}, v, 'Note added'); };
@@ -6213,7 +6259,7 @@ async function partsBatterySheet(d, after){
 function deviceSheet(d, after){
   sheet(`
     <div class="row" style="justify-content:space-between"><h3>#${d.stockNo ?? ''} ${esc(d.model)} ${esc([d.storage, d.carrier].filter(Boolean).join(' · '))}</h3><button data-close>Close</button></div>
-    <div class="row"><button type="button" id="d-lbl">Print label</button>${d.buybackId ? '<button type="button" id="d-bos2">Bill of sale</button>' : ''}${d.status === 'repair' ? '<button type="button" id="d-rep2">Open in repair stock</button>' : ''}${!['sold', 'atlas'].includes(d.status) ? '<button type="button" id="d-pb">Parts & battery</button>' : ''}<button type="button" id="d-edit">Edit details</button></div>
+    <div class="row"><button type="button" id="d-lbl">Print label</button>${d.buybackId ? '<button type="button" id="d-bbr">How we bought it</button><button type="button" id="d-bos2">Bill of sale</button>' : ''}${d.status === 'repair' ? '<button type="button" id="d-rep2">Open in repair stock</button>' : ''}${!['sold', 'atlas'].includes(d.status) ? '<button type="button" id="d-pb">Parts & battery</button>' : ''}<button type="button" id="d-edit">Edit details</button></div>
     <div class="grid g3 small">
       <div class="stat"><span class="label">Cost</span><span class="num">${money(d.cost)}</span></div>
       <div class="stat"><span class="label">Bought</span><span>${fmtDate(d.createdAt)} · ${d.store}</span></div>
@@ -6236,6 +6282,7 @@ function deviceSheet(d, after){
     (L, close) => {
       L.querySelector('#d-lbl').onclick = () => labelSheet(d);
       L.querySelector('#d-bos2') && (L.querySelector('#d-bos2').onclick = () => bosSheet(d.buybackId, d.id));
+      L.querySelector('#d-bbr') && (L.querySelector('#d-bbr').onclick = () => buybackRecordSheet(d.buybackId, d.id));
       L.querySelector('#d-rep2') && (L.querySelector('#d-rep2').onclick = () => { close(); go('repair', {deviceId: d.id}); });
       L.querySelector('#d-pb') && (L.querySelector('#d-pb').onclick = () => { close(); partsBatterySheet(d, after); });
       L.querySelector('#d-edit').onclick = () => { close(); deviceEditSheet(d, after); };
