@@ -2177,6 +2177,18 @@ async function viewTicket(el){
         <textarea id="t-sms" rows="3" aria-label="Text message" placeholder="Type a text or pick a template">${S.prefillSms ? esc(S.prefillSms) : ''}</textarea>
         <div class="row" style="justify-content:space-between"><span class="small muted" id="t-smsn"></span><button id="t-send" ${c.phone ? '' : 'disabled title="No phone number on file"'}>Send text</button></div>
       </div>
+      <details class="stack" style="gap:8px;background:var(--soft);border-radius:var(--r);padding:12px" id="t-emb"><summary style="cursor:pointer"><span class="label">Email ${esc((c.name || 'customer').split(' ')[0])}</span>${c.email ? ` <span class="small muted">${esc(c.email)}</span>` : ''}</summary>
+        <div class="stack" style="gap:8px;margin-top:8px">
+        <div class="field"><label class="label" for="t-em">Email address</label><input id="t-em" type="email" autocomplete="off" value="${esc(c.email || '')}" placeholder="name@email.com"></div>
+        <div class="field"><label class="label" for="t-ems">Subject</label><input id="t-ems" value="${esc(`Cellular Zone ${STORES[t.store] || ''} · your ${t.device || 'device'} (ticket #${t.number})`)}"></div>
+        <textarea id="t-emm" rows="5" aria-label="Email message" placeholder="Type your email">Hi ${esc((c.name || '').split(' ')[0] || 'there')},
+
+
+
+Thank you,
+Cellular Zone ${esc(STORES[t.store] || '')}</textarea>
+        <div class="row" style="justify-content:space-between"><span class="small muted">Sent from the store's GoHighLevel email. Replies go to the GHL inbox.</span><button id="t-emgo">Send email</button></div>
+        </div></details>
       <div class="stack" style="gap:6px"><span class="label">Calls &amp; texts with this number (GoHighLevel)</span><div id="t-ghl" class="small muted">Loading…</div></div>
     </div>
     </div>
@@ -2256,6 +2268,18 @@ async function viewTicket(el){
     const btn = $('#t-send'); btn.disabled = true; btn.textContent = 'Sending…';
     try { const r = await Store.ghlSend(S.user, t.store, {customer: c, ticketId: t.id, message: sms.value}); toast(r.demo ? 'Demo: text logged, not actually sent' : 'Text sent from GoHighLevel'); viewTicket(el); }
     catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Send text'; }
+  };
+  $('#t-emgo').onclick = async () => {
+    const em = $('#t-em').value.trim(), sub = $('#t-ems').value.trim(), msg = $('#t-emm').value.trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return toast('Enter a valid email address.');
+    if (!sub || !msg) return toast('Add a subject and a message.');
+    const btn = $('#t-emgo'); btn.disabled = true; btn.textContent = 'Sending…';
+    const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#16191f">${esc(msg).replace(/\n/g, '<br>')}</div>`;
+    try { const r = await Store.emailReceipt(S.user, t.store, {email: em, customer: {phone: c.phone, name: c.name}, subject: sub, html});
+      await Store.addComment(S.user, S.store, t.id, `Email sent to ${em} · "${sub}"\n${msg}`, false).catch(() => {});
+      if (!c.email && c.id) await Store.saveCustomer(S.user, S.store, {...c, email: em}).catch(() => {});
+      toast(r?.demo ? 'Demo: email logged, not actually sent' : 'Email sent to ' + em); viewTicket(el); }
+    catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Send email'; }
   };
   $('#t-addnote').onclick = async () => { const v = $('#t-note').value.trim(); if (!v) { toast('Type the note first.'); return; } await Store.addComment(S.user, S.store, t.id, v, false); viewTicket(el); };
   renderThread($('#t-ghl'), t.store, c);
