@@ -2468,9 +2468,14 @@ async function viewNewTicket(el){
   $('#nt-newc') && ($('#nt-newc').onclick = () => { keep(); customerSheet({name: /\d/.test(D.cq || '') ? '' : D.cq, phone: /\d/.test(D.cq || '') ? D.cq : ''}, row => { D.customerId = row.id; viewNewTicket(el); }); });
   const bhShow = () => { $('#nt-bhbox').hidden = !bhAtCheckin($('#nt-dev').value, $('#nt-iss').value); };
   /* battery health typed in → offer the $20-off battery right here (once per ticket), before the ticket is created */
-  $('#nt-bh').addEventListener('change', () => { keep(); const b = (D.bh || '').trim();
+  /* pops up while they type (short pause after 2 digits) or when they tab/click to another field, never when the click is Create ticket */
+  let bhT = null; const bhIn = $('#nt-bh');
+  bhIn.addEventListener('input', () => { clearTimeout(bhT); const v = bhIn.value.trim(); if (/^\d{2,3}$/.test(v)) bhT = setTimeout(() => { if (document.activeElement === bhIn) offerBatt(); }, 900); });
+  bhIn.addEventListener('focusout', e => { clearTimeout(bhT); const to = e.relatedTarget; if (to && (to.type === 'submit' || to.closest?.('#nt [type="submit"]'))) return; offerBatt(); });
+  function offerBatt(){ keep(); const b = (D.bh || '').trim();
+    if ($('#nt')?.dataset.busy) return;
     if (D.battAsked || !(+b >= 1 && +b <= 100) || !bhAtCheckin(D.device, D.issue) || /batt/i.test((D.subject || '') + ' ' + (D.issue || ''))) return;
-    D.battAsked = true; batteryUpsell({device: D.device.trim(), subject: D.subject, issue: D.issue, store: S.store}, b, {onYes: o => { keep(); D.addBatt = o; const y = window.scrollY; viewNewTicket(el).then(() => window.scrollTo(0, y)); toast('Battery will be added when you create the ticket'); }}); });
+    D.battAsked = true; batteryUpsell({device: D.device.trim(), subject: D.subject, issue: D.issue, store: S.store}, b, {onYes: o => { keep(); D.addBatt = o; const y = window.scrollY; viewNewTicket(el).then(() => window.scrollTo(0, y)); toast('Battery will be added when you create the ticket'); }}); }
   $('#nt-battx') && ($('#nt-battx').onclick = () => { keep(); D.addBatt = null; const y = window.scrollY; viewNewTicket(el).then(() => window.scrollTo(0, y)); });
   $('#nt-iss').onchange = () => { $('#nt-iss').dataset.touched = 1; bhShow(); };
   if (D.issue) $('#nt-iss').dataset.touched = 1;
@@ -2492,9 +2497,7 @@ async function viewNewTicket(el){
     if (bhN && (bhV || D.bhs)) { try { await Store.updateTicket(S.user, S.store, t.id, bhV ? {bh: +bhV} : {bhSkip: D.bhs}); } catch (e) { toast("Ticket made, but the battery health didn't save: " + e.message); } }
     if (testable(D.device) && testsDone(D.tests)) { try { await Store.saveTicketTest(S.user, S.store, t.id, 'checkin', D.tests, (D.testNote || '').trim()); } catch (e) { toast("Ticket made, but the check-in test didn't save: " + e.message); } }
     if (D.addBatt) { try { const p = await addBatteryCharge(t, D.addBatt); toast('Battery added at ' + cents(D.addBatt.deal) + (p ? ' · battery pulled from stock' : ' · no battery on the shelf: special order it')); } catch (x) { toast("Ticket made, but the battery didn't save: " + x.message); } }
-    const askAfter = bhN && !D.battAsked && !D.addBatt;   /* N/A picked or the field skipped: still offer it once, after the ticket is made */
     S.draft = {}; S.justCreated = t.id; go('ticket', {ticketId: t.id});
-    if (askAfter) batteryUpsell({...t, subject: D.subject, issue: D.issue, device: D.device.trim()}, bhV || null);
   };
 }
 
