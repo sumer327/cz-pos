@@ -322,7 +322,7 @@ function setLineDisc(l, amt, pct){
 }
 const IV_OPEN = new Set();
 const IV_UNLOCK = new Map();   // invoice line → manager who OK'd changing a price-sheet phone's price
-const isTaxable = l => typeof l.taxable === 'boolean' ? l.taxable : !['Diagnostic', 'Diagnostic credit', 'Water damage treatment'].includes(l.cat) && !/water damage/i.test(l.desc || '');
+const isTaxable = l => typeof l.taxable === 'boolean' ? l.taxable : !['Diagnostic', 'Diagnostic credit', 'Water damage treatment', 'Labor (part provided)'].includes(l.cat) && !/water damage/i.test(l.desc || '');
 const invTotals = inv => { const sub = Math.round(inv.lines.reduce((a, l) => a + (+l.price || 0) * (+l.qty || 1), 0) * 100) / 100; const tax = taxOf(inv.lines);
   return Object.assign(inv, {subtotal: sub, tax, total: Math.round((sub + tax) * 100) / 100}); };
 const taxOf = lines => Math.max(0, Math.round(lines.filter(isTaxable).reduce((a, l) => a + (+l.price || 0) * (l.qty || 1), 0) * TAX_RATE * 100) / 100);
@@ -349,7 +349,7 @@ const DEFAULT_SETTINGS = {
   reviewMsg: 'Hi {first}, thank you for choosing Cellular Zone {store}! If we took good care of your {device}, would you leave us a quick 5-star review? {link}',
   upsells: ['Ask for tempered glass: $29.99 ($34.99 privacy). Lifetime warranty: bring it back any time, new one for $5', 'Cases start at $5. Point out the cases on sale', "Declined the glass? Leave us a review in store and get it for $5.99"],
   accessories: [['20W charger', 19.99, 'Accessory'], ['USB-C cable', 14.99, 'Accessory']],
-  labor: {phone: 79.99, tablet: 79.99, console: 99.99, computer: 99.99}, oemAdd: 125, float: 200, diagFee: {phone: 29.99, tablet: 39.99, other: 49.99}
+  labor: {phone: 80, tablet: 80, console: 100, computer: 100}, laborOnly: {phone: 75, tablet: 100, console: 100, computer: 100}, oemAdd: 125, float: 200, diagFee: {phone: 29.99, tablet: 39.99, other: 49.99}
 };
 const DAILY_GOAL = 1000;   /* daily profit goal per store */
 const ACC_GOAL = 150;      /* daily accessories goal per store */
@@ -2935,7 +2935,7 @@ async function chargeSheet(t, c, after, opts = {}){
           const price = to99(parseFloat(String(v).replace(/,/g, '').match(/\d+(\.\d+)?/)?.[0])); if (!(price > 0)) { toast('That price needs a quote. Use Custom.'); return; }
           picked = {desc: `${rqDevice(x.k, x.m)} ${rqRepairName(x.k, x.m, x.c.cols[i])}`, device: rqDevice(x.k, x.m), cat: x.k === 'console' ? 'Console repair' : 'Repair', price}; body(); });
       } else if (tab === 'diag') {
-        const L2 = set.labor; const opts = [['Diagnostic · ' + t.device, 'Diagnostic', diagFor(t.device, set)], ['Labor · phone repair', 'Labor (part provided)', L2.phone], ['Labor · tablet repair', 'Labor (part provided)', L2.tablet],
+        const L2 = {...DEFAULT_SETTINGS.laborOnly, ...(set.laborOnly || {})}; const opts = [['Diagnostic · ' + t.device, 'Diagnostic', diagFor(t.device, set)], ['Labor · phone repair', 'Labor (part provided)', L2.phone], ['Labor · tablet repair', 'Labor (part provided)', L2.tablet],
           ['Labor · console repair', 'Labor (part provided)', L2.console], ['Labor · computer repair', 'Labor (part provided)', L2.computer], ['Data backup', 'Other', 74.99], ['Software restore', 'Other', 39.99]];
         B.innerHTML = `<div class="stack" style="gap:6px">${opts.map(([d, cat, pr], i) => `<div class="row" style="gap:8px"><span style="flex:1">${esc(d)}<span class="small muted" style="display:block">${esc(catLbl(cat))}</span></span>
           <input data-dp="${i}" inputmode="decimal" value="${pr}" aria-label="Price for ${esc(d)}" style="width:96px;min-height:40px;text-align:right"><button data-da="${i}" style="min-height:40px">Add</button></div>`).join('')}</div>
