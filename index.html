@@ -327,7 +327,8 @@ const invTotals = inv => { const sub = Math.round(inv.lines.reduce((a, l) => a +
   return Object.assign(inv, {subtotal: sub, tax, total: Math.round((sub + tax) * 100) / 100}); };
 const taxOf = lines => Math.max(0, Math.round(lines.filter(isTaxable).reduce((a, l) => a + (+l.price || 0) * (l.qty || 1), 0) * TAX_RATE * 100) / 100);
 const taxRow = (sub, tax) => `<div class="row small" style="justify-content:space-between"><span class="muted">Subtotal ${cents(sub)} · Sales tax 8.25% ${cents(tax)}</span>${tax === 0 && sub > 0 ? '<span class="muted">labor only, no tax</span>' : ''}</div>`;
-const PAYMENTS = ['Cash','Square (card)','Other'];   // cash or card (card runs on the Square iPad); Other = no money taken (e.g. store credit for a device we damaged)
+const PAYMENTS = ['Square (card)','Cash','Other'];   /* Square first: it's the default (most payments are card) */
+//   // cash or card (card runs on the Square iPad); Other = no money taken (e.g. store credit for a device we damaged)
 const DRAWER_KEEP = 100;   /* at close, the cash taken in that day goes into the buyback fund, but the drawer never drops under $100 */
 const DENOMS = [['b100', 100, '$100 bills'], ['b50', 50, '$50 bills'], ['b20', 20, '$20 bills'], ['b10', 10, '$10 bills'], ['b5', 5, '$5 bills'], ['b1', 1, '$1 bills'],
   ['c25', 0.25, 'Quarters'], ['c10', 0.10, 'Dimes'], ['c5', 0.05, 'Nickels'], ['c1', 0.01, 'Pennies']];
@@ -2935,7 +2936,7 @@ async function chargeSheet(t, c, after, opts = {}){
           const price = to99(parseFloat(String(v).replace(/,/g, '').match(/\d+(\.\d+)?/)?.[0])); if (!(price > 0)) { toast('That price needs a quote. Use Custom.'); return; }
           picked = {desc: `${rqDevice(x.k, x.m)} ${rqRepairName(x.k, x.m, x.c.cols[i])}`, device: rqDevice(x.k, x.m), cat: x.k === 'console' ? 'Console repair' : 'Repair', price}; body(); });
       } else if (tab === 'diag') {
-        const L2 = {...DEFAULT_SETTINGS.laborOnly, ...(set.laborOnly || {})}; const opts = [['Diagnostic · ' + t.device, 'Diagnostic', diagFor(t.device, set)], ['Labor · phone repair', 'Labor (part provided)', L2.phone], ['Labor · tablet repair', 'Labor (part provided)', L2.tablet],
+        const L2 = {...DEFAULT_SETTINGS.laborOnly, ...(set.laborOnly || {})}; const opts = [['Diagnostic · ' + t.device, 'Diagnostic', diagFor(t.device, set)], ['Water damage treatment · ' + t.device, 'Water damage treatment', 49.99], ['Labor · phone repair', 'Labor (part provided)', L2.phone], ['Labor · tablet repair', 'Labor (part provided)', L2.tablet],
           ['Labor · console repair', 'Labor (part provided)', L2.console], ['Labor · computer repair', 'Labor (part provided)', L2.computer], ['Data backup', 'Other', 74.99], ['Software restore', 'Other', 39.99]];
         B.innerHTML = `<div class="stack" style="gap:6px">${opts.map(([d, cat, pr], i) => `<div class="row" style="gap:8px"><span style="flex:1">${esc(d)}<span class="small muted" style="display:block">${esc(catLbl(cat))}</span></span>
           <input data-dp="${i}" inputmode="decimal" value="${pr}" aria-label="Price for ${esc(d)}" style="width:96px;min-height:40px;text-align:right"><button data-da="${i}" style="min-height:40px">Add</button></div>`).join('')}</div>
