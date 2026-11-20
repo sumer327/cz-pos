@@ -2207,7 +2207,7 @@ async function viewTicket(el){
   el.querySelectorAll('[data-oinv]').forEach(a => a.onclick = () => go('invoice', {invoiceId: a.dataset.oinv}));
   const moveRs = async pay => { try { let nt = t; for (const i of rsUnpaid) nt = await Store.rsInvoiceCharge(S.user, S.store, i.id);
       toast(`RepairShopr invoice${rsUnpaid.length > 1 ? 's' : ''} moved onto the ticket. Void ${rsUnpaid.length > 1 ? 'them' : 'it'} in RepairShopr.`); if (pay && nt?.charges) return openInvoiceFor(nt); await viewTicket(el); } catch (e) { toast(e.message); } };
-  $('#ch-pay') && ($('#ch-pay').onclick = () => paySheet(t, c, {}));
+  $('#ch-pay') && ($('#ch-pay').onclick = () => $('#t-pay') ? $('#t-pay').click() : openInvoiceFor(t));   /* same as the main Make invoice button: straight to the invoice page */
   $('#t-label') && ($('#t-label').onclick = () => printTicketLabel(t, c));
   if (S.justCreated === t.id) { S.justCreated = null;
     sheet(`<div class="row" style="justify-content:space-between"><h3>Ticket #${t.number} created</h3><button data-close>Done</button></div>
