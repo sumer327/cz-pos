@@ -1653,140 +1653,204 @@ const HELP_KB = [
  {t: 'Log in, clock in and lock the screen', k: 'login log in pin clock in clock out lock screen sign in start shift', s: [
   'Type your own 4-digit PIN on the lock screen. Never use someone else\'s.',
   'Tap **Clock in at [store]**. You can\'t buy devices until you\'re clocked in.',
-  'Stepping away? Tap your name (top right), then **Lock**. It also locks itself after 30 minutes idle.',
-  'End of shift: tap the green **Clocked in** button at the top, then **Clock out**.']},
- {t: 'Find a customer, ticket or phone', k: 'search find look up customer phone number name ticket number imei stock number barcode scan', s: [
+  'Stepping away? Tap your name (top right), then **🔒 Lock**. It also locks itself after 30 minutes idle.',
+  'End of shift: tap the green **Clocked in** button at the top, then **Clock out**. Forgot to clock in or out? Tell a manager: they fix it in Timesheets.']},
+ {t: 'Find a customer, ticket, invoice or phone', k: 'search find look up customer phone number name ticket number invoice number receipt sale imei stock number barcode scan', s: [
   'Use the search box at the top of every screen.',
-  'Type a name, phone number, ticket #, IMEI or stock #. Scanning a label barcode works too.',
-  'Tap the result to open it. Customers are shared by all 3 stores.']},
- {t: 'Check in a repair (new ticket)', k: 'new ticket check in repair create ticket drop off customer device', s: [
-  'Tap **+ New → New ticket** (or **Start ticket** from the **Quote** tab, which fills the device, repair and price).',
+  'Type a name, phone number, ticket # (200…), invoice # (300…), IMEI or stock # (50…). Scanning a label barcode works too.',
+  'An invoice # opens that invoice right away. Customers are shared by all 3 stores.']},
+ {t: 'Check in a repair (new ticket)', k: 'new ticket check in repair create ticket drop off customer device subject issue', s: [
+  'Tap **+ New → New ticket** (or **Start ticket** from **Quote**, which fills the device, repair and price).',
   'Search the customer by phone. Not there? Tap **New customer** and ask "How did you hear about us?"',
-  'Fill in the device, passcode, IMEI and the issue, then **Create ticket**.',
-  'In the popup: **Print ticket label** and stick it on the device.',
-  'Then **Collect diagnostic now** if they haven\'t paid it (see Diagnostic).']},
- {t: 'Charge the diagnostic up front', k: 'diagnostic diag fee 29 39 49 up front collect deposit', s: [
+  'Type the device: the **Issue** fills itself in. Pick the **Subject** from the list (Glass Repair, LCD/OLED Replacement, Battery Replacement…) or **Custom subject…** to type your own.',
+  'iPhones: type the **battery health %** (Settings → Battery → Battery Health) or pick N/A. Add the IMEI, passcode and notes for the tech.',
+  'Tap **Create ticket** once (it locks so you can\'t make two). Then **Print ticket label** and stick it on the device.',
+  'A price from the Quote tool goes on as a charge and pulls the part from stock by itself.']},
+ {t: 'Battery $20 off with another repair', k: 'battery deal 20 off discount upsell battery health popup offer usual price', s: [
+  'On an iPhone ticket, after you type the battery health the POS offers the battery at $20 off (usual price crossed out).',
+  'Customer says yes: tap **They want it**. A green note shows and the battery goes on the ticket when you create it (with **Remove** if they change their mind).',
+  'It never shows when the subject is **Battery Replacement**.']},
+ {t: 'Edit or delete a ticket', k: 'edit ticket wrong device change device subject imei call back number mistake delete ticket duplicate two tickets by accident', s: [
+  'Open the ticket and tap **Edit details**: change the device, subject, IMEI or call-back number and save.',
+  'Made a ticket by mistake (or two)? **Edit details → Delete ticket #…**, type the reason. Tickets with paid charges can\'t be deleted.']},
+ {t: 'Charge the diagnostic up front', k: 'diagnostic diag fee 29 39 49 up front collect', s: [
   'Phones $29.99 · tablets $39.99 · consoles/computers $49.99. No tax on it.',
-  'On the ticket, tap **Diagnostic · collect now**.',
-  'Pick how they paid and tap **Record payment**. The ticket stays open.',
+  'On the ticket, tap **Diagnostic · collect now**, then take the payment. The ticket stays open.',
   'If they do the repair, the diagnostic comes off the repair price automatically at pickup.']},
  {t: 'Add a charge to a ticket (repair, glass, part, labor)', k: 'add charge ticket price repair glass custom labor accessory case quoted price', s: [
   'Open the ticket and tap **+ Add charge**.',
-  'Pick the repair from the **Repair price list** (or Diagnostic & labor, Accessories, Custom).',
-  'The matching part is already picked: check it and tap **Add charge**. That part comes out of your store\'s stock.',
-  'It shows on the ticket as **Due**. Removing an unpaid charge puts the part back in stock.',
-  'Wrong charge? Tap ✕ next to it (only unpaid charges can be removed).']},
- {t: 'Customer picks up: take payment and close the ticket', k: 'pickup pick up checkout check out pay close ticket done resolved payment finish repair battery health', s: [
-  'Open the ticket and tap **Make invoice**. Add glass or an accessory on the invoice if they want one.',
-  'Leave all charges ticked and **Repair is done: close the ticket** checked.',
-  'Pick how they paid. Square: run the card on the Square iPad first.',
-  'Tap **Record payment**, then print, text or email the receipt.']},
+  'Tabs: **Repair price list**, **Diagnostic & labor** (diagnostic, water damage, labor only, data backup, software restore), **Accessories**, **Custom**.',
+  'Repairs: the matching part is already picked: check it and tap **Add charge**. That part comes out of your store\'s stock.',
+  'It shows on the ticket as **Due**. Wrong charge? Tap ✕ next to it (only unpaid charges): the part goes back in stock.']},
+ {t: 'Give a discount on a charge', k: 'discount off percent price lower deal coupon cheaper match price', s: [
+  'In **+ Add charge**, after picking the repair, type **Discount $** or **%**. "Customer pays" shows the final price.',
+  'The invoice and receipt show the regular price and the discount, so discounts are tracked.',
+  'On an invoice you can also tap **+ Discount**.']},
+ {t: 'Labor only (customer brought their own part)', k: 'labor only own part customer part brought part labor 75 100 part provided', s: [
+  '**+ Add charge → Diagnostic & labor**: Labor · phone repair **$75**, tablet / console / computer **$100**.',
+  'Labor isn\'t taxed. Change the price before tapping **Add** if the job is different.']},
+ {t: 'Water damage', k: 'water damage wet liquid cleaning treatment', s: [
+  '**+ Add charge → Diagnostic & labor → Water damage treatment** ($49.99, no tax).',
+  'Or pick **Water Damage** as the subject when you create the ticket.']},
+ {t: 'Take a deposit (partial payment, special order)', k: 'deposit partial payment half 50 percent upfront special order part pay part now rest later down payment', s: [
+  'Add the repair charge first so the POS knows the full price.',
+  'On the ticket tap **Take deposit**. It fills in **50%** (or tap **Full**, or type any amount), then **Take deposit**.',
+  'Take the payment on the invoice that opens. The ticket stays open.',
+  'At pickup tap **Make invoice**: the deposit comes off the bill by itself ("Deposit paid (invoice #…)"). The customer only pays the rest.',
+  'Customer backs out? Refund the deposit invoice (see Refund or return).']},
+ {t: 'Customer picks up: take payment and close the ticket', k: 'pickup pick up checkout check out pay close ticket done resolved payment finish repair invoice take payment', s: [
+  'Open the ticket and tap **Make invoice** (either button). The invoice page opens.',
+  'Add glass or an accessory if they want one (**+ Tempered glass…**, **+ Accessory or other item**, **+ Repair…**).',
+  'Tap **Take payment**. **Square (card)** is picked by default: run the card on the Square iPad first. Cash, split payments and Other are there too.',
+  'Leave **Repair is done: close ticket** checked and tap **Record payment**, then print, text or email the receipt.',
+  'Took payment by mistake? Don\'t make a new sale: tell a manager or Sam so the payment gets undone.']},
+ {t: 'Find past invoices (Invoices page)', k: 'invoices list all invoices history past sales newest receipts find invoice', s: [
+  'Go to **Counter → Invoices**: every invoice for your store, newest first.',
+  'Search by invoice #, ticket #, customer name, phone or item. Pick Today, 7 days, 31 days or All.',
+  'Tap a row to open it. **Receipt** reprints or texts it, **Refund** starts a refund.']},
  {t: 'Ring up a walk-in sale (accessories, glass)', k: 'register sale sell accessory case charger cable walk in ring up cash out record sale', s: [
   'Go to **Register**.',
-  'Tap a quick button (Tempered glass, Case, Charger…) or scan/search the item in the search box.',
+  'Tap a quick button (Tempered glass, Privacy glass…) or scan/search the item in the search box.',
   'Add the customer\'s phone if they want a receipt (required for glass).',
-  'Pick **Paid with** (run Square on the iPad first) and tap **Record sale**.']},
+  'Pick **Paid with** (Square is the default: run the card on the iPad first) and tap **Record sale**.']},
  {t: 'Ring up something that is not in inventory (manual item)', k: 'manual item not in inventory not in system dont have missing custom item other item product no barcode type price case charger ring up sell', s: [
   'Go to **Register** and type the item in the search box.',
-  'Tap **+ Ring up "…" as a manual item** (or just press Enter when nothing matches). You can also tap **+ Manual item**.',
+  'Tap **+ Ring up "…" as a manual item** (or press Enter when nothing matches). You can also tap **+ Manual item**.',
   'Type the price before tax and the quantity, pick the category, tap **Add to sale**.',
   'Write a clear name (like "Otterbox case iPhone 15") so the sale makes sense later.']},
  {t: 'Sell a phone', k: 'sell phone device sale iphone samsung stock number customer buying phone', s: [
   'Go to **Register** and type the stock #, IMEI or model in the search box.',
   'Tap the phone under **Phones in stock**, enter the selling price, tap OK.',
   'Phone isn\'t showing? Tap **+ Phone / device sale** and type the model, storage, carrier and IMEI with the price.',
-  'Pick how they paid and tap **Record sale**. If it was listed on Swappa, take the listing down.']},
- {t: 'Change a price on the sale', k: 'change price discount edit price lower price override', s: [
+  'Pick how they paid and tap **Record sale**.',
+  'If it was listed on Swappa, take the listing down right away (the 2-hour Swappa check also ends it): otherwise it can sell twice.']},
+ {t: 'Change a price on the sale', k: 'change price edit price lower price override', s: [
   'On the Register, tap the price next to the item in the **Sale** box.',
   'Type the new price (before tax) and tap **Save**.']},
  {t: 'Tempered glass and lifetime replacement', k: 'tempered glass screen protector privacy glass lifetime warranty replacement 5 dollars broken glass', s: [
-  'New glass: **Register → Tempered glass** ($29.99) or **Privacy glass** ($34.99). The customer\'s phone is required.',
-  'Replacement: tap **Lifetime replacement**, type their phone, pick their glass. It rings up at $5.',
+  'New glass: **Tempered glass** ($29.99) or **Privacy glass** ($34.99). The customer\'s phone is required.',
+  'Replacement under the lifetime warranty: on the Register tap **Lifetime replacement** and find their glass, or when adding glass to a ticket/invoice tick **Under lifetime warranty**. Phones $5, tablets $10.',
   'Nothing on file? A manager PIN can approve it.']},
  {t: 'Buy a device from a customer (buyback)', k: 'buyback buy device purchase phone from customer sell me sell us sells selling to us cash offer max price', s: [
   'Make sure you\'re clocked in. Go to **Buyback**.',
-  'The counter appraisal opens: pick the device, storage, carrier and condition (tick any repairs). Then tap the green **Buy it** button.',
-  'Run every test. iCloud/Google lock and blacklist must pass or you can\'t buy it.',
-  'Enter the seller\'s name, phone, birthday and photo ID (18+, not expired). No address needed.',
+  'In the counter appraisal pick the device, storage, carrier and condition, then tap **Buy it**. Not on the price sheet? Tap **Buy it anyway** and agree a price (manager PIN).',
+  'Type the IMEI: the **IMEI check** runs by itself (iCloud/Find My, blacklist, carrier). Follow the carrier steps it shows.',
+  'Run every test. iCloud/Google lock and blacklist must pass.',
+  'Enter the seller\'s name, phone, birthday, photo ID (18+, not expired) and **How did you hear about us** (required).',
   'Enter what you\'re paying (over max needs a manager PIN) and how they\'re paid, then **Complete buy**.',
   'Print the **Bill of sale** (seller signs) and the label, then pick where it goes: Inventory, Repair stock or Wholesale.']},
+ {t: 'IMEI check problem (iCloud, blacklist, financed)', k: 'imei check sickw icloud find my blacklist blacklisted financed locked carrier fail override', s: [
+  'Red (iCloud ON, blacklisted, Knox locked): don\'t buy it.',
+  'Yellow (carrier locked, financed, MDM): check with the carrier steps shown. Locked or financed phones go to Wholesale, never Swappa.',
+  'Sure it\'s fine anyway? Tap the override and write the reason: Josh gets an alert.']},
+ {t: 'See how we bought a device (buyback record)', k: 'buyback record how we bought condition tests passed failed notes seller id bill of sale atlas original purchase', s: [
+  'Go to **Buyback → 📒 Buyback log** and tap the buy, or open the device and tap **How we bought it**.',
+  'It shows every counter test (pass/fail), condition, battery, notes, the IMEI check, the seller and what we paid.',
+  '**Bill of sale (signed form)** reprints the form.']},
  {t: 'Trade-in: customer sells a device and buys something', k: 'trade in trade-in trading credit upgrade swap use toward purchase credit cash back new one', s: [
   'Do the buyback and pick **Trade-in credit** as the payout.',
   'On Buy complete tap **Use it now: ring up their purchase**.',
   'Add what they\'re buying. The green box takes the credit off the total.',
-  'Collect the balance, or if credit is more, pick **Give $X back in cash** or **Keep it as trade-in credit**.',
+  'Collect the balance, or if credit is more, give the rest back in cash or keep it as credit.',
   'Tap **Record sale**. Cash back comes from the buyback fund.']},
  {t: 'Customer wants cash instead of trade-in credit', k: 'cash instead change mind trade in credit cash out', s: [
   'On the Buy complete screen tap **They want cash instead**.',
   'Pay them from the buyback fund.']},
  {t: 'Receipts: print, text or email', k: 'receipt print text email reprint resend copy link', s: [
   'After every payment the receipt window opens: **Print receipt**, **Text receipt** or **Email receipt**.',
-  'Reprint later: open the ticket, find the invoice, tap **Receipt**.',
-  'Printer not right? In the print window pick the Epson and set margins to None.']},
- {t: 'Print a ticket or device label', k: 'label print dymo sticker barcode ticket label device label', s: [
-  'Ticket: open it and tap **Print label** (DYMO LabelWriter 450).',
-  'Device: from the Buy complete screen or the device\'s page tap **Print label**.',
-  'First time on a computer: pick the DYMO and set margins to None.']},
+  'Reprint later: **Counter → Invoices**, find it, tap **Receipt** (or open the ticket and tap the invoice).']},
+ {t: 'Text or email a customer', k: 'text message sms email customer send address call back direct line number not showing inbox reply', s: [
+  'From a ticket: **Communication to customer** → type or pick a template → **Send text**. Tap **Email [name]** to send an email instead.',
+  'Someone called the store\'s direct line? **Inbox → Calls & texts → + Text a number**, type their number.',
+  '**Send address** sends the store\'s address in one tap. Texts go out from the store\'s number and replies come back in the Inbox.']},
+ {t: 'Inbox: calls, texts and website leads', k: 'inbox calls texts missed call website leads quote request reply start ticket start buy', s: [
+  '**Inbox → Calls & texts**: every call and text to the store number. Tap **Text** / **Reply** to answer, **Start ticket** to check them in.',
+  '**Website leads**: quote and buyback requests from the website. Text them, set the status, then **Start ticket** or **Start buy**.']},
+ {t: 'Print a ticket or device label', k: 'label print dymo sticker barcode ticket label device label ready for sale wholesale repair stock tag', s: [
+  'Ticket: open it and tap **Print label**.',
+  'Device: open the device and tap **Print label**. The label says READY FOR SALE, WHOLESALE or REPAIR STOCK.',
+  'Moved a device or finished a repair? Print a new label so the tag and cost are right.']},
  {t: 'Open the register in the morning', k: 'open register morning drawer buyback fund count start of day', s: [
   'Go to **Register** and tap **Open register**.',
-  'Count the cash drawer: type how many of each bill and coin ($100s down to pennies). The POS adds it up.',
+  'Count the cash drawer: type how many of each bill and coin. The POS adds it up.',
   'Count the buyback fund and type it in, then save.']},
  {t: 'Close the register at night', k: 'close register end of day close out drawer deposit night count cash', s: [
-  'Go to **Register** (or **More → Close out**) and tap **Close register**.',
-  'Count the drawer and type it in, then type how much you are moving into the buyback fund (an even amount). Change and small bills can stay: they roll into tomorrow.',
-  'Count the buyback fund and type it in.',
-  'Off by $5 or more? Write a note explaining why.']},
- {t: 'Move a device: hot stock, Swappa, repair stock, wholesale', k: 'move device status hot stock swappa list repair stock wholesale where does it go devices', s: [
+  'Go to **Register** and tap **Close register**.',
+  'Count the drawer, then type how much goes into the buyback fund (an even amount). Change and small bills stay in the drawer for tomorrow.',
+  'Count the buyback fund and type it in. Off by $5 or more? Write a note explaining why.',
+  'Check **Today\'s transactions** before you close (see Today\'s report).']},
+ {t: 'Today\'s report: cash sales, profit, what an invoice was for', k: 'todays report transactions cash only card only profit what was this sale invoice drawer off closing check', s: [
+  '**Register → Today\'s report** (also inside Close register): every sale, refund and buyback today.',
+  'Tap **Cash** (or Square) at the top to see only those, with the count, total and profit.',
+  'Each line shows the customer, what was sold, the ticket # and profit. Tap the **Invoice #** to see exactly what was on it.']},
+ {t: 'Move a device: hot stock, Swappa, repair stock, wholesale', k: 'move device status hot stock swappa list repair stock wholesale where does it go devices inventory', s: [
   'Open **Devices** and tap the phone (or search its stock #).',
-  'Tap **Move it** and pick where it goes.',
+  'Tap **Move it** and pick where it goes, then print the new label.',
+  'Repair stock lives under **Repairs → Repair stock** (it\'s not in the Devices inventory list).',
   'Going to Atlas? Move it to **Wholesale**, never straight to "sent to Atlas".']},
+ {t: 'Repair stock: fix our own phone', k: 'repair stock our phone fix finish repair done add to inventory', s: [
+  'Go to **Repairs → Repair stock** and open the phone.',
+  'Add the parts used, then when it\'s fixed tap **Move it** to Inventory, Swappa or Wholesale.',
+  'The POS asks you to print a new label with the updated cost: do it and swap the label.']},
+ {t: 'Swappa: list, lower the price, ship a sale', k: 'swappa list listing price drop lower sold ship shipping label tracking paypal', s: [
+  '**Devices → Swappa**: **Ready to list** shows what to list. After listing on Swappa tap **Listed it · enter price**.',
+  'Price drop: tap **Lower price** and type the new price. The 2-hour Swappa sync changes it on Swappa for you.',
+  'Sold on Swappa: open the sale and tap **Ship · print label**. Tracking goes to Swappa and PayPal by itself.']},
  {t: 'Ship wholesale devices to Atlas', k: 'wholesale atlas ship box pack tracking packing list', s: [
   'Go to **Wholesale**.',
-  'Tick the devices going in the box (or **Tick all**) and tap **Ship to Atlas**.',
-  'Add the tracking number and tap **Clear wholesale and ship**. Print the packing list for the box.', 'To see a shipped box later, open **Shipped to Atlas** and tap **Details** on the batch: every IMEI and cost, with **Export to CSV**.']},
+  'Tick the devices going in the box and tap **Ship to Atlas**.',
+  'Add the tracking number, ship, and print the packing list for the box. Shipped boxes are under **Shipped to Atlas → Details**.']},
  {t: 'Use a part on a ticket', k: 'use part parts used part inventory ticket part oled lcd pull part stock', s: [
   'You don\'t need to: adding the repair charge pulls its part from stock automatically.',
-  'Warranty or rework with no charge? Open **Pull a part without a charge** under Parts pulled from stock.',
-  'Part not in stock? Tap **+ Special order a part** so it goes on the next order.']},
+  'Warranty or rework with no charge? Use **Pull a part without a charge** under Parts pulled from stock.']},
+ {t: 'Special order a part', k: 'special order part not in stock order part link amazon ebay rush', s: [
+  'On the ticket tap **+ Special order a part** (or **+ Order a part for this device** on a device).',
+  'Sentrix part: it goes on the next Mon/Thu order. Amazon / eBay / other link, or rush: pick it and Josh gets a Slack message.',
+  'Need money up front? Use **Take deposit** (see Take a deposit).']},
+ {t: 'Parts orders arrived (Sentrix orders)', k: 'sentrix order arrived received parts came in box mark received on the way', s: [
+  'Go to **Repairs → Parts → Sentrix orders**. Open the order under **On the way**.',
+  'Tap **Received** on each line (or **Everything arrived: receive all**). The parts are added to your stock.']},
  {t: 'End-of-day count (every night)', k: 'end of day count inventory nightly count phones screens rma refurb bin check off close', s: [
   'Go to **More → End-of-day count**. Do it after the last customer, before you close the register.',
-  '**1 · Phones:** scan each phone\'s label (or type its stock #). It turns green. Every phone on the list must be found.',
-  '**2 · Screens:** type how many of each screen are on the shelf. Type 0 if none. Don\'t look up what the POS says first.',
-  '**3 · Bins:** count the screens in the RMA bin and in the refurb bin.',
-  'Tap **Submit**. Anything that doesn\'t match shows in red for the manager.']},
+  '**1 · Phones:** scan each phone\'s label (or type its stock #). Every phone on the list must be found.',
+  '**2 · Screens:** type how many of each screen are on the shelf. Type 0 if none.',
+  '**3 · Bins:** count the screens in the RMA bin and the refurb bin, then **Submit tonight\'s count**.']},
  {t: 'Original screen to the refurb bin', k: 'refurb bin original screen glass repair refurb credit old screen keep', s: [
   '**Glass repair:** the screen you take off ALWAYS goes in the refurb bin.',
-  '**LCD / OLED replacement on an OLED phone** (iPhone X and newer, Galaxy S / Note / Z): the POS asks when you add the charge. Still lights up and touch works = refurb bin. Lines, black spots or no touch = damaged.',
-  'Put it in the bin right away. The bin count goes up by one and gets checked every night.']},
- {t: 'Tech board', k: 'tech board lineup queue order priority pickup time waiting tech dashboard', s: [
+  '**LCD / OLED replacement on an OLED phone**: the POS asks when you add the charge. Lights up and touch works = refurb bin. Lines, black spots or no touch = damaged.',
+  'Put it in the bin right away. The bin count is checked every night.']},
+ {t: 'Tech board', k: 'tech board lineup queue order priority pickup time waiting tech dashboard resolved today notes', s: [
   'Tap **Tech board**. Pick the tech at the top (techs see their own).',
-  'Lineup = New, In progress and Board level tickets, in order. Use **↑ ↓** or **Move to top** to change the order.',
+  'Lineup = New, In progress and Board level tickets, in order. Use **↑ ↓** or **Move to top**.',
   '**Pickup time**: when the customer is coming back. "Customer is waiting now" jumps it to the top.',
-  'Change the status right on the card. **Ready for Pickup** when it is done.']},
+  'Under the lineup, **Resolved / waiting on customer today** lists today\'s finished tickets: tap **Open · add notes** to write what you did.']},
+ {t: 'Tickets list: sort and filter', k: 'tickets list sort column filter status my tickets', s: [
+  'Go to **Repairs → Tickets**. Tap a column name (Ticket, Status, Customer, Tech…) to sort by it; tap again to flip it.',
+  'Use the status buttons to filter, and change a ticket\'s status right in the list.']},
  {t: 'Count parts or phones', k: 'count parts count phones inventory count daily count fix count check counts', s: [
-  'Go to **More → Counts**.',
-  'Tap **Start parts count** (Mon, Wed, Fri) or the phones count (every day).',
-  'Type what you see on the shelf and tap **Finish count**. Anything off gets flagged for the manager.']},
+  'Go to **More → Counts & parts check**.',
+  'Start the parts or phones count, type what you see on the shelf and save. Anything off gets flagged for the manager.']},
  {t: 'Transfer a device or part to another store', k: 'transfer another store send move to babcock bulverde potranco', s: [
-  'Open the device and tap **Transfer to another store** (or go to **More → Transfers**).',
+  'Open the device and tap **Transfer to another store** (or **More → Transfers → + New transfer**).',
   'Pick the store and send it. The other store taps **Received** when it arrives.']},
  {t: 'Repair quote for a customer', k: 'quote price how much repair cost screen battery good better best', s: [
   'Go to **Quote** and search the device.',
-  'Pick the repair: Glass Repair, LCD Replacement (aftermarket), OLED Replacement (premium) or the genuine Apple part.',
+  'Pick the repair: Glass Repair, LCD Replacement (aftermarket), OLED Replacement (premium) or the genuine part.',
   'Tap **Start ticket** to check it in with that price.']},
  {t: 'Refund or return', k: 'refund return money back give back cancel sale void exchange undo returned brought back', s: [
-  'Go to **Register** and tap **↩ Return / refund** (or open the ticket and tap **Refund** next to the invoice).',
-  'Type the receipt #, ticket # or the customer\'s phone, tap **Find**, and tap the sale.',
-  'Tick what they\'re bringing back. Change the amount on the right for a partial refund. Leave **Goes back on the shelf** ticked if it\'s sellable.',
-  'Pick the reason and how the money goes back. Card: refund it on the **Square iPad first**.',
-  'Tap **Refund $X**. Sales reps: a manager types their PIN to approve.',
+  'Go to **Register** and tap **↩ Return / refund** (or open the invoice and tap **Refund**).',
+  'Find the sale by receipt #, ticket # or phone, and tap it.',
+  'Tick what they\'re bringing back (change the amount for a partial refund). Leave **Goes back on the shelf** ticked if it\'s sellable.',
+  'Pick the reason and how the money goes back. Card: refund it on the **Square iPad first**. Sales reps need a manager PIN.',
   'Cash refund? Hand it back from the drawer. Print or text the refund receipt.']},
  {t: 'Exchange an item', k: 'exchange swap different case wrong size trade item', s: [
   'Refund the item they\'re bringing back (see Refund or return).',
   'Ring up the new item on the **Register** as a normal sale.']},
  {t: 'Rework or warranty repair', k: 'rework warranty came back broken again redo comeback', s: [
-  'Open the old ticket and tap **Open rework ticket**.',
+  'Open the old ticket and tap **Customer came back: open rework**.',
   'Repairs have a 6-month warranty from the payment date.']},
+ {t: 'Announcements', k: 'announcements news message from owner dashboard', s: [
+  'Announcements from Sam show on the Dashboard, between the quick buttons and the store goals. Read them at the start of every shift.']},
 ];
 
 /* ---------------- HELP CHAT ---------------- */
