@@ -333,9 +333,12 @@ function setLineDisc(l, amt, pct){
 }
 const IV_OPEN = new Set();
 const IV_UNLOCK = new Map();   // invoice line → manager who OK'd changing a price-sheet phone's price
-const isTaxable = l => typeof l.taxable === 'boolean' ? l.taxable : !['Diagnostic', 'Diagnostic credit', 'Water damage treatment', 'Labor (part provided)'].includes(l.cat) && !/water damage/i.test(l.desc || '');
+const isTaxable = l => typeof l.taxable === 'boolean' ? l.taxable : !['Diagnostic', 'Diagnostic credit', 'Water damage treatment', 'Labor (part provided)', 'Deposit', 'Deposit credit'].includes(l.cat) && !/water damage/i.test(l.desc || '');
 const invTotals = inv => { const sub = Math.round(inv.lines.reduce((a, l) => a + (+l.price || 0) * (+l.qty || 1), 0) * 100) / 100; const tax = taxOf(inv.lines);
   return Object.assign(inv, {subtotal: sub, tax, total: Math.round((sub + tax) * 100) / 100}); };
+/* deposits aren't income on their own: the deposit invoice shows no profit, and the final invoice's profit adds the deposit back */
+const depAdj = i => (i.lines || []).filter(l => ['Deposit', 'Deposit credit'].includes(l.cat)).reduce((a, l) => a + (+l.price || 0) * (+l.qty || 1), 0);
+const isDepOnly = i => (i.lines || []).length > 0 && i.lines.every(l => l.cat === 'Deposit');
 const taxOf = lines => Math.max(0, Math.round(lines.filter(isTaxable).reduce((a, l) => a + (+l.price || 0) * (l.qty || 1), 0) * TAX_RATE * 100) / 100);
 const taxRow = (sub, tax) => `<div class="row small" style="justify-content:space-between"><span class="muted">Subtotal ${cents(sub)} · Sales tax 8.25% ${cents(tax)}</span>${tax === 0 && sub > 0 ? '<span class="muted">labor only, no tax</span>' : ''}</div>`;
 const PAYMENTS = ['Square (card)','Cash','Other'];   /* Square first: it's the default (most payments are card) */
@@ -922,6 +925,7 @@ const DemoStore = {
     const ls = (t.charges || []).filter(x => !x.invoiceId && (!chargeIds || chargeIds.includes(x.id))).map(x => ({desc: x.desc, cat: x.cat, price: +x.price, qty: 1, taxable: isTaxable(x), chargeId: x.id, ...(x.productId ? {productId: x.productId} : {}), ...(x.glass ? {glass: x.glass, device: t.device} : {})}));
     if (!inv) { const rep = ls.filter(l => REPAIR_CATS.includes(l.cat)).reduce((a, l) => a + l.price, 0); const crs = (t.charges || []).filter(x => x.cat === 'Diagnostic' && x.invoiceId && !x.draft && !x.creditedOn);
       const cr = crs.reduce((a, x) => a + +x.price, 0); if (cr > 0 && rep >= cr) crs.forEach(x => ls.push({desc: `Diagnostic credit (paid on invoice #${x.invoiceNo})`, cat: 'Diagnostic credit', price: -x.price, qty: 1, taxable: false, creditId: x.id}));
+      if (ls.some(l => l.cat !== 'Deposit')) (t.charges || []).filter(x => x.cat === 'Deposit' && x.invoiceId && !x.draft && !x.creditedOn && !(chargeIds || []).includes(x.id)).forEach(x => ls.push({desc: `Deposit paid (invoice #${x.invoiceNo})`, cat: 'Deposit credit', price: -x.price, qty: 1, taxable: false, creditId: x.id}));
       inv = {id: uid(), number: d.nextInvoice++, at: now(), store, by: emp.id, ticketId: t.id, customerId: t.customerId, lines: ls, payment: 'Unpaid', payments: [], paid: false, partsCost: 0}; d.invoices.unshift(inv);
       t.comments.unshift({id: uid(), at: now(), who: emp.id, text: `Invoice #${inv.number} made (not paid yet)`, pub: false, sys: true}); }
     else inv.lines.push(...ls);
@@ -2093,7 +2097,9 @@ async function viewTicket(el){
   const partsCost = t.partsUsed.reduce((a, p) => a + (+p.cost || 0), 0);
   const ch = t.charges || []; const due = ch.filter(x => !x.invoiceId);
   const diagCr = ch.filter(x => x.cat === 'Diagnostic' && x.invoiceId && !x.draft && !x.creditedOn); const crNow = chSum(due.filter(x => REPAIR_CATS.includes(x.cat))) >= chSum(diagCr) ? chSum(diagCr) : 0;
-  const dueSum = chSum(due) - crNow + taxOf([...due, ...(crNow ? [{cat: 'Diagnostic credit', price: -crNow}] : [])]); const netCharged = chSum(ch) - chSum(ch.filter(x => x.creditedOn)) - crNow;
+  /* deposits (partial payment up front): paid on their own invoice, they come off the final bill */
+  const depPaid = ch.filter(x => x.cat === 'Deposit' && x.invoiceId && !x.draft && !x.creditedOn); const depNow = due.some(x => x.cat !== 'Deposit') ? chSum(depPaid) : 0;
+  const dueSum = chSum(due) - crNow - depNow + taxOf([...due, ...(crNow ? [{cat: 'Diagnostic credit', price: -crNow}] : [])]); const netCharged = chSum(ch.filter(x => x.cat !== 'Deposit')) - chSum(ch.filter(x => x.creditedOn && x.cat !== 'Deposit')) - crNow;
   const tInvAll = await Store.ticketInvoices(t.id).catch(() => []); const rsUnpaid = tInvAll.filter(i => i.paid === false && i.rsId && i.total > 0); const drafts = tInvAll.filter(i => i.paid === false && !i.rsId); const tInv = tInvAll.filter(i => i.paid !== false);
   const owed = drafts.reduce((a, i) => a + i.total, 0) + rsUnpaid.reduce((a, i) => a + i.total, 0); const paidSum = tInv.reduce((a, i) => a + Math.max(0, +i.total || 0), 0), refSum = -tInv.reduce((a, i) => a + Math.min(0, +i.total || 0), 0);
   const isOpen = t.status !== 'resolved';
@@ -2152,12 +2158,12 @@ async function viewTicket(el){
           : `<p class="small muted" style="margin:0">No check-in test on this ticket.${isOpen ? ' Run it now if the customer is still here.' : ''}</p>`}
       </div>` : ''}
       <div class="panel stack" id="t-charges">
-        <div class="row" style="justify-content:space-between"><h3>Charges</h3>${isOpen ? '<button class="primary" id="ch-add">+ Add charge</button>' : ''}</div>
+        <div class="row" style="justify-content:space-between"><h3>Charges</h3>${isOpen ? '<span class="row" style="gap:6px"><button id="ch-dep">Take deposit</button><button class="primary" id="ch-add">+ Add charge</button></span>' : ''}</div>
         ${isOpen && !(ch.some(x => x.cat === 'Diagnostic') || (t.type === 'rework' && t.warranty)) ? `<div class="row" style="gap:6px"><button data-qch="diag" style="min-height:36px;padding:4px 12px">Diagnostic ${cents(diagFor(t.device, set))} · collect now</button></div>` : ''}
         ${ch.length ? `<div class="tbl"><table><tbody>${ch.map(x => `<tr><td>${esc(x.desc)}<div class="small muted">${esc(catLbl(x.cat))}${x.glass ? ' · lifetime warranty' : ''} · ${esc(staffName(x.by))} · ${fmtDate(x.at)}</div>${x.partName ? `<div class="small" style="color:var(--ok)">Part pulled from stock: ${esc(x.partName)}</div>` : ''}${x.refurb ? `<div class="small" style="color:var(--warn)">Original screen → refurb bin <button data-rfl="${x.id}" style="min-height:26px;padding:0 8px;font-size:12px">Refurb label</button></div>` : ''}</td><td class="r num">${cents(x.price)}</td>
           <td class="r" style="white-space:nowrap">${x.invoiceId && x.draft ? `<a data-oinv="${x.invoiceId}" class="pill warn" style="cursor:pointer">On invoice #${esc(x.invoiceNo)} · not paid</a>` : x.invoiceId ? `<a data-oinv="${x.invoiceId}" class="pill ok" style="cursor:pointer">Paid · #${esc(x.invoiceNo)}</a>${x.creditedOn ? ` <span class="pill acc">credited on #${esc(x.creditedOn)}</span>` : ''}` : isOpen ? `<span class="pill warn">Due</span> <button data-rmch="${x.id}" aria-label="Remove ${esc(x.desc)}" style="min-height:30px;padding:2px 8px">✕</button>` : '<span class="pill bad">Unpaid</span>'}</td></tr>`).join('')}</tbody></table></div>`
           : `<p class="muted small" style="margin:0">${isOpen ? 'Nothing charged yet. Tap <b>+ Add charge</b> and pick the repair: the part comes out of stock by itself. When the customer picks up, tap <b>Make invoice</b>.' : 'No charges on this ticket.'}</p>`}
-        ${ch.length || tInvAll.length ? `<div class="row" style="justify-content:space-between;gap:12px;flex-wrap:wrap"><span class="small">Charged <b class="num">${cents(netCharged)}</b> + tax · Paid <b class="num">${cents(paidSum)}</b>${refSum ? ` · <span style="color:var(--bad)">Refunded ${cents(refSum)}</span>` : ''}${crNow ? ` · <span style="color:var(--ok)">${cents(crNow)} diagnostic comes off the repair</span>` : ch.some(x => x.creditedOn) ? ' · diagnostic credited' : diagCr.length ? ` · <span class="muted">${cents(chSum(diagCr))} diagnostic comes off once the repair is added</span>` : ''}</span><span>Balance due <b class="num" style="font-size:20px">${cents(dueSum + owed)}</b>${due.some(isTaxable) ? ' <span class="small muted">with tax</span>' : ''}</span></div>` : ''}
+        ${ch.length || tInvAll.length ? `<div class="row" style="justify-content:space-between;gap:12px;flex-wrap:wrap"><span class="small">Charged <b class="num">${cents(netCharged)}</b> + tax · Paid <b class="num">${cents(paidSum)}</b>${depPaid.length ? ` · <span style="color:var(--ok)">Deposit ${cents(chSum(depPaid))} comes off the final bill</span>` : ''}${refSum ? ` · <span style="color:var(--bad)">Refunded ${cents(refSum)}</span>` : ''}${crNow ? ` · <span style="color:var(--ok)">${cents(crNow)} diagnostic comes off the repair</span>` : ch.some(x => x.creditedOn) ? ' · diagnostic credited' : diagCr.length ? ` · <span class="muted">${cents(chSum(diagCr))} diagnostic comes off once the repair is added</span>` : ''}</span><span>Balance due <b class="num" style="font-size:20px">${cents(dueSum + owed)}</b>${due.some(isTaxable) ? ' <span class="small muted">with tax</span>' : ''}</span></div>` : ''}
         ${isOpen && (due.length || drafts.length) ? `<button class="primary" id="ch-pay" style="min-height:48px">${drafts.length && !due.length ? `Open invoice #${drafts[0].number} · ${cents(owed)}` : drafts.length ? `Add to invoice #${drafts[0].number} · ${cents(dueSum + owed)}` : 'Make invoice · ' + cents(dueSum)}</button>` : ''}
         ${rsUnpaid.length ? `<div class="banner warn small stack" style="gap:6px"><b>Not paid yet in RepairShopr</b>${rsUnpaid.map(i => `<span class="row" style="justify-content:space-between;gap:8px"><span class="num">Invoice #${i.number} · ${cents(i.total)} · ${fmtDate(i.at)}${(i.lines || []).length ? ' · ' + esc(i.lines.map(l => l.desc).join(', ')) : ''}</span><span class="pill bad">Unpaid</span></span>`).join('')}
           ${isOpen ? '<span>Tap <b>Make invoice</b> to collect it here: it moves onto this ticket as a charge. Then void it in RepairShopr.</span>' : ''}</div>` : ''}
@@ -2229,6 +2235,25 @@ Cellular Zone ${esc(STORES[t.store] || '')}</textarea>
     if (k === 'diag') return addCh({desc: 'Diagnostic · ' + t.device, cat: 'Diagnostic', price: diagFor(t.device, set)}, true);
  });
   $('#ch-add') && ($('#ch-add').onclick = () => chargeSheet(t, c, () => viewTicket(el)));
+  /* Take deposit: e.g. 50% up front on a special-order part. It's paid now on its own invoice and comes off the final bill automatically. */
+  $('#ch-dep') && ($('#ch-dep').onclick = () => { if (drafts.length) { toast(`Invoice #${drafts[0].number} is open on this ticket. Delete it (or take its payment) before taking a deposit.`); return; } const rest = due.filter(x => x.cat !== 'Deposit'); const est = Math.round((chSum(rest) - crNow + taxOf(rest)) * 100) / 100;
+    const half = est > 0 ? Math.round(est / 2 * 100) / 100 : '';
+    sheet(`<div class="row" style="justify-content:space-between"><h3>Take a deposit · ticket #${t.number}</h3><button data-close>Close</button></div>
+      <p class="small muted" style="margin:0">The customer pays part now (usually 50% to order a special part). It goes on its own invoice, and when they pick up, the deposit comes off the final bill by itself.</p>
+      ${est > 0 ? `<div class="row small" style="justify-content:space-between"><span>Charges on the ticket (with tax)</span><b class="num">${cents(est)}</b></div>` : '<div class="banner warn small">No charges on the ticket yet. Add the repair first so the 50% is right, or type the deposit amount.</div>'}
+      <div class="row" style="gap:8px;align-items:flex-end"><div class="field" style="margin:0;flex:1"><label class="label" for="dp-a">Deposit amount</label><input id="dp-a" inputmode="decimal" value="${half}" placeholder="0.00"></div>
+        ${est > 0 ? `<button type="button" id="dp-50" style="min-height:44px">50% · ${cents(half)}</button><button type="button" id="dp-100" style="min-height:44px">Full · ${cents(est)}</button>` : ''}</div>
+      <div class="field"><label class="label" for="dp-n">For</label><input id="dp-n" value="special order part" autocomplete="off"></div>
+      <div class="err" id="dp-e" role="alert"></div><button class="primary" id="dp-go" style="min-height:48px">Take deposit</button>`, (L, close) => {
+      const A = L.querySelector('#dp-a'); L.querySelector('#dp-50') && (L.querySelector('#dp-50').onclick = () => { A.value = half; }); L.querySelector('#dp-100') && (L.querySelector('#dp-100').onclick = () => { A.value = est; });
+      L.querySelector('#dp-go').onclick = async e => { const amt = Math.round(parseFloat(A.value) * 100) / 100; if (!(amt > 0)) { L.querySelector('#dp-e').textContent = 'Enter the deposit amount.'; return; }
+        if (est > 0 && amt > est + 0.004) { L.querySelector('#dp-e').textContent = `That's more than the ${cents(est)} on the ticket.`; return; }
+        e.target.disabled = true;
+        try { const r = await Store.ticketCharge(S.user, S.store, t.id, {desc: 'Deposit · ' + (L.querySelector('#dp-n').value.trim() || 'special order part'), cat: 'Deposit', price: amt});
+          const nt = r?.charges ? r : (await Store.tickets()).find(x => x.id === t.id); const dc = (nt.charges || []).filter(x => x.cat === 'Deposit' && !x.invoiceId).slice(-1)[0];
+          close(); return openInvoiceFor(nt, dc ? [dc.id] : null); }
+        catch (x) { L.querySelector('#dp-e').textContent = x.message; e.target.disabled = false; } };
+    }); });
   el.querySelectorAll('[data-oinv]').forEach(a => a.onclick = () => go('invoice', {invoiceId: a.dataset.oinv}));
   const moveRs = async pay => { try { let nt = t; for (const i of rsUnpaid) nt = await Store.rsInvoiceCharge(S.user, S.store, i.id);
       toast(`RepairShopr invoice${rsUnpaid.length > 1 ? 's' : ''} moved onto the ticket. Void ${rsUnpaid.length > 1 ? 'them' : 'it'} in RepairShopr.`); if (pay && nt?.charges) return openInvoiceFor(nt); await viewTicket(el); } catch (e) { toast(e.message); } };
@@ -3275,7 +3300,7 @@ async function regActivity(day, store = S.store){
   const items = i => (i.lines || []).filter(l => !['Discount', 'Diagnostic credit'].includes(l.cat) && +l.price >= 0).map(l => ((+l.qty || 1) > 1 ? l.qty + '× ' : '') + l.desc).join(', ');
   /* profit per invoice (before tax) = subtotal − our cost saved when it was paid; shown once per invoice (on its first payment line) */
   const COSTED = ['Repair', 'Board-level repair', 'Console repair', 'Phone sale', 'Accessory', 'Tempered glass'];
-  const profOf = i => { if (i.refundOf) return null; const cost = +i.partsCost || 0; return {p: Math.round(((+i.subtotal || 0) - cost) * 100) / 100, noCost: !cost && (i.lines || []).some(l => COSTED.includes(l.cat) && +l.price > 0)}; };
+  const profOf = i => { if (i.refundOf || isDepOnly(i)) return null; const cost = +i.partsCost || 0; return {p: Math.round(((+i.subtotal || 0) - depAdj(i) - cost) * 100) / 100, noCost: !cost && (i.lines || []).some(l => COSTED.includes(l.cat) && +l.price > 0)}; };
   const rows = [...iv.flatMap(i => payParts(i).map((p, pi) => ({at: i.at, prof: pi === 0 ? profOf(i) : null, what: `${i.refundOf ? 'Refund' : 'Invoice'} #${i.number}`, invId: i.id, who: i.by ? staffName(i.by) : '', method: p.method, note: p.note || '', amt: +p.amount || 0, kind: i.refundOf ? 'refund' : 'sale',
       cust: (ref.cust[i.customerId] || {}).name || '', tkt: (ref.tix[i.ticketId] || {}).number || null, items: items(i), split: payParts(i).length > 1 ? cents(i.total) + ' total, split' : ''}))),
     ...bb.map(b => ({at: b.at, what: `Buyback ${b.store}${b.receiptNo}`, who: staffName(b.by), method: b.payout, amt: -(+b.paid || 0), kind: 'buyback', bb: b, cust: [b.seller?.firstName, b.seller?.lastName].filter(Boolean).join(' ') || b.sellerName || '', items: [b.model, b.storage].filter(Boolean).join(' ')}))].sort((a, b) => new Date(a.at) - new Date(b.at));
@@ -4012,7 +4037,7 @@ async function viewInvoices(el){
         <td>${c ? `<a data-ivc="${c.id}" style="color:var(--accent);cursor:pointer">${esc(c.name)}</a><div class="small muted">${fmtPhone(c.phone)}</div>` : '<span class="muted">Walk-in</span>'}</td>
         <td>${t ? `<a data-ivt="${t.id}" style="color:var(--accent);cursor:pointer">#${t.number}</a>` : '<span class="muted">—</span>'}</td>
         <td class="small">${(i.lines || []).length ? i.lines.map(l => esc(l.desc)).join('<br>') : '<span class="muted">(from RepairShopr)</span>'}</td>
-        <td class="small">${esc(i.payment || '')}</td><td class="r num"><b>${cents(i.total)}</b></td>${(() => { if (i.paid === false || i.rsId && !i.by) return '<td class="r muted small">—</td>'; const pf = (i.subtotal ?? (i.total - (i.tax || 0))) - (+i.partsCost || 0);
+        <td class="small">${esc(i.payment || '')}</td><td class="r num"><b>${cents(i.total)}</b></td>${(() => { if (i.paid === false || i.rsId && !i.by) return '<td class="r muted small">—</td>'; if (isDepOnly(i)) return '<td class="r muted small">deposit</td>'; const pf = (i.subtotal ?? (i.total - (i.tax || 0))) - depAdj(i) - (+i.partsCost || 0);
           return `<td class="r num" style="color:${pf >= 0 ? 'var(--ok)' : 'var(--bad)'}" title="Before tax: ${cents(i.subtotal ?? (i.total - (i.tax || 0)))} sale − ${cents(+i.partsCost || 0)} our cost">${cents(pf)}</td>`; })()}
         <td class="small">${esc(i.by ? staffName(i.by) : 'RepairShopr')}</td>
         <td class="r"><button data-ivr="${i.id}" style="min-height:32px;padding:2px 10px">Receipt</button>${i.total > 0 && !i.refundOf && i.paid !== false ? ` <button data-ivf="${i.id}" style="min-height:32px;padding:2px 10px">Refund</button>` : ''}</td></tr>`; }).join('') || `<tr><td colspan="11" class="muted">${q ? 'No invoice matches that.' : 'No invoices in this period.'}</td></tr>`}
@@ -4532,7 +4557,7 @@ async function viewInvoice(el){
         <div class="row" style="justify-content:space-between"><span class="muted">Sales tax 8.25%</span><span class="num">${cents(inv.tax || 0)}</span></div>
         <div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding-top:8px"><b>Total</b><b class="num" style="font-size:26px">${cents(inv.total)}</b></div>
         ${L.length ? `<div class="row small" style="justify-content:space-between"><span class="muted">Our cost${!open && inv.paid !== false ? ' (saved when paid)' : costKnown.some((v, i) => v == null && !(L[i].price < 0 || ['Discount', 'Diagnostic credit'].includes(L[i].cat))) ? ' (some items have no cost)' : ''}</span><span class="num">${cents(costSum)}</span></div>
-          <div class="row small" style="justify-content:space-between"><b>Profit (before tax)</b><b class="num" style="font-size:18px;color:${(inv.subtotal ?? inv.total) - costSum >= 0 ? 'var(--ok)' : 'var(--bad)'}">${cents((inv.subtotal ?? inv.total) - costSum)}</b></div>` : ''}
+          <div class="row small" style="justify-content:space-between"><b>Profit (before tax)${depAdj(inv) < 0 ? ' <span class="muted" style="font-weight:400">· includes the deposit</span>' : ''}</b>${isDepOnly(inv) ? '<span class="muted">Deposit: profit counts on the final invoice</span>' : `<b class="num" style="font-size:18px;color:${(inv.subtotal ?? inv.total) - depAdj(inv) - costSum >= 0 ? 'var(--ok)' : 'var(--bad)'}">${cents((inv.subtotal ?? inv.total) - depAdj(inv) - costSum)}</b>`}</div>` : ''}
         ${open ? `<div class="row" style="justify-content:space-between"><span>Balance due</span><b class="num" style="color:var(--bad);font-size:20px">${cents(inv.total)}</b></div>
           <div class="err" id="iv-err" role="alert"></div>
           <button class="primary" id="iv-pay" style="min-height:56px;font-size:17px" ${L.length ? '' : 'disabled'}>Take payment · ${cents(inv.total)}</button>
@@ -4702,17 +4727,17 @@ async function combineThenPay(inv, t, c, el){
 }
 function payInvoiceSheet(inv, t, c, el, more = []){
   const TRp = {credits: [], use: true, cashBack: true}; const tot = Math.round(inv.total * 100) / 100;
-  const diagOnly = inv.lines.length && inv.lines.every(l => l.cat === 'Diagnostic');
+  const diagOnly = inv.lines.length && inv.lines.every(l => ['Diagnostic', 'Deposit'].includes(l.cat)); const depOnly = inv.lines.length && inv.lines.every(l => l.cat === 'Deposit');
   const dueLeft = t ? (t.charges || []).filter(x => !x.invoiceId).length : 0;
   let resolve = !!t && t.status !== 'resolved' && !diagOnly && !dueLeft;
   sheet(`<div class="row" style="justify-content:space-between"><h3>Take payment · invoice #${inv.number}</h3><button data-close>Close</button></div>
     <div class="row" style="justify-content:space-between"><span class="label">Total</span><span class="num" style="font-size:28px">${cents(tot)}</span></div>
     <div id="pi-trade"></div>
     ${t && t.status !== 'resolved' ? `<label class="row" style="gap:10px;align-items:flex-start;cursor:pointer;background:var(--soft);border-radius:var(--r);padding:10px 12px"><input type="checkbox" id="pi-res" style="width:22px;height:22px;margin-top:2px">
-      <span><b>Repair is done: close ticket #${t.number}</b><span class="small muted" style="display:block">${dueLeft ? `${dueLeft} charge${dueLeft === 1 ? ' is' : 's are'} still on the ticket and not on this invoice.` : diagOnly ? 'Diagnostic only: the ticket usually stays open.' : 'Ticket moves to Resolved and the customer gets the review text.'}</span></span></label>
+      <span><b>Repair is done: close ticket #${t.number}</b><span class="small muted" style="display:block">${dueLeft ? `${dueLeft} charge${dueLeft === 1 ? ' is' : 's are'} still on the ticket and not on this invoice.` : depOnly ? 'Deposit: the ticket stays open until the repair is done and paid.' : diagOnly ? 'Diagnostic only: the ticket usually stays open.' : 'Ticket moves to Resolved and the customer gets the review text.'}</span></span></label>
     <div id="pi-bh" class="grid g2" hidden><div class="field"><label class="label" for="pi-bhv">Battery health % (needed to close this iPhone ticket)</label><input id="pi-bhv" inputmode="numeric" placeholder="87"></div>
       <div class="field"><label class="label" for="pi-bhs">Or: couldn't read it because</label><select id="pi-bhs"><option value="">—</option><option>Disabled / passcode unknown</option><option>No display / can't see it</option><option>Won't turn on</option><option>Boot looping</option></select></div></div>` : ''}
-    ${more.map(x => { const mine = inv.lines.filter(l => (x.charges || []).some(ch => ch.id === l.chargeId)); const dOnly = mine.length && mine.every(l => l.cat === 'Diagnostic');
+    ${more.map(x => { const mine = inv.lines.filter(l => (x.charges || []).some(ch => ch.id === l.chargeId)); const dOnly = mine.length && mine.every(l => ['Diagnostic', 'Deposit'].includes(l.cat));
       return x.status === 'resolved' ? '' : `<label class="row" style="gap:10px;align-items:flex-start;cursor:pointer;background:var(--soft);border-radius:var(--r);padding:10px 12px"><input type="checkbox" data-mres="${x.id}" ${dOnly ? '' : 'checked'} style="width:22px;height:22px;margin-top:2px">
         <span><b>Close ticket #${x.number}</b> · ${esc(x.device || '')}<span class="small muted" style="display:block">${dOnly ? 'Diagnostic only: the ticket usually stays open.' : 'Picked up and paid: moves to Resolved.'}</span></span></label>`; }).join('')}
     <div class="field" id="pi-payf"><label class="label" for="pi-pay">Paid with</label><select id="pi-pay">${PAYMENTS.map(p => `<option>${p}</option>`).join('')}</select>
