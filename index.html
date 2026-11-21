@@ -2511,7 +2511,9 @@ async function viewNewTicket(el){
     $('#nt-sub').hidden = !(cur && !inList) && sel.value !== '__custom'; };
   subOpts();
   $('#nt-subsel').onchange = e => { const v = e.target.value; const inp = $('#nt-sub');
-    if (v === '__custom') { inp.hidden = false; if (SUBJECTS[$('#nt-iss').value]?.includes(inp.value)) inp.value = ''; inp.focus(); } else { inp.value = v; inp.hidden = true; } keep(); };
+    if (v === '__custom') { inp.hidden = false; if (SUBJECTS[$('#nt-iss').value]?.includes(inp.value)) inp.value = ''; inp.focus(); } else { inp.value = v; inp.hidden = true; } keep();
+    /* the ticket IS the battery: drop the $20-off battery add-on if it was accepted */
+    if (/batt/i.test(D.subject || '') && D.addBatt) { D.addBatt = null; const y = window.scrollY; viewNewTicket(el).then(() => window.scrollTo(0, y)); toast('Battery add-on removed: this ticket is the battery replacement'); } };
   /* battery health typed in → offer the $20-off battery right here (once per ticket), before the ticket is created */
   /* pops up while they type (short pause after 2 digits) or when they tab/click to another field, never when the click is Create ticket */
   let bhT = null; const bhIn = $('#nt-bh');
@@ -2545,7 +2547,7 @@ async function viewNewTicket(el){
         await Store.ticketCharge(S.user, S.store, t.id, {desc: D.subject.trim(), cat, price: +D.estimate, ...(pid ? {partId: pid} : {})}); } catch (e) { toast("Ticket made, but the quoted charge didn't save: " + e.message); } }
     if (bhN && (bhV || D.bhs)) { try { await Store.updateTicket(S.user, S.store, t.id, bhV ? {bh: +bhV} : {bhSkip: D.bhs}); } catch (e) { toast("Ticket made, but the battery health didn't save: " + e.message); } }
     if (testable(D.device) && testsDone(D.tests)) { try { await Store.saveTicketTest(S.user, S.store, t.id, 'checkin', D.tests, (D.testNote || '').trim()); } catch (e) { toast("Ticket made, but the check-in test didn't save: " + e.message); } }
-    if (D.addBatt) { try { const p = await addBatteryCharge(t, D.addBatt); toast('Battery added at ' + cents(D.addBatt.deal) + (p ? ' · battery pulled from stock' : ' · no battery on the shelf: special order it')); } catch (x) { toast("Ticket made, but the battery didn't save: " + x.message); } }
+    if (D.addBatt && !/batt/i.test(D.subject + ' ' + D.issue)) { try { const p = await addBatteryCharge(t, D.addBatt); toast('Battery added at ' + cents(D.addBatt.deal) + (p ? ' · battery pulled from stock' : ' · no battery on the shelf: special order it')); } catch (x) { toast("Ticket made, but the battery didn't save: " + x.message); } }
     S.draft = {}; S.justCreated = t.id; go('ticket', {ticketId: t.id});
   };
 }
