@@ -301,6 +301,17 @@ const PRIORITIES = [[0,'0 Urgent'],[1,'1 High'],[2,'2 Normal'],[3,'3 Low']];
 const issueGuess = d => /iphone/i.test(d) ? 'iPhone Repair' : /ipad/i.test(d) ? 'iPad Repair' : /macbook|imac|mac\b/i.test(d) ? 'Macbook Repair' : /ps[2345]|playstation|xbox|switch|console/i.test(d) ? 'Game Console Repair' : /galaxy|samsung|pixel|moto|note|s2\d/i.test(d) ? 'Smartphone Repair' : /tab|surface/i.test(d) ? 'Tablet Repair' : /laptop|pc|computer|dell|hp|lenovo/i.test(d) ? 'Computer Repair' : '';
 const TS = Object.fromEntries(TSTATUS.map(t => [t[0], t]));
 const stPill = k => `<span class="st ${TS[k][2]}">${TS[k][1]}</span>`;
+/* common ticket subjects per issue (new-ticket dropdown; "Custom subject…" lets them type anything) */
+const SUBJECTS = {
+  'iPhone Repair': ['Glass Repair', 'LCD/OLED Replacement', 'Battery Replacement', 'Back Glass Replacement', 'Charging Port Replacement', 'Diagnostics', 'Water Damage'],
+  'Smartphone Repair': ['Screen Replacement', 'Battery Replacement', 'Back Glass Replacement', 'Charging Port Replacement', 'Camera Replacement', 'Diagnostics', 'Water Damage'],
+  'iPad Repair': ['Glass/Digitizer Replacement', 'LCD Replacement', 'Battery Replacement', 'Charging Port Replacement', 'Diagnostics', 'Water Damage'],
+  'Tablet Repair': ['Screen Replacement', 'Battery Replacement', 'Charging Port Replacement', 'Diagnostics', 'Water Damage'],
+  'Macbook Repair': ['Screen Replacement', 'Battery Replacement', 'Keyboard Replacement', 'Charging Port Repair', 'Software Restore', 'Data Backup', 'Diagnostics', 'Water Damage'],
+  'Computer Repair': ['Screen Replacement', 'Battery Replacement', 'Keyboard Replacement', 'Charging Port / DC Jack Repair', 'Software Restore / Virus Removal', 'Data Backup', 'Diagnostics', 'Water Damage'],
+  'Game Console Repair': ['HDMI Port Replacement', 'Overheating (Cleaning + Thermal Paste)', 'Disc Drive Repair', 'Charging Port Replacement', 'Joy-Con / Controller Drift Repair', 'Diagnostics'],
+  'Phone Sale': ['Phone Sale']
+};
 const ISSUES = ['iPhone Repair','Smartphone Repair','iPad Repair','Computer Repair','Tablet Repair','Phone Sale','Macbook Repair','Game Console Repair'];
 const catLbl = c => c === 'Labor (part provided)' ? 'Labor' : c;   /* the stored category keeps its old name so reports don't change */
 const LINE_CATS = ['Repair','Board-level repair','Diagnostic','Water damage treatment','Console repair','Phone sale','Accessory','Tempered glass','Labor (part provided)','Other'];
@@ -2461,6 +2472,8 @@ async function viewNewTicket(el){
         ${+D.estimate > 0 ? `<div class="field"><span class="label">From the quote</span><div class="small" style="padding-top:8px"><b>${cents(+D.estimate)}</b> is added to the ticket's charges</div></div>` : ''}
         <div class="field"><label class="label" for="nt-imei">IMEI / serial</label><input id="nt-imei" value="${esc(D.imei || '')}" autocomplete="off"></div>
       </div>
+      <div class="field"><label class="label" for="nt-subsel">Subject</label><select id="nt-subsel"></select>
+        <input id="nt-sub" value="${esc(D.subject || '')}" placeholder="Type the subject (e.g. Face ID repair)" style="margin-top:6px" autocomplete="off"></div>
       <div class="field"><label class="label" for="nt-cb">Call-back number <span class="muted" style="font-weight:400">(optional)</span></label><input id="nt-cb" inputmode="tel" value="${esc(D.callback || '')}" placeholder="Only if different from the number on the account" autocomplete="off"></div>
       <div class="grid g2" id="nt-bhbox" ${bhAtCheckin(D.device, D.issue) ? '' : 'hidden'}>
         <div class="field"><label class="label" for="nt-bh">Battery health % <span class="muted" style="font-weight:400">(iPhone: required)</span></label><input id="nt-bh" inputmode="numeric" value="${esc(D.bh || '')}" placeholder="87"><div class="small muted">Settings → Battery → Battery Health</div></div>
@@ -2468,7 +2481,6 @@ async function viewNewTicket(el){
         <div class="field"><label class="label" for="nt-bhs">Or N/A</label><select id="nt-bhs"><option value="">—</option>${["N/A", "Disabled / passcode unknown", "No display / can't see the screen", "Won't turn on", "Boot looping"].map(o => `<option ${D.bhs === o ? 'selected' : ''}>${o}</option>`).join('')}</select></div>
       </div>
       <div class="field"><span class="label">Passcode, so the tech can test it</span><div id="nt-pcbox" class="stack" style="gap:8px"></div></div>
-      <div class="field"><label class="label" for="nt-sub">Subject</label><input id="nt-sub" value="${esc(D.subject || '')}" placeholder="iPhone 15 Pro lcd replacement"></div>
       <div class="field"><label class="label" for="nt-notes">Notes for the tech</label><textarea id="nt-notes" rows="2" placeholder="Face ID works before repair. Small dent top left.">${esc(D.notes || '')}</textarea></div>
       <div class="field"><label class="label" for="nt-tech">Assign tech</label><select id="nt-tech"><option value="">Unassigned</option>${S.staff.filter(e => e.active).map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select></div>
       <div class="err" id="nt-err" role="alert"></div>
@@ -2493,6 +2505,13 @@ async function viewNewTicket(el){
   $('#nt-chg') && ($('#nt-chg').onclick = () => { keep(); D.customerId = null; viewNewTicket(el); });
   $('#nt-newc') && ($('#nt-newc').onclick = () => { keep(); customerSheet({name: /\d/.test(D.cq || '') ? '' : D.cq, phone: /\d/.test(D.cq || '') ? D.cq : ''}, row => { D.customerId = row.id; viewNewTicket(el); }); });
   const bhShow = () => { $('#nt-bhbox').hidden = !bhAtCheckin($('#nt-dev').value, $('#nt-iss').value); };
+  /* subject: pick a common one for this issue, or "Custom subject…" to type it */
+  const subOpts = () => { const list = SUBJECTS[$('#nt-iss').value] || [...new Set(Object.values(SUBJECTS).flat())]; const cur = $('#nt-sub').value.trim(); const sel = $('#nt-subsel');
+    const inList = list.includes(cur); sel.innerHTML = `<option value="">Pick one…</option>${list.map(x => `<option ${x === cur ? 'selected' : ''}>${esc(x)}</option>`).join('')}<option value="__custom" ${cur && !inList ? 'selected' : ''}>Custom subject…</option>`;
+    $('#nt-sub').hidden = !(cur && !inList) && sel.value !== '__custom'; };
+  subOpts();
+  $('#nt-subsel').onchange = e => { const v = e.target.value; const inp = $('#nt-sub');
+    if (v === '__custom') { inp.hidden = false; if (SUBJECTS[$('#nt-iss').value]?.includes(inp.value)) inp.value = ''; inp.focus(); } else { inp.value = v; inp.hidden = true; } keep(); };
   /* battery health typed in → offer the $20-off battery right here (once per ticket), before the ticket is created */
   /* pops up while they type (short pause after 2 digits) or when they tab/click to another field, never when the click is Create ticket */
   let bhT = null; const bhIn = $('#nt-bh');
@@ -2503,9 +2522,9 @@ async function viewNewTicket(el){
     if (D.battAsked || !(+b >= 1 && +b <= 100) || !bhAtCheckin(D.device, D.issue) || /batt/i.test((D.subject || '') + ' ' + (D.issue || ''))) return;
     D.battAsked = true; batteryUpsell({device: D.device.trim(), subject: D.subject, issue: D.issue, store: S.store}, b, {onYes: o => { keep(); D.addBatt = o; const y = window.scrollY; viewNewTicket(el).then(() => window.scrollTo(0, y)); toast('Battery will be added when you create the ticket'); }}); }
   $('#nt-battx') && ($('#nt-battx').onclick = () => { keep(); D.addBatt = null; const y = window.scrollY; viewNewTicket(el).then(() => window.scrollTo(0, y)); });
-  $('#nt-iss').onchange = () => { $('#nt-iss').dataset.touched = 1; bhShow(); };
+  $('#nt-iss').onchange = () => { $('#nt-iss').dataset.touched = 1; bhShow(); subOpts(); };
   if (D.issue) $('#nt-iss').dataset.touched = 1;
-  $('#nt-dev').oninput = () => { if (!$('#nt-iss').dataset.touched) { const g = issueGuess($('#nt-dev').value); if (g) $('#nt-iss').value = g; } $('#nt-testp').hidden = !testable($('#nt-dev').value); bhShow(); };
+  $('#nt-dev').oninput = () => { if (!$('#nt-iss').dataset.touched) { const g = issueGuess($('#nt-dev').value); if (g && $('#nt-iss').value !== g) { $('#nt-iss').value = g; subOpts(); } } $('#nt-testp').hidden = !testable($('#nt-dev').value); bhShow(); };
   $('#nt').onsubmit = async e => {
     e.preventDefault(); keep();
     const cbd = (D.callback || '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
