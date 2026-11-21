@@ -939,6 +939,8 @@ const DemoStore = {
     const t = inv.ticketId && d.tickets.find(x => x.id === inv.ticketId);
     if (t) (t.charges || []).filter(x => x.invoiceId === inv.id).forEach(x => { const l = lines.find(y => y.chargeId === x.id); if (!l) { delete x.invoiceId; delete x.invoiceNo; delete x.draft; } else Object.assign(x, {desc: l.desc, price: l.price * l.qty}); });
     this.save(d); return inv; },
+  async releaseInvoice(emp, store, id){ const d = this.db(); const inv = d.invoices.find(i => i.id === id); if (!inv || inv.paid !== false || !inv.ticketId) throw new Error('Only an unpaid ticket invoice can be split.');
+    d.tickets.forEach(t => (t.charges || []).forEach(c => { if (c.invoiceId === id) { delete c.invoiceId; delete c.invoiceNo; delete c.draft; } })); d.invoices = d.invoices.filter(i => i.id !== id); this.save(d); return {ok: true, ticketId: inv.ticketId}; },
   async voidInvoice(emp, store, id){ const d = this.db(); if (!['owner', 'manager'].includes(emp.role)) throw new Error('Only a manager can delete an invoice.'); const inv = d.invoices.find(i => i.id === id); if (!inv || inv.paid !== false) throw new Error('Only unpaid invoices can be deleted.');
     const t = inv.ticketId && d.tickets.find(x => x.id === inv.ticketId);
     if (t) { (t.charges || []).filter(x => x.invoiceId === inv.id).forEach(x => { delete x.invoiceId; delete x.invoiceNo; delete x.draft; }); t.comments.unshift({id: uid(), at: now(), who: emp.id, text: `Invoice #${inv.number} deleted (it was never paid). Its charges are back on the ticket.`, pub: false, sys: true}); }
@@ -1359,6 +1361,7 @@ const LiveStore = {
   async invoiceByNumber(n){ const {data} = await this.sb.from('invoices_v').select('*').eq('number', +n).limit(1); return data?.[0] || null; },
   async makeInvoice(emp, store, ticketId, chargeIds){ const r = await this.rpc('pos_make_invoice', {p_pin: this.pinFor(emp), p_store: store, p_ticket: ticketId, p_charge_ids: chargeIds || null}); this.cT.delete(ticketId); await this.loadTicket(ticketId).catch(() => {}); this.keep(this.cI, [r]); return r; },
   async saveInvoice(emp, store, id, lines){ const r = await this.rpc('pos_save_invoice', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_lines: lines}); this.keep(this.cI, [r]); if (r.ticketId) this.cT.delete(r.ticketId); return r; },
+  async releaseInvoice(emp, store, id){ const r = await this.rpc('pos_draft_release', {p_pin: this.pinFor(emp), p_store: store, p_id: id}); this.cI.delete(id); if (r?.ticketId) { this.cT.delete(r.ticketId); await this.loadTicket(r.ticketId).catch(() => {}); } return r; },
   async voidInvoice(emp, store, id){ const r = await this.rpc('pos_void_invoice', {p_pin: this.pinFor(emp), p_store: store, p_id: id}); this.cI.delete(id); if (r.ticketId) { this.cT.delete(r.ticketId); await this.loadTicket(r.ticketId).catch(() => {}); } return r; },
   async findInvoices(emp, q){ return (await this.rpc('pos_find_invoices', {p_pin: this.pinFor(emp), p_q: q})) || []; },
   async refund(emp, store, ref, approver){ const r = await this.rpc('pos_refund', {p_pin: this.pinFor(emp), p_store: store, p_ref: ref, p_approver_pin: approver && approver.id !== emp.id ? this.pinFor(approver) : null});
@@ -1692,12 +1695,12 @@ const HELP_KB = [
  {t: 'Water damage', k: 'water damage wet liquid cleaning treatment', s: [
   '**+ Add charge → Diagnostic & labor → Water damage treatment** ($49.99, no tax).',
   'Or pick **Water Damage** as the subject when you create the ticket.']},
- {t: 'Take a deposit (partial payment, special order)', k: 'deposit partial payment half 50 percent upfront special order part pay part now rest later down payment', s: [
-  'Add the repair charge first so the POS knows the full price.',
-  'On the ticket tap **Take deposit**. It fills in **50%** (or tap **Full**, or type any amount), then **Take deposit**.',
-  'Take the payment on the invoice that opens. The ticket stays open.',
-  'At pickup tap **Make invoice**: the deposit comes off the bill by itself ("Deposit paid (invoice #…)"). The customer only pays the rest.',
-  'Customer backs out? Refund the deposit invoice (see Refund or return).']},
+ {t: 'Deposit or partial payment (pay part now, rest later)', k: 'deposit partial payment half 50 percent upfront special order part pay part now rest later down payment split pay some', s: [
+  'On the ticket tap **Deposit / partial payment** (or on an open invoice tap **Customer pays part now**).',
+  'Pick **Deposit (to order a part)** or **Partial payment**.',
+  'Type any amount, or tap a shortcut: **25%**, **50%**, **75%** or **Full**. Add a note if you want, then **Continue to payment** and take the payment.',
+  'The ticket stays open. When they pay the rest, tap **Make invoice**: what they already paid comes off the bill by itself.',
+  'Customer backs out? Refund that payment\'s invoice (see Refund or return).']},
  {t: 'Customer picks up: take payment and close the ticket', k: 'pickup pick up checkout check out pay close ticket done resolved payment finish repair invoice take payment', s: [
   'Open the ticket and tap **Make invoice** (either button). The invoice page opens.',
   'Add glass or an accessory if they want one (**+ Tempered glass…**, **+ Accessory or other item**, **+ Repair…**).',
@@ -2222,7 +2225,7 @@ async function viewTicket(el){
           : `<p class="small muted" style="margin:0">No check-in test on this ticket.${isOpen ? ' Run it now if the customer is still here.' : ''}</p>`}
       </div>` : ''}
       <div class="panel stack" id="t-charges">
-        <div class="row" style="justify-content:space-between"><h3>Charges</h3>${isOpen ? '<span class="row" style="gap:6px"><button id="ch-dep">Take deposit</button><button class="primary" id="ch-add">+ Add charge</button></span>' : ''}</div>
+        <div class="row" style="justify-content:space-between"><h3>Charges</h3>${isOpen ? '<span class="row" style="gap:6px"><button id="ch-dep">Deposit / partial payment</button><button class="primary" id="ch-add">+ Add charge</button></span>' : ''}</div>
         ${isOpen && !(ch.some(x => x.cat === 'Diagnostic') || (t.type === 'rework' && t.warranty)) ? `<div class="row" style="gap:6px"><button data-qch="diag" style="min-height:36px;padding:4px 12px">Diagnostic ${cents(diagFor(t.device, set))} · collect now</button></div>` : ''}
         ${ch.length ? `<div class="tbl"><table><tbody>${ch.map(x => `<tr><td>${esc(x.desc)}<div class="small muted">${esc(catLbl(x.cat))}${x.glass ? ' · lifetime warranty' : ''} · ${esc(staffName(x.by))} · ${fmtDate(x.at)}</div>${x.partName ? `<div class="small" style="color:var(--ok)">Part pulled from stock: ${esc(x.partName)}</div>` : ''}${x.refurb ? `<div class="small" style="color:var(--warn)">Original screen → refurb bin <button data-rfl="${x.id}" style="min-height:26px;padding:0 8px;font-size:12px">Refurb label</button></div>` : ''}</td><td class="r num">${cents(x.price)}</td>
           <td class="r" style="white-space:nowrap">${x.invoiceId && x.draft ? `<a data-oinv="${x.invoiceId}" class="pill warn" style="cursor:pointer">On invoice #${esc(x.invoiceNo)} · not paid</a>` : x.invoiceId ? `<a data-oinv="${x.invoiceId}" class="pill ok" style="cursor:pointer">Paid · #${esc(x.invoiceNo)}</a>${x.creditedOn ? ` <span class="pill acc">credited on #${esc(x.creditedOn)}</span>` : ''}` : isOpen ? `<span class="pill warn">Due</span> <button data-rmch="${x.id}" aria-label="Remove ${esc(x.desc)}" style="min-height:30px;padding:2px 8px">✕</button>` : '<span class="pill bad">Unpaid</span>'}</td></tr>`).join('')}</tbody></table></div>`
@@ -2299,25 +2302,8 @@ Cellular Zone ${esc(STORES[t.store] || '')}</textarea>
     if (k === 'diag') return addCh({desc: 'Diagnostic · ' + t.device, cat: 'Diagnostic', price: diagFor(t.device, set)}, true);
  });
   $('#ch-add') && ($('#ch-add').onclick = () => chargeSheet(t, c, () => viewTicket(el)));
-  /* Take deposit: e.g. 50% up front on a special-order part. It's paid now on its own invoice and comes off the final bill automatically. */
-  $('#ch-dep') && ($('#ch-dep').onclick = () => { if (drafts.length) { toast(`Invoice #${drafts[0].number} is open on this ticket. Delete it (or take its payment) before taking a deposit.`); return; } const rest = due.filter(x => x.cat !== 'Deposit'); const est = Math.round((chSum(rest) - crNow + taxOf(rest)) * 100) / 100;
-    const half = est > 0 ? Math.round(est / 2 * 100) / 100 : '';
-    sheet(`<div class="row" style="justify-content:space-between"><h3>Take a deposit · ticket #${t.number}</h3><button data-close>Close</button></div>
-      <p class="small muted" style="margin:0">The customer pays part now (usually 50% to order a special part). It goes on its own invoice, and when they pick up, the deposit comes off the final bill by itself.</p>
-      ${est > 0 ? `<div class="row small" style="justify-content:space-between"><span>Charges on the ticket (with tax)</span><b class="num">${cents(est)}</b></div>` : '<div class="banner warn small">No charges on the ticket yet. Add the repair first so the 50% is right, or type the deposit amount.</div>'}
-      <div class="row" style="gap:8px;align-items:flex-end"><div class="field" style="margin:0;flex:1"><label class="label" for="dp-a">Deposit amount</label><input id="dp-a" inputmode="decimal" value="${half}" placeholder="0.00"></div>
-        ${est > 0 ? `<button type="button" id="dp-50" style="min-height:44px">50% · ${cents(half)}</button><button type="button" id="dp-100" style="min-height:44px">Full · ${cents(est)}</button>` : ''}</div>
-      <div class="field"><label class="label" for="dp-n">For</label><input id="dp-n" value="special order part" autocomplete="off"></div>
-      <div class="err" id="dp-e" role="alert"></div><button class="primary" id="dp-go" style="min-height:48px">Take deposit</button>`, (L, close) => {
-      const A = L.querySelector('#dp-a'); L.querySelector('#dp-50') && (L.querySelector('#dp-50').onclick = () => { A.value = half; }); L.querySelector('#dp-100') && (L.querySelector('#dp-100').onclick = () => { A.value = est; });
-      L.querySelector('#dp-go').onclick = async e => { const amt = Math.round(parseFloat(A.value) * 100) / 100; if (!(amt > 0)) { L.querySelector('#dp-e').textContent = 'Enter the deposit amount.'; return; }
-        if (est > 0 && amt > est + 0.004) { L.querySelector('#dp-e').textContent = `That's more than the ${cents(est)} on the ticket.`; return; }
-        e.target.disabled = true;
-        try { const r = await Store.ticketCharge(S.user, S.store, t.id, {desc: 'Deposit · ' + (L.querySelector('#dp-n').value.trim() || 'special order part'), cat: 'Deposit', price: amt});
-          const nt = r?.charges ? r : (await Store.tickets()).find(x => x.id === t.id); const dc = (nt.charges || []).filter(x => x.cat === 'Deposit' && !x.invoiceId).slice(-1)[0];
-          close(); return openInvoiceFor(nt, dc ? [dc.id] : null); }
-        catch (x) { L.querySelector('#dp-e').textContent = x.message; e.target.disabled = false; } };
-    }); });
+  /* Deposit / partial payment: pay part now on its own invoice; it comes off the final bill automatically */
+  $('#ch-dep') && ($('#ch-dep').onclick = () => partPaySheet(t, drafts[0] || null));
   el.querySelectorAll('[data-oinv]').forEach(a => a.onclick = () => go('invoice', {invoiceId: a.dataset.oinv}));
   const moveRs = async pay => { try { let nt = t; for (const i of rsUnpaid) nt = await Store.rsInvoiceCharge(S.user, S.store, i.id);
       toast(`RepairShopr invoice${rsUnpaid.length > 1 ? 's' : ''} moved onto the ticket. Void ${rsUnpaid.length > 1 ? 'them' : 'it'} in RepairShopr.`); if (pay && nt?.charges) return openInvoiceFor(nt); await viewTicket(el); } catch (e) { toast(e.message); } };
@@ -4554,6 +4540,42 @@ function bindCash(p, root, getDue, onGiven){
 async function quickSale(customerId){
   try { const inv = await Store.newInvoice(S.user, S.store, customerId || null); go('invoice', {invoiceId: inv.id}); } catch (e) { toast(e.message); }
 }
+/* Deposit or partial payment on a ticket. Any amount (25% / 50% / full buttons are shortcuts). It's charged as a 'Deposit' line on its own
+   invoice, and the final invoice takes it off automatically ("Deposit paid (invoice #…)"). An open unpaid invoice is closed first (its charges go back on the ticket). */
+async function partPaySheet(t, draft){
+  const tix = await Store.tickets(); t = tix.find(x => x.id === t.id) || t;
+  const due = (t.charges || []).filter(x => (!x.invoiceId || (draft && x.invoiceId === draft.id)) && x.cat !== 'Deposit');
+  const paidDep = (t.charges || []).filter(x => x.cat === 'Deposit' && x.invoiceId && !x.draft && !x.creditedOn);
+  const diag = (t.charges || []).filter(x => x.cat === 'Diagnostic' && x.invoiceId && !x.draft && !x.creditedOn); const crDiag = chSum(due.filter(x => REPAIR_CATS.includes(x.cat))) >= chSum(diag) ? chSum(diag) : 0;
+  const est = Math.round((chSum(due) - crDiag + taxOf(due) - chSum(paidDep)) * 100) / 100;
+  const extra = draft ? (draft.lines || []).filter(l => !l.chargeId && !l.creditId) : [];
+  const pct = f => Math.round(est * f * 100) / 100;
+  sheet(`<div class="row" style="justify-content:space-between"><h3>Deposit / partial payment · ticket #${t.number}</h3><button data-close>Close</button></div>
+    <div class="statusbar" role="group" aria-label="Type"><button type="button" data-pk="dep" aria-pressed="true">Deposit (to order a part)</button><button type="button" data-pk="part" aria-pressed="false">Partial payment</button></div>
+    <p class="small muted" style="margin:0" id="pp-why">The customer pays part now. It goes on its own invoice, and when they pay the rest, it comes off the final bill by itself.</p>
+    ${est > 0 ? `<div class="row small" style="justify-content:space-between"><span>Balance on the ticket (with tax)${paidDep.length ? ` · after ${cents(chSum(paidDep))} already paid` : ''}</span><b class="num">${cents(est)}</b></div>` : '<div class="banner warn small">No charges on the ticket yet. Add the repair first so the percentages are right, or just type the amount.</div>'}
+    ${draft ? `<div class="banner warn small">Invoice #${draft.number} is open on this ticket. It will be closed and its charges go back on the ticket.${extra.length ? ` These items added on that invoice will need to be added again: <b>${esc(extra.map(l => l.desc).join(', '))}</b>.` : ''}</div>` : ''}
+    <div class="field"><label class="label" for="pp-a">Amount they pay now</label><input id="pp-a" inputmode="decimal" placeholder="0.00" style="font-size:20px"></div>
+    ${est > 0 ? `<div class="row" style="gap:6px;flex-wrap:wrap">${[[.25, '25%'], [.5, '50%'], [.75, '75%']].map(([f, l]) => `<button type="button" data-pp="${pct(f)}">${l} · ${cents(pct(f))}</button>`).join('')}<button type="button" data-pp="${est}">Full · ${cents(est)}</button></div>` : ''}
+    <div class="field"><label class="label" for="pp-n">Note</label><input id="pp-n" value="special order part" autocomplete="off"></div>
+    <div class="err" id="pp-e" role="alert"></div><button class="primary" id="pp-go" style="min-height:48px">Continue to payment</button>`, (L, close) => {
+    let kind = 'dep'; const A = L.querySelector('#pp-a'), N = L.querySelector('#pp-n'); setTimeout(() => A.focus(), 50);
+    L.querySelectorAll('[data-pk]').forEach(b => b.onclick = () => { kind = b.dataset.pk; L.querySelectorAll('[data-pk]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+      if (kind === 'part' && N.value === 'special order part') N.value = ''; if (kind === 'dep' && !N.value) N.value = 'special order part';
+      N.placeholder = kind === 'part' ? 'Optional (e.g. rest when they pick up Friday)' : ''; });
+    L.querySelectorAll('[data-pp]').forEach(b => b.onclick = () => { A.value = b.dataset.pp; });
+    L.querySelector('#pp-go').onclick = async e => { const amt = Math.round(parseFloat(A.value) * 100) / 100; const err = L.querySelector('#pp-e');
+      if (!(amt > 0)) { err.textContent = 'Type how much they pay now.'; return; }
+      if (est > 0 && amt > est + 0.004) { err.textContent = `That's more than the ${cents(est)} balance.`; return; }
+      e.target.disabled = true;
+      try { if (draft) await Store.releaseInvoice(S.user, S.store, draft.id);
+        const note = N.value.trim(); const desc = kind === 'part' ? 'Partial payment' + (note ? ' · ' + note : '') : 'Deposit · ' + (note || 'special order part');
+        const r = await Store.ticketCharge(S.user, S.store, t.id, {desc, cat: 'Deposit', price: amt});
+        const nt = r?.charges ? r : (await Store.tickets()).find(x => x.id === t.id); const dc = (nt.charges || []).filter(x => x.cat === 'Deposit' && !x.invoiceId).slice(-1)[0];
+        close(); return openInvoiceFor(nt, dc ? [dc.id] : null); }
+      catch (x) { err.textContent = x.message; e.target.disabled = false; } };
+  });
+}
 async function openInvoiceFor(t, chargeIds){
   try { const inv = await Store.makeInvoice(S.user, S.store, t.id, chargeIds || null); go('invoice', {invoiceId: inv.id}); }
   catch (e) { toast(e.message); }
@@ -4625,6 +4647,7 @@ async function viewInvoice(el){
         ${open ? `<div class="row" style="justify-content:space-between"><span>Balance due</span><b class="num" style="color:var(--bad);font-size:20px">${cents(inv.total)}</b></div>
           <div class="err" id="iv-err" role="alert"></div>
           <button class="primary" id="iv-pay" style="min-height:56px;font-size:17px" ${L.length ? '' : 'disabled'}>Take payment · ${cents(inv.total)}</button>
+          ${t && t.status !== 'resolved' && !isDepOnly(inv) ? '<button id="iv-part" style="align-self:flex-start">Customer pays part now (deposit / partial payment)</button>' : ''}
           ${can(2) ? `<button id="iv-del" class="danger" style="align-self:flex-start">Delete this invoice</button>
           <span class="small muted">Nothing is charged until you take payment. Deleting puts the ticket's charges back on the ticket.</span>` : '<span class="small muted">Nothing is charged until you take payment. Need it deleted? Ask a manager.</span>'}`
         : inv.paid === false ? `<div class="banner warn small">This RepairShopr invoice isn't paid. Collect it from the ticket (Make invoice), then void it in RepairShopr.</div>`
@@ -4636,6 +4659,7 @@ async function viewInvoice(el){
     </div>
   </div>`;
   $('#iv-back').onclick = () => go('invoices');
+  $('#iv-part') && ($('#iv-part').onclick = () => partPaySheet(t, inv));
   [$('#iv-tk'), $('#iv-t')].forEach(a => a && (a.onclick = () => go('ticket', {ticketId: t.id})));
   $('#iv-c') && ($('#iv-c').onclick = () => go('customer', {customerId: c.id}));
   $('#iv-setc') && ($('#iv-setc').onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Customer for invoice #${inv.number}</h3><button data-close>Close</button></div>
