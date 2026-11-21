@@ -303,10 +303,10 @@ const TS = Object.fromEntries(TSTATUS.map(t => [t[0], t]));
 const stPill = k => `<span class="st ${TS[k][2]}">${TS[k][1]}</span>`;
 /* common ticket subjects per issue (new-ticket dropdown; "Custom subject…" lets them type anything) */
 const SUBJECTS = {
-  'iPhone Repair': ['Glass Repair', 'LCD/OLED Replacement', 'Battery Replacement', 'Back Glass Replacement', 'Charging Port Replacement', 'Diagnostics', 'Water Damage'],
-  'Smartphone Repair': ['Screen Replacement', 'Battery Replacement', 'Back Glass Replacement', 'Charging Port Replacement', 'Camera Replacement', 'Diagnostics', 'Water Damage'],
-  'iPad Repair': ['Glass/Digitizer Replacement', 'LCD Replacement', 'Battery Replacement', 'Charging Port Replacement', 'Diagnostics', 'Water Damage'],
-  'Tablet Repair': ['Screen Replacement', 'Battery Replacement', 'Charging Port Replacement', 'Diagnostics', 'Water Damage'],
+  'iPhone Repair': ['Glass Repair', 'LCD/OLED Replacement', 'Battery Replacement', 'Back Glass Replacement', 'Charging Port Replacement', 'Front Camera Replacement', 'Rear Camera Replacement', 'Diagnostics', 'Water Damage'],
+  'Smartphone Repair': ['Screen Replacement', 'Battery Replacement', 'Back Glass Replacement', 'Charging Port Replacement', 'Front Camera Replacement', 'Rear Camera Replacement', 'Diagnostics', 'Water Damage'],
+  'iPad Repair': ['Glass/Digitizer Replacement', 'LCD Replacement', 'Battery Replacement', 'Charging Port Replacement', 'Front Camera Replacement', 'Rear Camera Replacement', 'Diagnostics', 'Water Damage'],
+  'Tablet Repair': ['Screen Replacement', 'Battery Replacement', 'Charging Port Replacement', 'Front Camera Replacement', 'Rear Camera Replacement', 'Diagnostics', 'Water Damage'],
   'Macbook Repair': ['Screen Replacement', 'Battery Replacement', 'Keyboard Replacement', 'Charging Port Repair', 'Software Restore', 'Data Backup', 'Diagnostics', 'Water Damage'],
   'Computer Repair': ['Screen Replacement', 'Battery Replacement', 'Keyboard Replacement', 'Charging Port / DC Jack Repair', 'Software Restore / Virus Removal', 'Data Backup', 'Diagnostics', 'Water Damage'],
   'Game Console Repair': ['HDMI Port Replacement', 'Overheating (Cleaning + Thermal Paste)', 'Disc Drive Repair', 'Charging Port Replacement', 'Joy-Con / Controller Drift Repair', 'Diagnostics'],
