@@ -1737,7 +1737,8 @@ const HELP_KB = [
  {t: 'Buy a device from a customer (buyback)', k: 'buyback buy device purchase phone from customer sell me sell us sells selling to us cash offer max price', s: [
   'Make sure you\'re clocked in. Go to **Buyback**.',
   'In the counter appraisal pick the device, storage, carrier and condition, then tap **Buy it**. Not on the price sheet? Tap **Buy it anyway** and agree a price (manager PIN).',
-  'Type the IMEI: the **IMEI check** runs by itself (iCloud/Find My, blacklist, carrier). Follow the carrier steps it shows.',
+  'Phones: type the IMEI and the **IMEI check** runs by itself (iCloud/Find My, blacklist, carrier). Follow the carrier steps it shows.',
+  'Laptops, MacBooks, iPads, tablets, Apple Watches, consoles: type the **serial number**. No IMEI check is needed: make sure Find My / Activation Lock or their account is off, then mark the tests.',
   'Run every test. iCloud/Google lock and blacklist must pass.',
   'Enter the seller\'s name, phone, birthday, photo ID (18+, not expired) and **How did you hear about us** (required).',
   'Enter what you\'re paying (over max needs a manager PIN) and how they\'re paid, then **Complete buy**.',
@@ -5532,7 +5533,12 @@ function icCarrierTip(B, res){
   if (/verizon|spectrum|boost|straight|xfinity|us cellular|consumer|total|tracfone|locked|financ/i.test(c)) return `<b>${esc(B.carrier || 'This carrier')}:</b> considered <b>financed</b> unless it's unlocked from the original carrier. Pay the financed price.`;
   return '';
 }
+/* Only phones have an IMEI that Sickw checks. Laptops, MacBooks, iPads, tablets, Apple Watches, consoles, AirPods…: serial number, no Sickw check required. */
+const needsIC = m => { m = String(m || ''); if (/ipad|tab\b|tablet|watch|macbook|imac|mac mini|laptop|notebook|chromebook|surface|thinkpad|lenovo|dell|hp |asus|acer|msi|airpods|buds|playstation|ps[345]|xbox|switch|steam deck|console|kindle/i.test(m)) return false;
+  return /iphone|galaxy|pixel|moto|razr|oneplus|revvl|nokia|tcl|phone|note\s?\d|z (fold|flip)/i.test(m); };
+const isApple = m => /ipad|watch|macbook|imac|mac mini|airpods|apple/i.test(String(m || ''));
 function icHtml(B){
+  if (!needsIC(B.model) && !(B.ic && B.ic.imei === normImei(B.imei))) return `<div class="banner small"><b>No IMEI check needed for this device.</b> Type the serial number. ${isApple(B.model) ? 'Check that Find My / Activation Lock is off and their Apple ID is signed out.' : 'Check that their account (Microsoft / Google / PlayStation / Nintendo) is signed out and it\'s reset.'}${isApple(B.model) && normImei(B.imei).length >= 8 ? ` <button type="button" data-icrun="" style="font-size:13px;margin-left:6px">Check serial on Sickw (optional)</button>` : ''}</div>`;
   const ic = B.ic && B.ic.imei === normImei(B.imei) ? B.ic : null;
   const btn = (l, f) => `<button type="button" data-icrun="${f ? 'fresh' : ''}" style="font-size:13px">${l}</button>`;
   if (!normImei(B.imei)) return '<div class="small muted">Type the IMEI and the POS checks it on Sickw (iCloud, blacklist, carrier, financing) by itself.</div>';
@@ -5585,7 +5591,7 @@ async function viewBuyback(el){
         <div class="stack" style="gap:4px"><div style="font-size:18px;font-weight:700">${esc(B.model)} ${esc(B.storage || '')}</div>
           <div class="small muted">${esc([B.carrier, A.condLabel].filter(Boolean).join(' · '))}</div>
           ${(A.lines || []).length > 1 ? `<div class="small mono">${A.lines.map(([k, v]) => `${esc(k)} ${v < 0 ? '−' + money(-v) : money(v)}`).join(' · ')} = <b>${money(max)}</b></div>` : ''}</div>
-        ${B.model ? `<div class="grid g2"><div class="field"><label class="label" for="bb-imei">IMEI / serial</label><input id="bb-imei" data-b="imei" value="${esc(B.imei)}" inputmode="numeric" autocomplete="off"></div>
+        ${B.model ? `<div class="grid g2"><div class="field"><label class="label" for="bb-imei">${needsIC(B.model) ? 'IMEI' : 'Serial number'}</label><input id="bb-imei" data-b="imei" value="${esc(B.imei)}" inputmode="${needsIC(B.model) ? 'numeric' : 'text'}" autocapitalize="characters" autocomplete="off"></div>
           <div class="field"><label class="label" for="bb-color">Color</label><input id="bb-color" data-b="color" value="${esc(B.color)}" placeholder="Graphite" autocomplete="off"></div></div>` : ''}
         ${B.model ? `<div id="bb-ic">${icHtml(B)}</div>` : ''}
         <p class="muted small" style="margin:0">Wrong device or condition? Tap <b>Change device</b> and appraise it again.</p>
@@ -5594,7 +5600,7 @@ async function viewBuyback(el){
         <div class="row" style="justify-content:space-between"><h2>2 · Test it</h2><span class="pill ${answered === CHECKS.length ? 'ok' : ''}">${answered} of ${CHECKS.length} done</span></div>
         ${blocker ? `<div class="banner bad"><b>Don't buy this device.</b> ${esc(blocker[1])} failed. Hand it back to the seller.</div>` : ''}
         <div class="stack" style="gap:6px">${CHECKS.map(([k, l, o]) => `<div class="row" style="justify-content:space-between;gap:8px;flex-wrap:nowrap">
-          <span style="min-width:0">${esc(l)}${o.req ? ' <span class="pill bad" style="font-size:11px">must pass</span>' : ''}</span>
+          <span style="min-width:0">${esc(k === 'imei' && !needsIC(B.model) ? 'Serial checked: not reported lost or stolen' : k === 'lock' && !needsIC(B.model) ? (isApple(B.model) ? 'Find My / Activation Lock off, Apple ID signed out' : 'Account signed out and reset') : l)}${o.req ? ' <span class="pill bad" style="font-size:11px">must pass</span>' : ''}</span>
           <div class="choices" style="flex-wrap:nowrap;gap:4px">${['pass','fail'].concat(o.req ? [] : ['na']).map(v => `<button data-ck="${k}" data-v="${v}" aria-pressed="${B.checks[k] === v}" style="min-height:36px;padding:4px 10px;font-size:13px">${{pass:'Pass',fail:'Fail',na:'N/A'}[v]}</button>`).join('')}</div></div>`).join('')}</div>
         <div class="row"><button id="bb-allpass" style="font-size:13px">Mark the rest Pass</button></div>
         <div class="field" style="max-width:220px"><label class="label" for="bb-bat">Battery health %</label><input id="bb-bat" data-b="battery" inputmode="numeric" value="${esc(B.battery)}" placeholder="86"></div>
@@ -5660,7 +5666,7 @@ async function viewBuyback(el){
   el.querySelectorAll('[data-s]').forEach(i => i.oninput = i.onchange = () => { B.seller[i.dataset.s] = i.value; });
   /* IMEI check (Sickw): runs by itself once a valid 15-digit IMEI is typed; the button re-runs it or checks a serial */
   const keepY = () => { const y = window.scrollY; return re().then(() => window.scrollTo(0, y)); };
-  const runIC = async (fresh) => { const im = normImei(B.imei); if (im.length < 10) { toast('Type the full IMEI first.'); return; }
+  const runIC = async (fresh) => { const im = normImei(B.imei); if (im.length < (needsIC(B.model) ? 10 : 8)) { toast(needsIC(B.model) ? 'Type the full IMEI first.' : 'Type the full serial number first.'); return; }
     B.ic = {imei: im, busy: true}; await keepY();
     try { const res = await Store.imeiCheck({imei: im, model: B.model, carrier: B.carrier, store: S.store, fresh: !!fresh}); B.ic = {imei: im, res};
       const fl = res.checks.flatMap(c => c.flags || []);
@@ -5671,7 +5677,7 @@ async function viewBuyback(el){
     if (normImei(B.imei) === im) keepY(); };
   const imIn = $('#bb-imei'); if (imIn) imIn.addEventListener('change', () => { const im = normImei(B.imei); if (B.ic?.imei === im) return;
     (B.icAuto || []).forEach(k => delete B.checks[k]); B.icAuto = [];   /* new IMEI: the old result no longer counts */
-    if (/^\d{15}$/.test(im) && luhnOk(im)) runIC(); else keepY(); });
+    if (needsIC(B.model) && /^\d{15}$/.test(im) && luhnOk(im)) runIC(); else keepY(); });
   el.querySelectorAll('[data-icrun]').forEach(x => x.onclick = () => runIC(x.dataset.icrun === 'fresh'));
   el.querySelectorAll('[data-icover]').forEach(x => x.onclick = () => { const ic = B.ic; const id = ic?.res?.checks?.find(c => c.verdict === 'bad' || c.verdict === 'error')?.id || ic?.res?.checks?.[0]?.id;
     sheet(`<div class="row" style="justify-content:space-between"><h3>Buy it anyway?</h3><button data-close>Close</button></div>
@@ -5711,7 +5717,7 @@ async function viewBuyback(el){
     const sl = B.seller, paid = parseFloat(B.paid), ph = sl.phone.replace(/\D/g, '');
     const age = sl.dob ? (Date.now() - new Date(sl.dob)) / 31557600000 : 0;
     const err = answered < CHECKS.length ? `Finish the test: ${CHECKS.length - answered} item${CHECKS.length - answered === 1 ? '' : 's'} left.`
-      : !B.imei.trim() ? 'Enter the IMEI or serial number.'
+      : !B.imei.trim() ? (needsIC(B.model) ? 'Enter the IMEI.' : 'Enter the serial number.')
       : B.battery !== '' && !(+B.battery >= 1 && +B.battery <= 100) ? 'Battery health should be a number from 1 to 100.'
       : !sl.firstName.trim() || !sl.lastName.trim() ? "Enter the seller's first and last name."
       : ph.length !== 10 ? "Enter the seller's 10-digit phone number."
@@ -5722,11 +5728,11 @@ async function viewBuyback(el){
       : !(paid > 0) ? 'Enter what you are paying the seller.'
       : SAM_PAYS.includes(B.payout) && !(B.payoutTo || '').trim() ? `Enter where to send the ${B.payout} payment.` : '';
     const ic = B.ic && B.ic.imei === normImei(B.imei) ? B.ic : null;
-    const icErr = err ? '' : !ic || ic.busy ? 'Run the IMEI check in step 1 first (tap Check IMEI).'
+    const icErr = err ? '' : !needsIC(B.model) && (!ic || ic.err) ? '' : !ic || ic.busy ? 'Run the IMEI check in step 1 first (tap Check IMEI).'
       : ic.over ? '' : ic.err ? 'The IMEI check did not finish. Tap Check IMEI again, or Buy anyway with a reason.'
       : ['bad', 'error'].includes(ic.res.verdict) ? 'This IMEI was flagged. Hand it back, or tap Buy anyway and give a reason.' : '';
     $('#f-err').textContent = err || icErr; if (err || icErr) return;
-    const icNote = ic.over ? `IMEI override: ${ic.over}` : `IMEI check ${ic.res.verdict === 'clean' ? 'clean' : 'flagged: ' + icFlags(ic.res).join(', ')} (Sickw)`;
+    const icNote = !ic || ic.err ? 'No IMEI check: serial-number device' : ic.over ? `IMEI override: ${ic.over}` : `IMEI check ${ic.res.verdict === 'clean' ? 'clean' : 'flagged: ' + icFlags(ic.res).join(', ')} (Sickw)`;
     let override = null;
     if (paid > max) { override = await askPin(`Manager approval: paying ${money(paid)} (max ${money(max)})`, 2); if (!override) return; }
     const r = await Store.recordBuyback(S.user, S.store, {model: B.model, storage: B.storage, carrier: B.carrier, cond: B.cond, color: B.color.trim(), imei: B.imei.trim(),
