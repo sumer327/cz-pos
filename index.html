@@ -1679,7 +1679,7 @@ const HELP_KB = [
   'Tap **+ New → New ticket** (or **Start ticket** from **Quote**, which fills the device, repair and price).',
   'Search the customer by phone. Not there? Tap **New customer** and ask "How did you hear about us?"',
   'Type the device: the **Issue** fills itself in. Pick the **Subject** from the list (Glass Repair, LCD/OLED Replacement, Battery Replacement…) or **Custom subject…** to type your own.',
-  'iPhones: type the **battery health %** (Settings → Battery → Battery Health) or pick N/A. Add the IMEI, passcode and notes for the tech.',
+  'iPhones: type the **battery health %** (Settings → Battery → Battery Health) or pick N/A. Add the passcode and notes for the tech.',
   'Tap **Create ticket** once (it locks so you can\'t make two). Then **Print ticket label** and stick it on the device.',
   'A price from the Quote tool goes on as a charge and pulls the part from stock by itself.']},
  {t: 'Battery $20 off with another repair', k: 'battery deal 20 off discount upsell battery health popup offer usual price', s: [
@@ -1687,7 +1687,7 @@ const HELP_KB = [
   'Customer says yes: tap **They want it**. A green note shows and the battery goes on the ticket when you create it (with **Remove** if they change their mind).',
   'It never shows when the subject is **Battery Replacement**.']},
  {t: 'Edit or delete a ticket', k: 'edit ticket wrong device change device subject imei call back number mistake delete ticket duplicate two tickets by accident', s: [
-  'Open the ticket and tap **Edit details**: change the device, subject, IMEI or call-back number and save.',
+  'Open the ticket and tap **Edit details**: change the device, subject or call-back number and save.',
   'Made a ticket by mistake (or two)? **Edit details → Delete ticket #…**, type the reason. Tickets with paid charges can\'t be deleted.']},
  {t: 'Charge the diagnostic up front', k: 'diagnostic diag fee 29 39 49 up front collect', s: [
   'Phones $29.99 · tablets $39.99 · consoles/computers $49.99. No tax on it.',
@@ -2219,7 +2219,7 @@ async function viewTicket(el){
         <dl class="kv">
           <dt>Device</dt><dd>${esc(t.device)}</dd>
           <dt>Issue</dt><dd>${esc(t.issue)}</dd>
-          <dt>IMEI / serial</dt><dd class="mono">${esc(t.imei || '—')}</dd>
+          ${t.imei ? `<dt>IMEI / serial</dt><dd class="mono">${esc(t.imei)}</dd>` : ''}
           <dt>Passcode</dt><dd class="mono">${t.passcode === 'None' ? '<span class="muted">No passcode</span>' : t.passcode ? `<span id="pc">${isPattern(t.passcode) ? 'Pattern ••••' : '••••'}</span> <button id="pc-show" style="min-height:30px;padding:2px 8px">Show</button>` : '<span class="muted">Not given</span>'}
             <button id="pc-edit" style="min-height:30px;padding:2px 8px;margin-left:4px">${t.passcode ? 'Change' : 'Add'}</button></dd>
           <dt>Charges</dt><dd class="num">${tQuote(t) ? cents(tQuote(t)) + ' <span class="small muted">+ tax</span>' : '<span class="muted">none yet: add them under Charges</span>'}</dd>
@@ -2355,7 +2355,7 @@ Cellular Zone ${esc(STORES[t.store] || '')}</textarea>
   $('#t-editd') && ($('#t-editd').onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Edit ticket #${t.number}</h3><button data-close>Close</button></div>
     <div class="field"><label class="label" for="te-dev">Device</label><input id="te-dev" value="${esc(t.device || '')}" placeholder="iPhone 12 Pro"></div>
     <div class="field"><label class="label" for="te-sub">Subject</label><input id="te-sub" value="${esc(t.subject || '')}"></div>
-    <div class="grid g2"><div class="field"><label class="label" for="te-imei">IMEI / serial</label><input id="te-imei" value="${esc(t.imei || '')}" autocomplete="off"></div>
+    <div class="grid g2"><input type="hidden" id="te-imei" value="${esc(t.imei || '')}">
       <div class="field"><label class="label" for="te-cb">Call-back number (if different)</label><input id="te-cb" inputmode="tel" value="${esc(t.callback || '')}"></div></div>
     ${(t.charges || []).some(x => !x.invoiceId || x.draft) ? '<div class="banner warn small">Changed the model? The charges already on the ticket keep the old model and price. Remove them (✕, or delete the unpaid invoice first) and add the right ones.</div>' : ''}
     <div class="err" id="te-e" role="alert"></div><button class="primary" id="te-go">Save</button>
@@ -2569,7 +2569,7 @@ async function viewNewTicket(el){
       <div class="grid g2">
         <div class="field"><label class="label" for="nt-iss">Issue</label><select id="nt-iss"><option value="">Pick one…</option>${ISSUES.map(i => `<option ${D.issue === i ? 'selected' : ''}>${i}</option>`).join('')}</select></div>
         ${+D.estimate > 0 ? `<div class="field"><span class="label">From the quote</span><div class="small" style="padding-top:8px"><b>${cents(+D.estimate)}</b> is added to the ticket's charges</div></div>` : ''}
-        <div class="field"><label class="label" for="nt-imei">IMEI / serial</label><input id="nt-imei" value="${esc(D.imei || '')}" autocomplete="off"></div>
+        <input type="hidden" id="nt-imei" value="${esc(D.imei || '')}">
       </div>
       <div class="field"><label class="label" for="nt-subsel">Subject</label><select id="nt-subsel"></select>
         <input id="nt-sub" value="${esc(D.subject || '')}" placeholder="Type the subject (e.g. Face ID repair)" style="margin-top:6px" autocomplete="off"></div>
