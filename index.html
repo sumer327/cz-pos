@@ -352,7 +352,7 @@ const PAYOUTS = ['Cash','Apple Pay','Cash App','Zelle','PayPal','Trade-in credit
 const SAM_PAYS = ['Apple Pay','Cash App','Zelle','PayPal'];
 const payToLabel = p => p + (p === 'Cash App' ? ' $cashtag or phone' : p === 'PayPal' ? ' email or phone' : ' phone or email');                              // these need Sam to send the money
 const dqOf = (p, st) => p?.dqs && p.dqs[st] != null && p.dqs[st] !== '' ? +p.dqs[st] : (+p?.dq || 0);   /* desired qty at a store (per-store DQ, else the shared one) */
-const PART_KINDS = ['Screen', 'Battery', 'Charging port', 'Rear camera', 'Camera lens', 'Flex cable', 'Small part', 'Other'];
+const PART_KINDS = ['Screen', 'Battery', 'Charging port', 'Rear camera', 'Camera lens', 'Flex cable', 'Back glass', 'Housing', 'Protector', 'Small part', 'Other'];
 const partBrand = n => /^iphone/i.test(n) ? 'iPhone' : /^(galaxy|samsung|s\d|note)/i.test(n) ? 'Samsung' : /^ipad/i.test(n) ? 'iPad' : /playstation|xbox|switch/i.test(n) ? 'Console' : 'Other';
 const isSmallPart = p => !(p.kind === 'Screen' || isScreenPart(p) && !/batter|charg|port|camera|lens|flex/i.test(p.name));
 const isScreenPart = p => /screen|lcd|oled|xo7|x07|aq7|incell|digitizer|display/i.test(p.name + ' ' + (p.kind || ''));
@@ -6517,11 +6517,11 @@ async function viewParts(el){
       ${lks.map(l => `<tr><td class="small">${ago(l.at)}</td><td><b>${esc(l.device)}</b> · ${esc(l.part)}</td><td class="small">${esc(staffName(l.by))} · ${l.store}</td>
         <td>${l.status === 'pending' ? '<span class="pill warn">Waiting on Claude</span>' : l.status === 'done' ? `<span class="pill ok">Answered${l.cached ? ' (reused)' : ''}</span>` : '<span class="pill bad">Not found</span>'}</td>
         <td class="num small">${l.options?.length ? cents(Math.min(...l.options.map(o => o.cost))) : ''}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No lookups yet.</td></tr>'}</tbody></table></div></div>`; return; }
-  const PF = [['all', 'All'], ['low', 'Low here'], ['Screen', 'Screens'], ['Battery', 'Batteries'], ['Charging port', 'Ports'], ['cam', 'Cameras & lenses'], ['Flex cable', 'Flex cables'], ['etc', 'Other']];
+  const PF = [['all', 'All'], ['low', 'Low here'], ['Screen', 'Screens'], ['Battery', 'Batteries'], ['Charging port', 'Ports'], ['cam', 'Cameras & lenses'], ['Flex cable', 'Flex cables'], ['Back glass', 'Back glass'], ['Housing', 'Housings'], ['Protector', 'Protectors'], ['etc', 'Other']];
   S.pf = S.pf || {f: 'all', q: ''};
   const kindOf = p => p.kind === 'Screen' || isScreenPart(p) && !/batter|charg|port|camera|lens|flex/i.test(p.name) ? 'Screen' : p.kind;
-  const inF = (p, f) => f === 'all' ? true : f === 'low' ? (p.qty[S.store] || 0) < dqOf(p, S.store) : f === 'cam' ? /camera/i.test(p.kind || '') || /camera|lens/i.test(p.name) && kindOf(p) !== 'Screen'
-    : f === 'etc' ? !['Screen', 'Battery', 'Charging port', 'Rear camera', 'Camera lens', 'Flex cable'].includes(kindOf(p)) : kindOf(p) === f;
+  const inF = (p, f) => f === 'all' ? true : f === 'low' ? (p.qty[S.store] || 0) < dqOf(p, S.store) : f === 'cam' ? /camera/i.test(p.kind || '') || /camera|lens/i.test(p.name) && !['Screen', 'Protector'].includes(kindOf(p))
+    : f === 'etc' ? !['Screen', 'Battery', 'Charging port', 'Rear camera', 'Camera lens', 'Flex cable', 'Back glass', 'Housing', 'Protector'].includes(kindOf(p)) : kindOf(p) === f;
   const draw = () => {
     const words = S.pf.q.toLowerCase().split(/\s+/).filter(Boolean);
     const rows = parts.filter(p => inF(p, S.pf.f) && words.every(w => p.name.toLowerCase().includes(w)))
