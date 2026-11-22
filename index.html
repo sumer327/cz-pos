@@ -687,6 +687,8 @@ const DemoStore = {
     if (row) Object.assign(row, {name: p.name.trim(), category: p.category || '', upc: p.upc || '', price: +p.price || 0, cost: +p.cost || 0});
     else d2.products.push(row = {id: uid(), name: p.name.trim(), category: p.category || '', upc: p.upc || '', price: +p.price || 0, cost: +p.cost || 0, qty: {DZ: 0, BV: 0, PT: 0}, maintainStock: true, disabled: false});
     this.log(d2, emp.id, store, 'Product saved', row.name); this.save(d2); return row; },
+  async moveProduct(emp, store, id, delta, reason){ await this.products(); const d = this.db(); const p = d.products.find(x => x.id === id); if (!reason?.trim()) throw new Error('Say what happened.');
+    const old = p.qty[store] || 0; p.qty[store] = Math.max(0, old + delta); p.maintainStock = true; this.log(d, emp.id, store, delta < 0 ? 'Accessory write-off' : 'Accessory received', `${p.name}: ${delta > 0 ? '+' : ''}${delta} (${reason}) → ${p.qty[store]}`); this.save(d); return p; },
   async adjustProduct(emp, store, id, qty, reason){ await this.products(); const d = this.db(); const p = d.products.find(x => x.id === id); if (!reason?.trim()) throw new Error('Give a reason for the count change.');
     const old = p.qty[store] || 0; p.qty[store] = Math.max(0, qty); this.log(d, emp.id, store, 'Accessory count', `${p.name}: ${old} → ${p.qty[store]} (${reason})`); this.save(d); return p; },
   async importRows(){ throw new Error('The RepairShopr import runs on the store version, not the demo.'); },
@@ -1105,7 +1107,7 @@ const DemoStore = {
   async partUses(stores){ return this.db().audit.filter(a => a.action === 'Part used' && stores.includes(a.store)); },
   async saveCount(emp, store, c){
     const d = this.db(); const row = {id: uid(), at: now(), by: emp.id, store, ...c}; d.counts.unshift(row);
-    if (c.kind === 'parts' && c.apply) c.items.forEach(it => { if (it.counted !== it.expected) { const p = d.parts.find(x => x.id === it.id); if (p) p.qty[store] = it.counted; } });
+    if (c.kind === 'parts' && c.apply) c.items.forEach(it => { if (it.counted !== it.expected) { const p = d.parts.find(x => x.id === it.id) || (d.products || []).find(x => x.id === it.id); if (p) p.qty[store] = it.counted; } });
     const off = c.kind === 'phones' ? c.missing.length + c.extra.length : c.items.filter(i => i.counted !== i.expected).length;
     if (off) this.notify(d, null, `${STORES[store]} ${c.kind} count: ${off} ${off === 1 ? 'item' : 'items'} off`, {tab: 'counts'}, 'manager');
     this.log(d, emp.id, store, (c.kind === 'phones' ? 'Phone' : 'Parts') + ' count', off ? `${off} off` : 'matched'); this.save(d); return row;
@@ -1312,6 +1314,7 @@ const LiveStore = {
   async customerByPhone(ph){ const {data} = await this.sb.from('customers_v').select('*').eq('phone', ph).order('createdAt', {ascending: false}).limit(1); this.keep(this.cC, data); return data?.[0] || null; },
   async products(){ return this.swr('products', () => this.all(() => this.sb.from('products_v').select('*').eq('disabled', false).order('name'), 30000), {fresh: 300000, bgAfterWrite: true}); },   /* ~4,500 rows: loaded once, refreshed quietly */
   async saveProduct(emp, store, p){ return this.rpc('pos_save_product', {p_pin: this.pinFor(emp), p_store: store, p_p: p}); },
+  async moveProduct(emp, store, id, delta, reason){ return this.rpc('pos_product_move', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_delta: delta, p_reason: reason}); },
   async adjustProduct(emp, store, id, qty, reason){ return this.rpc('pos_adjust_product', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_qty: qty, p_reason: reason}); },
   async importRows(emp, kind, rows){ return this.rpc('pos_import', {p_pin: this.pinFor(emp), p_kind: kind, p_rows: rows}); },
   async importSummary(emp){ return this.rpc('pos_import_summary', {p_pin: this.pinFor(emp)}); },
@@ -1732,6 +1735,8 @@ const HELP_KB = [
   'Type the new price (before tax) and tap **Save**.']},
  {t: 'Tempered glass and lifetime replacement', k: 'tempered glass screen protector privacy glass lifetime warranty replacement 5 dollars broken glass', s: [
   'New glass: **Tempered glass** ($29.99) or **Privacy glass** ($34.99). The customer\'s phone is required.',
+  'Every glass button asks for the **model**. Pick the glass that fits the phone so that glass comes out of the store\'s count. Only use **Not in inventory** if the model really isn\'t listed.',
+  'A glass cracked while you were putting it on? Tick **One broke while installing** before you pick the model. The customer pays for one, and the count drops by two.',
   'Replacement under the lifetime warranty: on the Register tap **Lifetime replacement** and find their glass, or when adding glass to a ticket/invoice tick **Under lifetime warranty**. Phones $5, tablets $10.',
   'Nothing on file? A manager PIN can approve it.']},
  {t: 'Buy a device from a customer (buyback)', k: 'buyback buy device purchase phone from customer sell me sell us sells selling to us cash offer max price', s: [
@@ -1833,7 +1838,12 @@ const HELP_KB = [
   'Use the status buttons to filter, and change a ticket\'s status right in the list.']},
  {t: 'Count parts or phones', k: 'count parts count phones inventory count daily count fix count check counts', s: [
   'Go to **More → Counts & parts check**.',
-  'Start the parts or phones count, type what you see on the shelf and save. Anything off gets flagged for the manager.']},
+  'Start the parts or phones count, type what you see on the shelf and save. Anything off gets flagged for the manager.',
+  'The parts check also has **Accessories** sections (tempered glass, privacy glass, lens protectors, cables & chargers). Count them the same way.']},
+ {t: 'Accessory broke, came defective or new stock came in', k: 'accessory broke cracked defective damaged write off received delivery stock came in glass cable add to count take out', s: [
+  'Sales on the Register take accessories out by themselves. Use this only when an item leaves without a sale, or new stock arrives.',
+  'Go to **Parts → Accessories** tab, find the item and tap **Broke / received**.',
+  'Pick what happened (broke installing, came defective, used on display, given free, received new stock, found) and how many, add a note (ticket #, supplier) and save. It\'s logged with your name.']},
  {t: 'Transfer a device or part to another store', k: 'transfer another store send move to babcock bulverde potranco', s: [
   'Open the device and tap **Transfer to another store** (or **More → Transfers → + New transfer**).',
   'Pick the store and send it. The other store taps **Received** when it arrives.']},
@@ -2949,8 +2959,8 @@ function paySheet(t, c, opts = {}){
     const reopen = nt => { viewTicket($('#main')); paySheet(nt || t, c, {resolve: opts.resolve}); };
     L.querySelectorAll('[data-pyadd]').forEach(b => b.onclick = async () => { const k = b.dataset.pyadd;
       if (k === 'item') { close(); return chargeSheet(t, c, async () => reopen((await Store.tickets()).find(x => x.id === t.id)), {tab: 'items', fromInvoice: true}); }
-      b.disabled = true; try { const r = await Store.ticketCharge(S.user, S.store, t.id, {desc: (k === 'privacy' ? 'Privacy tempered glass' : 'Tempered glass') + ' (lifetime warranty)', cat: 'Tempered glass', price: GLASS[k], glass: k});
-        close(); reopen(r?.charges ? r : (await Store.tickets()).find(x => x.id === t.id)); } catch (e) { L.querySelector('#py-err').textContent = e.message; b.disabled = false; } });
+      close(); glassPicker(k, t.device, async line => { try { const r = await Store.ticketCharge(S.user, S.store, t.id, {desc: line.desc, cat: 'Tempered glass', price: line.price, glass: line.glass, ...(line.productId ? {productId: line.productId} : {})});
+          reopen(r?.charges ? r : (await Store.tickets()).find(x => x.id === t.id)); } catch (e) { toast(e.message); reopen((await Store.tickets()).find(x => x.id === t.id)); } }); });
     const pay = L.querySelector('#py-pay'); const sq = () => { L.querySelector('#py-sq').hidden = !pay.value.startsWith('Square'); }; pay.onchange = sq; sq();
     L.querySelector('#py-go').onclick = async () => {
       const sel = due.filter(x => pick.has(x.id)); const res = resolve ?? autoResolve(); const btn = L.querySelector('#py-go');
@@ -3131,8 +3141,8 @@ function checkoutSheet(t, c){
   (L, close) => {
     draw(L);
     L.querySelector('#co-add').onclick = () => { lines.push({desc: '', cat: 'Accessory', price: 0}); draw(L); };
-    L.querySelector('#co-glass').onclick = () => { lines.push({desc: 'Tempered glass (lifetime warranty)', cat: 'Tempered glass', price: GLASS.regular, glass: 'regular'}); draw(L); };
-    L.querySelector('#co-glassp').onclick = () => { lines.push({desc: 'Privacy tempered glass (lifetime warranty)', cat: 'Tempered glass', price: GLASS.privacy, glass: 'privacy'}); draw(L); };
+    L.querySelector('#co-glass').onclick = () => toast('Ring glass up on the Register or the invoice so the model comes out of inventory.');
+    L.querySelector('#co-glassp').onclick = () => toast('Ring glass up on the Register or the invoice so the model comes out of inventory.');
     L.querySelector('#co-case').onclick = () => { lines.push({desc: 'Case', cat: 'Accessory', price: 5}); draw(L); };
     Store.settings().then(set => { const u = L.querySelector('#co-up'); if (u) u.innerHTML = upsellBox(set); });
     L.querySelector('#co-pay').onchange = e => { L.querySelector('#co-sq').hidden = !e.target.value.startsWith('Square'); L.querySelector('#co-onf').hidden = e.target.value !== 'Other'; };
@@ -3724,8 +3734,11 @@ async function viewCloseout(el){
 S.cnt = null;
 const partsCountDay = () => new Date().getDay() === 0;
 async function viewCounts(el){
-  const [devs, allParts, counts, trs] = await Promise.all([Store.devices(), Store.parts(), Store.counts(), Store.transfers()]);
-  const parts = allParts.filter(isSmallPart).sort((x, y) => (x.sort ?? 1e9) - (y.sort ?? 1e9) || x.name.localeCompare(y.name));
+  const [devs, allParts, counts, trs, prods] = await Promise.all([Store.devices(), Store.parts(), Store.counts(), Store.transfers(), Store.products().catch(() => [])]);
+  /* stock-tracked accessories (glass, lens protectors, cables…) are checked here too, in their own sections */
+  const accGroup = p => /privacy/i.test(p.name) ? 'Privacy glass' : /lens protector/i.test(p.name) ? 'Lens protectors' : /tempered|glass protector|screen protector/i.test(p.name) ? (/ipad/i.test(p.name) ? 'iPad glass' : /galaxy|samsung|\blg\b/i.test(p.name) ? 'Android glass' : 'Tempered glass') : /cable|adapter|charger/i.test(p.name) ? 'Cables & chargers' : 'Other';
+  const accs = prods.filter(p => p.maintainStock && !p.disabled && ((p.qty?.[S.store] || 0) > 0 || +(p.dqs?.[S.store] || 0) > 0)).map(p => ({...p, acc: true, kind: accGroup(p)}));
+  const parts = [...allParts.filter(isSmallPart).sort((x, y) => (x.sort ?? 1e9) - (y.sort ?? 1e9) || x.name.localeCompare(y.name)), ...accs.sort((x, y) => x.kind.localeCompare(y.kind) || x.name.localeCompare(y.name))];
   const today = dayKey(new Date()); const mine = counts.filter(c => c.store === S.store);
   const phonesDone = mine.find(c => c.kind === 'phones' && dayKey(c.at) === today), partsDone = mine.find(c => c.kind === 'parts' && dayKey(c.at) === today);
   const onHand = devs.filter(d => d.store === S.store && !['sold','atlas'].includes(d.status) && !d.transferId);
@@ -3752,7 +3765,7 @@ async function viewCounts(el){
     return;
   }
   /* small parts: blind count, one section at a time. The POS number is only shown after saving. */
-  const secOf = p => partBrand(p.name) + ' · ' + (p.kind || 'Other');
+  const secOf = p => p.acc ? 'Accessories · ' + p.kind : partBrand(p.name) + ' · ' + (p.kind || 'Other');
   const secs = [...new Set(parts.map(secOf))];
   const pCounts = counts.filter(c => c.kind === 'parts' && c.store === S.store);
   const weekAgo = Date.now() - 7 * 864e5;
@@ -3809,8 +3822,8 @@ async function viewCounts(el){
         <div class="stat"><span class="label">Should be in ${STORES[S.store]}</span><span class="v">${onHand.length}</span><span class="small muted">${onHand.filter(d => d.status === 'repair').length} in repair stock${inTransit.length ? ` · ${inTransit.length} transfer${inTransit.length > 1 ? 's' : ''} in transit (not counted)` : ''}</span></div>
         ${phonesDone ? `<div class="banner ${phonesDone.missing.length || phonesDone.extra.length ? 'bad' : 'ok'} small">Counted today at ${fmtTime(phonesDone.at)} by ${esc(staffName(phonesDone.by))}: ${phonesDone.missing.length ? phonesDone.missing.length + ' missing' : 'all here'}${phonesDone.extra.length ? ', ' + phonesDone.extra.length + ' unexpected' : ''}.</div>` : '<div class="banner warn small">Not counted yet today.</div>'}
         <button class="primary" id="ct-ph">${phonesDone ? 'Count again' : 'Start phone count'}</button></div>
-      <div class="panel stack"><h2>Small parts check</h2>
-        <p class="muted small" style="margin:0">The POS keeps the numbers: tickets, RMA and Sentrix deliveries move them, and orders come from them. This check makes sure the shelf really matches. Count one section at a time; the whole shelf once a week.</p>
+      <div class="panel stack"><h2>Small parts &amp; accessories check</h2>
+        <p class="muted small" style="margin:0">The POS keeps the numbers: tickets, RMA, deliveries and Register sales move them, and orders come from them. Glass, lens protectors and cables are in here too. This check makes sure the shelf really matches. Count one section at a time; the whole shelf once a week.</p>
         <div class="stat"><span class="label">Sections checked this week</span><span class="v">${doneWeek.length} of ${secs.length}</span><span class="small muted">${parts.length} small parts · next up: ${esc(nextSec || '')}</span></div>
         <button id="ct-pt" class="${doneWeek.length < secs.length ? 'primary' : ''}">${doneWeek.length < secs.length ? 'Count ' + esc(nextSec) : 'Count a section again'}</button></div>
     </div>
@@ -3822,7 +3835,7 @@ async function viewCounts(el){
     </tbody></table></div></div></div>`;
   $('#ct-ph').onclick = () => { S.cnt = {kind: 'phones', seen: new Set(), extra: []}; viewCounts(el); };
   $('#ct-pt').onclick = () => { S.cnt = {kind: 'parts', counted: {}, sec: nextSec}; viewCounts(el); };
-  mismatchReport($('#mm-box'), allParts, counts, () => viewCounts(el));
+  mismatchReport($('#mm-box'), [...allParts, ...accs], counts, () => viewCounts(el));
 }
 /* parts whose last shelf count didn't match the POS and haven't been fixed. Managers decide: set the POS to the shelf, or leave it. */
 async function mismatchReport(box, parts, counts, again){
@@ -3850,7 +3863,9 @@ async function mismatchReport(box, parts, counts, again){
   box.querySelectorAll('[data-mmfix]').forEach(b => b.onclick = async () => { const r = rows[+b.dataset.mmfix];
     if (!confirm(`Set ${r.p.name} at ${STORES[r.st]} from ${r.now} to ${r.i.counted}? This is logged with your name.`)) return;
     b.disabled = true;
-    try { await Store.adjustPart(S.user, r.st, r.p.id, r.i.counted - r.now, `Recount: shelf check ${fmtDate(r.i.at)} by ${staffName(r.i.by)}`); toast('POS updated and logged'); again(); }
+    try { const why = `Recount: shelf check ${fmtDate(r.i.at)} by ${staffName(r.i.by)}`;
+      if (r.p.acc) await Store.adjustProduct(S.user, r.st, r.p.id, r.i.counted, why); else await Store.adjustPart(S.user, r.st, r.p.id, r.i.counted - r.now, why);
+      toast('POS updated and logged'); again(); }
     catch (e) { b.disabled = false; toast(e.message); } });
 }
 
@@ -4494,6 +4509,8 @@ async function glassPicker(kind, device, onPick){
     <div class="row" style="gap:6px"><button data-gk="regular">Regular ${cents(GLASS.regular)}</button><button data-gk="privacy">Privacy ${cents(GLASS.privacy)}</button></div>
     <label class="row" style="gap:10px;cursor:pointer;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);flex-wrap:nowrap"><input type="checkbox" id="gp-w" style="width:22px;height:22px;flex:none">
       <span><b>Under lifetime warranty</b> <span class="small muted">· replacement for glass we sold them: ${cents(GLASS.replace)} phones, ${cents(GLASS.replaceTab)} iPads/tablets (discount added for you)</span></span></label>
+    <label class="row" style="gap:10px;cursor:pointer;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);flex-wrap:nowrap"><input type="checkbox" id="gp-x" style="width:22px;height:22px;flex:none">
+      <span><b>One broke while installing</b> <span class="small muted">· takes an extra one out of the count (no charge to the customer, logged with your name)</span></span></label>
     <div class="field"><label class="label" for="gp-q">Model</label><input id="gp-q" value="${esc(q)}" placeholder="15 pro max, s24 ultra…" autocomplete="off"></div>
     <div id="gp-list" class="stack" style="gap:6px;max-height:50vh;overflow:auto"></div>
     <span class="small muted">Every glass sold comes out of this store's count and gets the lifetime warranty (replacement ${cents(GLASS.replace)}).</span>`,
@@ -4510,8 +4527,10 @@ async function glassPicker(kind, device, onPick){
         + `<button data-gp="" style="min-height:40px" class="small">Not in inventory: add ${kind === 'privacy' ? 'privacy ' : ''}glass for ${esc(q || 'this phone')} without a count</button>`;
       L.querySelectorAll('[data-gp]').forEach(b => b.onclick = () => { const p = all.find(x => x.id === b.dataset.gp);
         if (p && !(p.qty?.[S.store] > 0)) toast(`${STORES[S.store]} shows 0 of this glass. It still sells; fix the count in Inventory.`);
-        const w = L.querySelector('#gp-w').checked, tab = /ipad|tablet|\btab\b|galaxy tab/i.test((p ? p.name : '') + ' ' + q + ' ' + (device || ''));
+        const w = L.querySelector('#gp-w').checked, broke = L.querySelector('#gp-x').checked, tab = /ipad|tablet|\btab\b|galaxy tab/i.test((p ? p.name : '') + ' ' + q + ' ' + (device || ''));
         const base = (p ? p.name : `${kind === 'privacy' ? 'Privacy tempered glass' : 'Tempered glass'}${q ? ' · ' + q.trim() : ''}`);
+        if (broke && p) Store.moveProduct(S.user, S.store, p.id, -1, 'Broke while installing' + (q.trim() || device ? ' · ' + (q.trim() || device) : '')).then(() => toast('Extra glass taken out of the count')).catch(e => toast(e.message));
+        if (broke && !p) toast('That glass isn\'t in inventory, so there was nothing to take out.');
         close(); onPick({desc: base + (w ? ' (lifetime warranty replacement)' : ' (lifetime warranty)'), cat: 'Tempered glass', price: w ? (tab ? GLASS.replaceTab : GLASS.replace) : GLASS[kind], qty: 1, taxable: true, glass: kind, device: q.trim() || device || '',
           ...(w ? {orig: GLASS[kind], wty: true} : {}), ...(p ? {productId: p.id} : {})}); }); };
     L.querySelectorAll('[data-gk]').forEach(b => b.onclick = () => { kind = b.dataset.gk; draw(); });
@@ -6470,7 +6489,7 @@ async function viewAccessories(box, again){
     <div class="tbl"><table><thead><tr><th>Item</th><th>Category</th><th class="r">Price</th>${can(2) ? '<th class="r">Cost</th>' : ''}<th class="r">${S.store}</th><th class="r" title="Desired quantity at ${STORES[S.store]}">DQ</th>${can(3) ? Object.keys(STORES).filter(k => k !== S.store).map(k => `<th class="r">${k}</th>`).join('') : ''}<th></th></tr></thead><tbody>
     ${shown.map(p => { const q = p.qty?.[S.store] || 0; return `<tr><td><b>${esc(p.name)}</b>${p.upc ? `<div class="mono small muted">${esc(p.upc)}</div>` : ''}</td><td class="small">${esc(p.category || '')}</td><td class="r num">${cents(p.price)}</td>${can(2) ? `<td class="r num">${cents(p.cost)}</td>` : ''}
       <td class="r num"><b style="color:${p.maintainStock && (q < 1 || q < acDq(p)) ? 'var(--bad)' : 'inherit'}">${p.maintainStock ? q : '—'}</b></td><td class="r num small muted">${acDq(p) || ''}</td>${can(3) ? Object.keys(STORES).filter(k => k !== S.store).map(k => `<td class="r num">${p.maintainStock ? (p.qty?.[k] || 0) : '—'}</td>`).join('') : ''}
-      <td class="r" style="white-space:nowrap">${can(2) && p.maintainStock ? `<button data-acfix="${p.id}" style="min-height:32px;padding:3px 10px">Fix count</button>` : ''}${can(2) ? ` <button data-acedit="${p.id}" style="min-height:32px;padding:3px 10px">Edit</button>` : ''}</td></tr>`; }).join('') || '<tr><td colspan="8" class="muted">Nothing matches.</td></tr>'}
+      <td class="r" style="white-space:nowrap">${p.maintainStock ? `<button data-acmv="${p.id}" style="min-height:32px;padding:3px 10px">Broke / received</button> ` : ''}${can(2) && p.maintainStock ? `<button data-acfix="${p.id}" style="min-height:32px;padding:3px 10px">Fix count</button>` : ''}${can(2) ? ` <button data-acedit="${p.id}" style="min-height:32px;padding:3px 10px">Edit</button>` : ''}</td></tr>`; }).join('') || '<tr><td colspan="8" class="muted">Nothing matches.</td></tr>'}
     </tbody></table></div>${rows.length > shown.length ? `<p class="small muted">Showing the first 300. Search to narrow it down.</p>` : ''}</div>`;
   const qi = box.querySelector('#ac-q'); let t; qi.oninput = () => { clearTimeout(t); t = setTimeout(() => { A.q = qi.value; again().then(() => { const n = $('#ac-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 250); };
   box.querySelector('#ac-cat').onchange = e => { A.cat = e.target.value; again(); };
@@ -6485,6 +6504,20 @@ async function viewAccessories(box, again){
     (L, close) => L.querySelector('#ae-go').onclick = async () => { try { await Store.saveProduct(S.user, S.store, {id: p?.id, name: L.querySelector('#ae-n').value, category: L.querySelector('#ae-c').value.trim(), upc: L.querySelector('#ae-u').value.trim(), price: parseFloat(L.querySelector('#ae-p').value) || 0, cost: parseFloat(L.querySelector('#ae-co').value) || 0}); close(); toast('Saved'); again(); } catch (e) { L.querySelector('#ae-e').textContent = e.message; } });
   box.querySelector('#ac-new') && (box.querySelector('#ac-new').onclick = () => edit(null));
   box.querySelectorAll('[data-acedit]').forEach(b => b.onclick = () => edit(all.find(p => p.id === b.dataset.acedit)));
+  box.querySelectorAll('[data-acmv]').forEach(b => b.onclick = () => { const p = all.find(x => x.id === b.dataset.acmv);
+    sheet(`<div class="row" style="justify-content:space-between"><h3>${esc(p.name)}</h3><button data-close>Close</button></div>
+      <p class="small muted" style="margin:0">${STORES[S.store]} shows ${p.qty?.[S.store] || 0}. Sales on the Register take items out by themselves. Use this only for things that left without a sale, or new stock that came in.</p>
+      <div class="grid g2"><div class="field"><label class="label" for="am-w">What happened</label><select id="am-w">
+        <option value="-|Broke while installing">Broke while installing (take out)</option><option value="-|Came broken / defective">Came broken / defective (take out)</option>
+        <option value="-|Used on the display or a demo">Used on the display or a demo (take out)</option><option value="-|Given free (manager OK)">Given free, manager OK'd it (take out)</option>
+        <option value="+|Received new stock">Received new stock (add)</option><option value="+|Found / returned to the shelf">Found or put back on the shelf (add)</option></select></div>
+      <div class="field"><label class="label" for="am-q">How many</label><input id="am-q" inputmode="numeric" value="1"></div></div>
+      <div class="field"><label class="label" for="am-n">Note (ticket #, customer, supplier…)</label><input id="am-n" placeholder="e.g. ticket 200061, cracked on the edge"></div>
+      <div class="err" id="am-e" role="alert"></div><button class="primary" id="am-go">Save</button>`,
+      (L, close) => L.querySelector('#am-go').onclick = async () => { const [sg, why] = L.querySelector('#am-w').value.split('|'); const n = parseInt(L.querySelector('#am-q').value, 10);
+        if (!(n > 0)) { L.querySelector('#am-e').textContent = 'Enter how many.'; return; }
+        const note = L.querySelector('#am-n').value.trim();
+        try { await Store.moveProduct(S.user, S.store, p.id, sg === '-' ? -n : n, why + (note ? ' · ' + note : '')); close(); toast('Saved and logged'); again(); } catch (e) { L.querySelector('#am-e').textContent = e.message; } }); });
   box.querySelectorAll('[data-acfix]').forEach(b => b.onclick = () => { const p = all.find(x => x.id === b.dataset.acfix);
     sheet(`<div class="row" style="justify-content:space-between"><h3>Fix count · ${esc(p.name)}</h3><button data-close>Close</button></div>
       <div class="grid g2"><div class="field"><label class="label" for="af-q">Count on the shelf at ${STORES[S.store]} (system says ${p.qty?.[S.store] || 0})</label><input id="af-q" inputmode="numeric"></div>
