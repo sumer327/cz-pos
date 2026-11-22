@@ -2745,12 +2745,17 @@ const partIsType = (p, type) => !type ? true : type === 'display' ? (p.kind === 
 /* device family: an iPhone 11 must never match iPad Pro 11" parts (and the other way round) */
 const devFam = x => /\bipad\b/i.test(x) ? 'ipad' : /\biphone\b/i.test(x) ? 'iphone' : /\b(galaxy|samsung)\b/i.test(x) ? 'galaxy' : /\bpixel\b/i.test(x) ? 'pixel' : /\b(switch|ps[45]|playstation|xbox)\b/i.test(x) ? 'console' : null;
 function partsFor(parts, device, want, store, type){
-  const key = partKey(device); if (!key) return []; const fam = devFam(device);
+  const key0 = partKey(device); if (!key0) return []; const fam = devFam(device);
   parts = parts.filter(p => partIsType(p, type) && (!fam || !devFam(p.name) || devFam(p.name) === fam));
-  const esc2 = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const strict = new RegExp('[\\s/]' + esc2 + '(?=[\\s/])(?!\\s*(max|mini|ultra|pro|\\+|fe|e|lite)\\b)(?!\\+)');
-  let hits = parts.filter(p => strict.test(partNorm(p.name)));
-  if (!hits.length) { const w = key.split(' '); hits = parts.filter(p => { const n = partNorm(p.name); return w.every(x => n.includes(' ' + x)); }); }
+  /* "iPad 7th/8th/9th" = any of "iPad 7th", "iPad 8th", "iPad 9th" (same 10.2" glass) */
+  const ws = key0.split(' '), si = ws.findIndex(x => x.includes('/'));
+  const keys = si < 0 ? [key0] : ws[si].split('/').filter(Boolean).map(alt => [...ws.slice(0, si), alt, ...ws.slice(si + 1)].join(' '));
+  const one = key => { const esc2 = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const strict = new RegExp('[\\s/]' + esc2 + '(?=[\\s/])(?!\\s*(max|mini|ultra|pro|\\+|fe|e|lite)\\b)(?!\\+)');
+    let h = parts.filter(p => strict.test(partNorm(p.name)));
+    if (!h.length) { const w = key.split(' '); h = parts.filter(p => { const n = partNorm(p.name); return w.every(x => n.includes(' ' + x)); }); }
+    return h; };
+  const hits = [...new Set(keys.flatMap(one))];
   const score = p => (want && partQual(p.name) === want ? 2 : 0) + ((p.qty?.[store] || 0) > 0 ? 1 : 0);
   return hits.sort((a, b) => score(b) - score(a) || a.name.localeCompare(b.name)).slice(0, 8);
 }
