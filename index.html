@@ -915,8 +915,8 @@ const DemoStore = {
   async saveEod(emp, store, c){ const d = this.db(); const L = await this.eodList(store);
     const phones = L.phones.map(x => ({id: x.id, stockNo: x.stockNo, label: [x.model, x.storage, x.color].filter(Boolean).join(' '), status: x.status, here: c.checked.includes(x.id), note: c.missingNotes?.[x.id] || null}));
     const parts = c.parts.map(x => { const p = d.parts.find(y => y.id === x.id); return {id: x.id, name: p.name, expected: p.qty[store] || 0, counted: x.counted}; });
-    const bins = {rma: {expected: L.rma, counted: c.rma}, refurb: {expected: L.refurb, counted: c.refurb}};
-    const off = phones.filter(x => !x.here).length + parts.filter(x => x.counted !== x.expected).length + (bins.rma.counted !== bins.rma.expected) + (bins.refurb.counted !== bins.refurb.expected);
+    const bins = c.phonesOnly ? null : {rma: {expected: L.rma, counted: c.rma}, refurb: {expected: L.refurb, counted: c.refurb}};
+    const off = phones.filter(x => !x.here).length + parts.filter(x => x.counted !== x.expected).length + (bins ? (bins.rma.counted !== bins.rma.expected) + (bins.refurb.counted !== bins.refurb.expected) : 0);
     const row = {id: uid(), at: now(), day: new Date().toLocaleDateString('en-CA', {timeZone: 'America/Chicago'}), store, by: emp.id, phones, parts, bins, off, note: c.note || null}; (d.eod = d.eod || []).unshift(row); this.save(d); return row; },
   async eodApply(emp, store, id){ if (RANK[emp.role] < 2) throw new Error('A manager fixes counts.'); const d = this.db(); const r = d.eod.find(x => x.id === id); let n = 0; r.parts.forEach(x => { if (x.counted !== x.expected) { d.parts.find(p => p.id === x.id).qty[r.store] = x.counted; n++; } }); this.save(d); return {fixed: n}; },
   async queueSet(emp, store, kind, ids){ const d = this.db(); const list = kind === 'device' ? d.devices : d.tickets; ids.forEach((id, i) => { const x = list.find(y => y.id === id); if (x) x.queuePos = i + 1; }); this.save(d); return {ok: true}; },
@@ -1831,9 +1831,9 @@ const HELP_KB = [
   'Tap **Received** on each line (or **Everything arrived: receive all**). The parts are added to your stock.']},
  {t: 'End-of-day count (every night)', k: 'end of day count inventory nightly count phones screens rma refurb bin check off close', s: [
   'Go to **More → End-of-day count**. Do it after the last customer, before you close the register.',
-  '**1 · Phones:** scan each phone\'s label (or type its stock #). Every phone on the list must be found.',
-  '**2 · Screens:** type how many of each screen are on the shelf. Type 0 if none.',
-  '**3 · Bins:** count the screens in the RMA bin and the refurb bin, then **Submit tonight\'s count**.']},
+  '**Weeknights: phones only.** Scan each phone\'s label (or type its stock #). Every phone on the list must be found. Then **Submit tonight\'s phone count**.',
+  '**Sundays: the screen check.** After the phones, type how many of each screen are on the shelf (0 if none), then count the RMA bin and the refurb bin. The POS tracks screens all week; Sunday shows how close it is to the shelf. Goal: 0 off.',
+  'Missed Sunday? A manager can tap **Manager: do the screen check now** on any night.']},
  {t: 'Original screen to the refurb bin', k: 'refurb bin original screen glass repair refurb credit old screen keep', s: [
   '**Glass repair:** the screen you take off ALWAYS goes in the refurb bin.',
   '**LCD / OLED replacement on an OLED phone**: the POS asks when you add the charge. Lights up and touch works = refurb bin. Lines, black spots or no touch = damaged.',
@@ -4336,6 +4336,10 @@ async function viewEod(el){
       S.eod.rma = String(done.bins?.rma?.counted ?? ''); S.eod.refurb = String(done.bins?.refurb?.counted ?? ''); S.eod.note = done.note || ''; S.eod.again = true; }
   }
   const E = S.eod, L = E.list;
+  /* weekdays: phones only. Sundays (or a manager who starts it): the weekly screen + bin check, to see how close the POS is to the shelf */
+  const sunday = new Date(new Date().toLocaleString('en-US', {timeZone: 'America/Chicago'})).getDay() === 0;
+  const weekly = sunday || !!E.weekly;
+  if (!weekly && E.open !== 'phones') E.open = 'phones';
   const SECT = [['In the safe (for sale, to list, on Swappa, pending)', d => ['hot', 'tolist', 'testing', 'swappa'].includes(d.status)], ['Repair stock', d => d.status === 'repair'], ['Wholesale (waiting to ship)', d => d.status === 'wholesale']];
   /* same order as the shelf / the Parts Inventory sheet */
   const shelf = n => /ipad/i.test(n) ? 'iPad' : /iphone/i.test(n) ? (/aq7/i.test(n) ? 'iPhone AQ7' : /oled|xo7|x07/i.test(n) ? 'iPhone OLED (XO7)' : 'iPhone older + LCD') : /galaxy|^s\d|note|^a\d|samsung|^z /i.test(n) ? 'Samsung' : 'Other';
@@ -4347,8 +4351,9 @@ async function viewEod(el){
   el.innerHTML = `<div class="stack">
     <div class="row" style="justify-content:space-between"><h2>End-of-day count · ${STORES[S.store]}</h2><span class="muted">${new Date().toLocaleDateString('en-US', {weekday: 'long', month: 'short', day: 'numeric'})}</span></div>
     <div class="row" style="gap:8px;align-items:center"><div class="banner small" style="flex:1">Count what's physically here. If a number doesn't match the POS, it asks you to count that one again.${E.again ? ' <b>Recount: your last numbers are filled in.</b>' : ''}</div>${hist.length ? '<button id="eo-past" class="small">Past counts ↓</button>' : ''}</div>
+    ${weekly ? `<div class="banner warn small"><b>Sunday screen check.</b> Count the phones, then every screen and both bins. This is how we see how close the POS is to the shelf. Goal: 0 off.</div>` : `<div class="row small muted" style="gap:8px;align-items:center">Weeknights: phones only. Screens and bins are counted on Sunday.${can(2) ? ' <button id="eo-weekly" class="small" style="min-height:30px;padding:2px 10px">Manager: do the screen check now</button>' : ''}</div>`}
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
-      ${[['phones', '1 · Phones', `${nC} of ${nP} checked`, nC === nP], ['parts', '2 · Screens', `${nE} of ${nS} counted`, nE === nS], ['bins', '3 · RMA + refurb bins', binsOk ? 'counted' : 'not counted', binsOk]]
+      ${[['phones', '1 · Phones', `${nC} of ${nP} checked`, nC === nP], ...(weekly ? [['parts', '2 · Screens', `${nE} of ${nS} counted`, nE === nS], ['bins', '3 · RMA + refurb bins', binsOk ? 'counted' : 'not counted', binsOk]] : [])]
         .map(([k, t, s, ok]) => `<button data-eo="${k}" style="flex-direction:column;align-items:flex-start;min-height:64px;${E.open === k ? 'border:2px solid var(--accent)' : ''}"><b>${t}</b><span class="small ${ok ? '' : 'muted'}" style="${ok ? 'color:var(--ok)' : ''}">${ok ? '✓ ' : ''}${s}</span></button>`).join('')}
     </div>
     <div class="panel stack" id="eo-body">
@@ -4356,7 +4361,7 @@ async function viewEod(el){
         ${SECT.map(([t, f]) => { const ds = L.phones.filter(f).sort(phCmp); let lastG = null; return ds.length ? `<div class="stack" style="gap:4px"><span class="label">${t} · ${ds.filter(d => E.checked.has(d.id)).length} of ${ds.length}</span>
           ${ds.map(d => { const g = phGroup(d)[1], head = g !== lastG ? `<div class="small muted" style="margin:6px 0 0;font-weight:700">${g}</div>` : ''; lastG = g; return head + `<label class="row" style="gap:12px;cursor:pointer;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r);flex-wrap:nowrap;${E.checked.has(d.id) ? 'background:var(--ok-soft)' : ''}"><input type="checkbox" data-ph="${d.id}" ${E.checked.has(d.id) ? 'checked' : ''} style="width:24px;height:24px;flex:none"><span style="flex:1;min-width:0">${lbl(d)}</span></label>`; }).join('')}</div>` : ''; }).join('')}
         ${nP ? '' : '<p class="muted">No phones on file for this store.</p>'}
-        <button class="primary" data-eo="parts" style="align-self:flex-end">Next: screens →</button>`
+        ${weekly ? '<button class="primary" data-eo="parts" style="align-self:flex-end">Next: screens →</button>' : `<div class="field"><label class="label" for="eo-note">Note (optional)</label><textarea id="eo-note" rows="2" placeholder="Anything the manager should know">${esc(E.note)}</textarea></div><div class="err" id="eo-err" role="alert"></div><button class="primary" id="eo-go" style="min-height:52px;align-self:flex-end">Submit tonight's phone count</button>`}`
     : E.open === 'parts' ? `<div class="row" style="gap:8px;align-items:center"><div class="banner small" style="flex:1">Same order as the shelf: go top to bottom. Type 0 when there are none. Enter jumps to the next one.</div><button id="eo-pvoice" class="small">🎤 Read it out</button></div>${pg.map(([b, ps]) => `<div class="stack" style="gap:4px"><span class="label">${b} (${ps.length})</span>
           <div class="stack" style="gap:4px;max-width:560px">${ps.map(p => `<label class="row" style="gap:10px;padding:6px 10px;border:1px solid var(--line);border-radius:var(--r);flex-wrap:nowrap"><span style="flex:1;min-width:0">${esc(p.name)}</span>
             <input data-pc="${p.id}" value="${esc(E.parts[p.id] ?? '')}" inputmode="numeric" placeholder="#" aria-label="How many ${esc(p.name)}" style="width:70px;min-height:38px;text-align:center"></label><div id="pf-${p.id}">${eodFlagHTML(E, p)}</div>`).join('')}</div></div>`).join('')}
@@ -4416,12 +4421,13 @@ async function viewEod(el){
   [['rma', '#eo-rma'], ['refurb', '#eo-ref']].forEach(([k, sel]) => { const i = $(sel); if (!i) return; i.onchange = () => { const v = E[k]; if (v === '' || L[k] === undefined) return;
     const f = E.flag['bin-' + k]; if (+v === +L[k]) delete E.flag['bin-' + k]; else if (f && f.first === +v) f.kept = true; else E.flag['bin-' + k] = {first: +v, kept: false};
     const g = E.flag['bin-' + k]; $('#bf-' + k).innerHTML = !g ? '' : g.kept ? `<div class="small" style="color:var(--warn)">Recounted and kept at ${g.first}.</div>` : '<div class="small" style="color:var(--bad)"><b>Doesn\'t match the POS. Count the bin again</b> (same number twice keeps it).</div>'; if (g && !g.kept) i.select(); }; });
+  $('#eo-weekly') && ($('#eo-weekly').onclick = () => { E.weekly = true; viewEod(el); });
   $('#eo-go') && ($('#eo-go').onclick = () => {
-    const missingParts = L.parts.filter(p => E.parts[p.id] === undefined || E.parts[p.id] === '');
+    const missingParts = weekly ? L.parts.filter(p => E.parts[p.id] === undefined || E.parts[p.id] === '') : [];
     if (missingParts.length) { $('#eo-err').textContent = `${missingParts.length} screen${missingParts.length === 1 ? '' : 's'} still need a number (type 0 if there are none). First one: ${missingParts[0].name}`; return; }
-    if (E.rma === '' || E.refurb === '') { $('#eo-err').textContent = 'Count the RMA bin and the refurb bin.'; return; }
+    if (weekly && (E.rma === '' || E.refurb === '')) { $('#eo-err').textContent = 'Count the RMA bin and the refurb bin.'; return; }
     const miss = L.phones.filter(d => !E.checked.has(d.id));
-    const send = async (S2, close) => { try { const r = await Store.saveEod(S.user, S.store, {checked: [...E.checked], missingNotes: E.notes, parts: L.parts.map(p => ({id: p.id, counted: +E.parts[p.id]})), rma: +E.rma, refurb: +E.refurb, note: E.note});
+    const send = async (S2, close) => { try { const r = await Store.saveEod(S.user, S.store, weekly ? {checked: [...E.checked], missingNotes: E.notes, parts: L.parts.map(p => ({id: p.id, counted: +E.parts[p.id]})), rma: +E.rma, refurb: +E.refurb, note: E.note} : {checked: [...E.checked], missingNotes: E.notes, parts: [], phonesOnly: true, note: E.note});
         if (close) close(); S.eod = null; S.eodAgain = false; S.eodShow = r.id; toast(r.off ? `Count saved · ${r.off} off` : 'Count saved · everything matched'); viewEod(el); }
       catch (e) { (S2 ? S2.querySelector('#em-e') : $('#eo-err')).textContent = e.message; } };
     if (!miss.length) return send();
@@ -4437,12 +4443,12 @@ function eodResult(el, r, hist){
   const binRow = (k, t) => { const x = b[k] || {}; return `<tr><td>${t}</td><td class="r num">${x.expected}</td><td class="r num">${x.counted}</td><td>${x.counted === x.expected ? '<span class="pill ok">OK</span>' : `<span class="pill bad">${x.counted - x.expected > 0 ? '+' : ''}${x.counted - x.expected}</span>`}</td></tr>`; };
   el.innerHTML = `<div class="stack">
     <div class="crumb"><a id="er-back">End-of-day count</a><span class="muted">›</span><b>${esc(r.day)}</b> ${r.off ? `<span class="pill bad">${r.off} off</span>` : '<span class="pill ok">Everything matched</span>'}</div>
-    <div class="panel stack"><div class="small muted">Counted by ${esc(staffName(r.by))} at ${fmtTime(r.at)} · ${(r.phones || []).length} phones · ${(r.parts || []).length} screens${r.note ? ' · Note: ' + esc(r.note) : ''}</div>
+    <div class="panel stack"><div class="small muted">Counted by ${esc(staffName(r.by))} at ${fmtTime(r.at)} · ${(r.phones || []).length} phones${r.bins ? ` · ${(r.parts || []).length} screens` : ''}${r.note ? ' · Note: ' + esc(r.note) : ''}</div>
       ${miss.length ? `<h3 style="color:var(--bad)">Phones not found (${miss.length})</h3><ul style="margin:0;padding-left:18px">${miss.map(x => `<li><b>#${x.stockNo}</b> ${esc(x.label)} <span class="small muted">· ${esc(x.status)}${x.note ? ' · "' + esc(x.note) + '"' : ''}</span></li>`).join('')}</ul>` : '<div style="color:var(--ok)">✓ Every phone was here.</div>'}
-      ${offP.length ? `<h3 style="color:var(--bad)">Screens that don't match (${offP.length})</h3><div class="tbl"><table><thead><tr><th>Screen</th><th class="r">POS says</th><th class="r">Counted</th><th></th></tr></thead><tbody>${offP.map(x => `<tr><td>${esc(x.name)}</td><td class="r num">${x.expected}</td><td class="r num">${x.counted}</td><td><span class="pill bad">${x.counted - x.expected > 0 ? '+' : ''}${x.counted - x.expected}</span></td></tr>`).join('')}</tbody></table></div>
+      ${!r.bins ? '<div class="small muted">Weeknight count: phones only.</div>' : offP.length ? `<h3 style="color:var(--bad)">Screens that don't match (${offP.length})</h3><div class="tbl"><table><thead><tr><th>Screen</th><th class="r">POS says</th><th class="r">Counted</th><th></th></tr></thead><tbody>${offP.map(x => `<tr><td>${esc(x.name)}</td><td class="r num">${x.expected}</td><td class="r num">${x.counted}</td><td><span class="pill bad">${x.counted - x.expected > 0 ? '+' : ''}${x.counted - x.expected}</span></td></tr>`).join('')}</tbody></table></div>
         ` : '<div style="color:var(--ok)">✓ Every screen count matched.</div>'}
-      <h3>Bins</h3><div class="tbl"><table><thead><tr><th></th><th class="r">POS says</th><th class="r">Counted</th><th></th></tr></thead><tbody>${binRow('rma', 'RMA bin')}${binRow('refurb', 'Refurb bin')}</tbody></table></div>
-      ${offP.length || ['rma', 'refurb'].some(k => (b[k] || {}).counted !== (b[k] || {}).expected) ? (can(2) ? '<button id="er-fix" style="align-self:flex-start">Manager: make the POS match this count (screens and bins)</button><span class="small muted">Only after you\'ve looked into the difference. The first count also sets the bins\' starting numbers.</span>' : '<span class="small muted">A manager reviews these.</span>') : ''}
+      ${r.bins ? `<h3>Bins</h3><div class="tbl"><table><thead><tr><th></th><th class="r">POS says</th><th class="r">Counted</th><th></th></tr></thead><tbody>${binRow('rma', 'RMA bin')}${binRow('refurb', 'Refurb bin')}</tbody></table></div>` : ''}
+      ${r.bins && (offP.length || ['rma', 'refurb'].some(k => (b[k] || {}).counted !== (b[k] || {}).expected)) ? (can(2) ? '<button id="er-fix" style="align-self:flex-start">Manager: make the POS match this count (screens and bins)</button><span class="small muted">Only after you\'ve looked into the difference. The first count also sets the bins\' starting numbers.</span>' : '<span class="small muted">A manager reviews these.</span>') : ''}
     </div>
     <div class="row"><button id="er-again">Count again</button></div>
   </div>`;
