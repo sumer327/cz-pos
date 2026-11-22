@@ -2523,13 +2523,16 @@ const TCHECKS = CHECKS.filter(c => !['lock', 'imei'].includes(c[0]));
 const TRES = {pass: 'Pass', fail: 'Fail', na: "Can't test"};
 const testable = device => ['phone', 'tablet'].includes(laborCat(device || ''));
 function testGridHTML(res){
-  return `<div class="row" style="gap:6px;flex-wrap:wrap"><button type="button" data-tall="pass" style="min-height:34px;padding:2px 12px">All pass</button><button type="button" data-tall="dead" style="min-height:34px;padding:2px 12px">Won't power on</button><button type="button" data-tall="na" style="min-height:34px;padding:2px 12px">Can't test (no passcode)</button></div>
+  return `<div class="row" style="gap:6px;flex-wrap:wrap"><button type="button" data-tall="pass" style="min-height:34px;padding:2px 12px">All pass</button><button type="button" data-tall="dead" style="min-height:34px;padding:2px 12px">Won't power on</button><button type="button" data-tall="na" style="min-height:34px;padding:2px 12px">Can't test</button><button type="button" data-tall="other" style="min-height:34px;padding:2px 12px">Other</button></div>
     <div class="tbl"><table><tbody>${TCHECKS.map(([k, l]) => `<tr><td>${esc(l)}</td><td class="r"><div class="tg" style="justify-content:flex-end">${[['pass', 'p', '✓ Pass'], ['fail', 'f', '✗ Fail'], ['na', 'n', 'N/A']].map(([v, c, t]) => `<button type="button" class="${c}" data-tv="${k}:${v}" aria-pressed="${res[k] === v}" aria-label="${esc(l)}: ${TRES[v]}">${t}</button>`).join('')}</div></td></tr>`).join('')}</tbody></table></div>`;
 }
 function bindTestGrid(root, res){
   const paint = () => root.querySelectorAll('[data-tv]').forEach(b => { const [k, v] = b.dataset.tv.split(':'); b.setAttribute('aria-pressed', String(res[k] === v)); });
   root.querySelectorAll('[data-tv]').forEach(b => b.onclick = () => { const [k, v] = b.dataset.tv.split(':'); res[k] = v; paint(); });
-  root.querySelectorAll('[data-tall]').forEach(b => b.onclick = () => { const m = b.dataset.tall; TCHECKS.forEach(([k]) => { res[k] = m === 'dead' ? (k === 'power' ? 'fail' : 'na') : m; }); paint(); });
+  root.querySelectorAll('[data-tall]').forEach(b => b.onclick = () => { const m = b.dataset.tall;
+    /* Other: clear the lines so each one gets marked by hand, and jump to the notes to say what's going on */
+    if (m === 'other') { TCHECKS.forEach(([k]) => { delete res[k]; }); paint(); const n = root.parentElement?.querySelector('#nt-tn, #ts-n'); if (n) { n.placeholder = "Say what's going on, then mark each line"; n.focus(); } return; }
+    TCHECKS.forEach(([k]) => { res[k] = m === 'dead' ? (k === 'power' ? 'fail' : 'na') : m; }); paint(); });
   paint();
 }
 const testsDone = res => res && TCHECKS.every(([k]) => res[k]);
@@ -2740,26 +2743,40 @@ const partNorm = x => ' ' + String(x || '').toLowerCase().replace(/\b(apple|ipho
 const partKey = device => partNorm(String(device || '').replace(/\b\d+\s?(gb|tb)\b/ig, '').replace(/\b(unlocked|t-mobile|verizon|at&t|black|white|blue|red|green|gray|grey|gold|silver|purple|pink)\b/ig, '')).trim();
 const partQual = n => /oled|xo7|x07|genuine|oem|service pack/i.test(n) ? 'oled' : /aq7|incell|lcd|aftermarket/i.test(n) ? 'lcd' : null;
 const PART_TYPES = {battery: /batter/i, port: /charg|port/i, back: /back glass|back housing|housing|frame/i, camera: /camera|lens/i, speaker: /speaker|mesh/i};
-const repairType = name => /lcd|oled|display|digitizer|glass \+ lcd/i.test(name) && !/back glass/i.test(name) ? 'display' : Object.keys(PART_TYPES).find(k => PART_TYPES[k].test(name)) || null;
+const repairType = name => (/lcd|oled|display|digitizer|glass \+ lcd/i.test(name) || /\bipad\b.*glass repair/i.test(name)) && !/back glass/i.test(name) ? 'display' : Object.keys(PART_TYPES).find(k => PART_TYPES[k].test(name)) || null;
 const partIsType = (p, type) => !type ? true : type === 'display' ? (p.kind === 'Screen' || /lcd|oled|xo7|x07|aq7|incell|digitizer|display/i.test(p.name)) && !/batter|charg|port|camera|back|speaker/i.test(p.name) : PART_TYPES[type].test(p.name);
 /* device family: an iPhone 11 must never match iPad Pro 11" parts (and the other way round) */
 const devFam = x => /\bipad\b/i.test(x) ? 'ipad' : /\biphone\b/i.test(x) ? 'iphone' : /\b(galaxy|samsung)\b/i.test(x) ? 'galaxy' : /\bpixel\b/i.test(x) ? 'pixel' : /\b(switch|ps[45]|playstation|xbox)\b/i.test(x) ? 'console' : null;
+/* slash alternatives: "iPad 7th/8th/9th" = iPad 7th, 8th or 9th; "iPhone 12 / 12 Pro" = either model (spaced slash = whole names) */
+function slashAlts(k){
+  const fw = (k.match(/^(ipad|pixel)\b/) || [])[1]; const out = [];
+  for (const seg of / \/ /.test(k) ? k.split(/\s*\/\s+|\s+\/\s*/) : [k]) {
+    const s2 = fw && !seg.startsWith(fw) ? fw + ' ' + seg : seg;
+    const ws = s2.split(' '), si = ws.findIndex(x => x.includes('/'));
+    if (si < 0) out.push(s2); else ws[si].split('/').filter(Boolean).forEach(alt => out.push([...ws.slice(0, si), alt, ...ws.slice(si + 1)].join(' ')));
+  }
+  return out;
+}
 function partsFor(parts, device, want, store, type){
   const key0 = partKey(device); if (!key0) return []; const fam = devFam(device);
   parts = parts.filter(p => partIsType(p, type) && (!fam || !devFam(p.name) || devFam(p.name) === fam));
-  /* "iPad 7th/8th/9th" = any of "iPad 7th", "iPad 8th", "iPad 9th" (same 10.2" glass) */
-  const ws = key0.split(' '), si = ws.findIndex(x => x.includes('/'));
-  const keys = si < 0 ? [key0] : ws[si].split('/').filter(Boolean).map(alt => [...ws.slice(0, si), alt, ...ws.slice(si + 1)].join(' '));
-  const one = key => { const esc2 = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const strict = new RegExp('[\\s/]' + esc2 + '(?=[\\s/])(?!\\s*(max|mini|ultra|pro|\\+|fe|e|lite)\\b)(?!\\+)');
-    let h = parts.filter(p => strict.test(partNorm(p.name)));
-    if (!h.length) { const w = key.split(' '); h = parts.filter(p => { const n = partNorm(p.name); return w.every(x => n.includes(' ' + x)); }); }
+  const keys = slashAlts(key0);
+  /* a part's name and each of its slash alternatives ("iPad 5th Gen / Air 1 / 6th Gen LCD" fits an iPad 6th) */
+  const texts = new Map(parts.map(p => { const n = partNorm(p.name); return [p, [n, ...slashAlts(n.trim()).map(v => ' ' + v + ' ')]]; }));
+  const NOT_VARIANT = '(?!\\s*(max|mini|ultra|pro|\\+|fe|e|lite|plus|air)\\b)(?!\\+)';
+  const rx = x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const one = key => {
+    const strict = new RegExp('[\\s/]' + rx(key) + '(?=[\\s/])' + NOT_VARIANT);
+    let h = parts.filter(p => texts.get(p).some(t => strict.test(t)));
+    if (!h.length) { const w = key.split(' '); const ws = w.map((x, i) => new RegExp('[\\s/]' + rx(x) + '(?=[\\s/])' + (i === w.length - 1 ? NOT_VARIANT : '')));
+      h = parts.filter(p => texts.get(p).some(t => ws.every(x => x.test(t)))); }
     return h; };
   const hits = [...new Set(keys.flatMap(one))];
-  const score = p => (want && partQual(p.name) === want ? 2 : 0) + ((p.qty?.[store] || 0) > 0 ? 1 : 0);
+  /* iPad glass repair = the digitizer, not the LCD */
+  const score = p => (want === 'digi' ? (partQual(p.name) ? 0 : 2) : want && partQual(p.name) === want ? 2 : 0) + ((p.qty?.[store] || 0) > 0 ? 1 : 0);
   return hits.sort((a, b) => score(b) - score(a) || a.name.localeCompare(b.name)).slice(0, 8);
 }
-const repairWants = name => /^glass repair/i.test(name) ? 'none' : /lcd replacement \(aftermarket\)|^lcd/i.test(name) ? 'lcd' : /oled/i.test(name) ? 'oled' : /lcd/i.test(name) ? 'lcd' : null;
+const repairWants = name => /\bipad\b.*glass repair/i.test(name) ? 'digi' : /^glass repair/i.test(name) ? 'none' : /lcd replacement \(aftermarket\)|^lcd/i.test(name) ? 'lcd' : /oled/i.test(name) ? 'oled' : /lcd/i.test(name) ? 'lcd' : null;
 
 /* ---------- passcode / Samsung pattern ----------
    A pattern is saved in the passcode field as "Pattern 1-2-3-6-9": dots numbered 1-9, left to right, top to bottom. */
@@ -4211,7 +4228,9 @@ const refurbModel = device => { const n = String(device || '');
   if (/iphone/i.test(n)) return !lcdIphone(n) && /iphone\s*(x|xs|1[1-9]|air)/i.test(n);
   if (/galaxy|samsung|\bnote\b|\bs\d{2}\b|\bz\s*(fold|flip)/i.test(n)) return !lcdSamsung(n) && !/\bA(0|1)\d/i.test(n);
   return false; };
-const refurbAsk = (desc, device) => /^glass repair/i.test(repairName(desc)) ? 'always' : repairType(desc) === 'display' && refurbModel(device) ? 'ask' : null;
+/* iPads: a glass (digitizer) repair never goes to refurb; an iPad LCD / OLED replacement asks like a phone does */
+const isIpadJob = (desc, device) => /\bipad\b/i.test(device || '') || /\bipad\b/i.test(desc || '');
+const refurbAsk = (desc, device) => /^glass repair/i.test(repairName(desc)) ? (isIpadJob(desc, device) ? null : 'always') : repairType(desc) === 'display' && (refurbModel(device) || isIpadJob(desc, device)) ? 'ask' : null;
 const repairName = desc => String(desc || '').replace(/^.*?(Glass Repair|LCD Replacement|OLED Replacement)/i, '$1');
 
 /* ---------------- END-OF-DAY COUNT ----------------
