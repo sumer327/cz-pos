@@ -1117,10 +1117,11 @@ const DemoStore = {
   async transfers(){ return this.db().transfers; },
   async createTransfer(emp, from, t){
     const d = this.db(); if (!t.devices.length && !t.parts.length) throw new Error('Add at least one device or part.'); if (t.to === from) throw new Error('Pick a different store.');
-    for (const it of t.parts) { const p = d.parts.find(x => x.id === it.id); if ((p.qty[from] || 0) < it.qty) throw new Error(`Only ${p.qty[from] || 0} ${p.name} at ${STORES[from]}.`); }
+    const itemOf = id => d.parts.find(x => x.id === id) || (d.products || []).find(x => x.id === id);
+    for (const it of t.parts) { const p = itemOf(it.id); if ((p.qty[from] || 0) < it.qty) throw new Error(`Only ${p.qty[from] || 0} ${p.name} at ${STORES[from]}.`); }
     const row = {id: uid(), number: d.nextTransfer++, at: now(), by: emp.id, from, to: t.to, note: t.note || '', status: 'transit',
       devices: t.devices.map(id => { const dv = d.devices.find(x => x.id === id); dv.transferId = row_id(); return {id, label: `#${dv.stockNo} ${dv.model} ${dv.storage}`}; }),
-      parts: t.parts.map(it => { const p = d.parts.find(x => x.id === it.id); p.qty[from] -= it.qty; return {id: it.id, name: p.name, qty: it.qty}; })};
+      parts: t.parts.map(it => { const p = itemOf(it.id); p.qty[from] -= it.qty; return {id: it.id, name: p.name, qty: it.qty, ...(d.parts.includes(p) ? {} : {acc: true})}; })};
     function row_id(){ return 'pending'; }
     row.devices.forEach(x => { d.devices.find(y => y.id === x.id).transferId = row.id; });
     d.transfers.unshift(row);
@@ -1130,9 +1131,15 @@ const DemoStore = {
   async receiveTransfer(emp, store, id){
     const d = this.db(); const t = d.transfers.find(x => x.id === id); if (t.to !== store) throw new Error(`Receive this at ${STORES[t.to]}.`);
     t.devices.forEach(x => { const dv = d.devices.find(y => y.id === x.id); dv.store = t.to; dv.transferId = null; (dv.log = dv.log || []).unshift({at: now(), who: emp.id, text: `Transferred ${t.from} → ${t.to} (T${t.number})`}); });
-    t.parts.forEach(x => { const p = d.parts.find(y => y.id === x.id); p.qty[t.to] = (p.qty[t.to] || 0) + x.qty; });
+    t.parts.forEach(x => { const p = d.parts.find(y => y.id === x.id) || (d.products || []).find(y => y.id === x.id); p.qty[t.to] = (p.qty[t.to] || 0) + x.qty; });
     t.status = 'received'; t.receivedAt = now(); t.receivedBy = emp.id;
     this.log(d, emp.id, store, 'Transfer received', `T${t.number} from ${t.from}`); this.save(d); return t;
+  },
+  async cancelTransfer(emp, store, id){
+    const d = this.db(); const t = d.transfers.find(x => x.id === id); if (t.status !== 'transit') throw new Error('Already ' + t.status + '.');
+    t.devices.forEach(x => { const dv = d.devices.find(y => y.id === x.id); if (dv) dv.transferId = null; });
+    t.parts.forEach(x => { const p = d.parts.find(y => y.id === x.id) || (d.products || []).find(y => y.id === x.id); if (p) p.qty[t.from] = (p.qty[t.from] || 0) + x.qty; });
+    t.status = 'cancelled'; this.log(d, emp.id, store, 'Transfer cancelled', `T${t.number}`); this.save(d); return t;
   },
   /* ---------- Sentrix orders ---------- */
   async pos(){ return this.db().pos; },
@@ -1434,9 +1441,10 @@ const LiveStore = {
   async partUses(stores){ const {data} = await this.sb.from('audit').select('who,at,store,detail').eq('action', 'Part used').in('store', stores).gte('at', new Date(Date.now() - 45 * 864e5).toISOString()).order('at', {ascending: false}).limit(1500); return data || []; },
   async counts(){ const {data, error} = await this.sb.from('shelf_counts_v').select('*').order('at', {ascending: false}).limit(60); if (error) throw error; return data; },
   async saveCount(emp, store, c){ return this.rpc('pos_save_count', {p_pin: this.pinFor(emp), p_store: store, p_c: c.kind === 'parts' ? {kind: 'parts', apply: !!c.apply, items: c.items.map(i => ({id: i.id, counted: i.counted}))} : c}); },
-  async transfers(){ return []; },
-  async createTransfer(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
-  async receiveTransfer(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
+  async transfers(){ return this.swr('transfers', async () => { const {data, error} = await this.sb.from('transfers_v').select('*').order('at', {ascending: false}).limit(200); if (error) return []; return data; }); },
+  async createTransfer(emp, from, t){ return this.rpc('pos_transfer_create', {p_pin: this.pinFor(emp), p_store: from, p_t: {to: t.to, devices: t.devices, parts: t.parts, note: t.note || ''}}); },
+  async receiveTransfer(emp, store, id){ return this.rpc('pos_transfer_receive', {p_pin: this.pinFor(emp), p_store: store, p_id: id}); },
+  async cancelTransfer(emp, store, id){ return this.rpc('pos_transfer_cancel', {p_pin: this.pinFor(emp), p_store: store, p_id: id}); },
   async pos(){ return this.swr('pos', async () => { const {data, error} = await this.sb.from('sentrix_orders_v').select('*').order('orderedAt', {ascending: false}).limit(60); if (error) return []; return data; }); },
   async createPO(actor, store, lines){ return this.rpc('pos_po_create', {p_pin: this.pinFor(actor), p_store: store, p_lines: lines.filter(l => l.qty > 0).map(l => ({name: l.name, partId: l.partId || null, qty: l.qty, cost: l.cost || null, requestIds: l.requestIds || []}))}); },
   async updatePO(actor, id, patch){ return this.rpc('pos_po_update', {p_pin: this.pinFor(actor), p_id: id, p_patch: patch}); },
@@ -1849,7 +1857,9 @@ const HELP_KB = [
   'Pick what happened (broke installing, came defective, used on display, given free, received new stock, found) and how many, add a note (ticket #, supplier) and save. It\'s logged with your name.']},
  {t: 'Transfer a device or part to another store', k: 'transfer another store send move to babcock bulverde potranco', s: [
   'Open the device and tap **Transfer to another store** (or **More → Transfers → + New transfer**).',
-  'Pick the store and send it. The other store taps **Received** when it arrives.']},
+  'Pick the store, then add devices (tabs for **For sale**, **Repair stock**, **Wholesale**; scan the stock # or search) and any parts or accessories (search them), and tap **Send**.',
+  'Parts and accessories leave your count right away. Devices show **In transit** and can\'t be sold until the other store taps **Received**, which puts everything in their count.',
+  'Sent the wrong thing, or it never left? The sending store (or a manager) taps **Cancel** and everything goes back.']},
  {t: 'Repair quote for a customer', k: 'quote price how much repair cost screen battery good better best', s: [
   'Go to **Quote** and search the device.',
   'Pick the repair: Glass Repair, LCD Replacement (aftermarket), OLED Replacement (premium) or the genuine part.',
@@ -3993,42 +4003,72 @@ async function viewSwappaSync(el){
 
 /* ---------------- TRANSFERS ---------------- */
 async function viewTransfers(el){
-  const [trs, devs, parts] = await Promise.all([Store.transfers(), Store.devices(), Store.parts()]);
+  const [trs, devs, parts, prods] = await Promise.all([Store.transfers(), Store.devices(), Store.parts(), Store.products().catch(() => [])]);
+  const TGRP = {all: 'All', sale: 'For sale', repair: 'Repair stock', wholesale: 'Wholesale', other: 'Other'};
+  const grpOf = d => SELLABLE.includes(d.status) ? 'sale' : d.status === 'repair' ? 'repair' : d.status === 'wholesale' ? 'wholesale' : 'other';
   if (S.newTransfer) {
-    const T = S.tDraft || (S.tDraft = {to: Object.keys(STORES).find(k => k !== S.store), devices: [], parts: {}, note: ''});
+    const T = S.tDraft || (S.tDraft = {to: Object.keys(STORES).find(k => k !== S.store), devices: [], parts: {}, note: '', f: 'all', q: ''});
+    T.f = T.f || 'all'; T.q = T.q || ''; T.pq = T.pq || '';
     const avail = devs.filter(d => d.store === S.store && !['sold','atlas'].includes(d.status) && !d.transferId);
+    const words = T.q.toLowerCase().split(/\s+/).filter(Boolean);
+    const shownDevs = avail.filter(d => T.devices.includes(d.id) || ((T.f === 'all' || grpOf(d) === T.f) && words.every(w => `${d.stockNo} ${d.model} ${d.storage} ${d.color || ''} ${d.imei || ''}`.toLowerCase().includes(w))))
+      .sort((a, b) => (T.devices.includes(b.id) - T.devices.includes(a.id)) || grpOf(a).localeCompare(grpOf(b)) || (a.stockNo - b.stockNo));
+    /* parts + stock-tracked accessories that this store has */
+    const items = [...parts.map(p => ({...p, acc: false})), ...prods.filter(p => p.maintainStock && !p.disabled).map(p => ({...p, acc: true}))];
+    const pw = T.pq.toLowerCase().split(/\s+/).filter(Boolean);
+    const shownItems = items.filter(p => (+T.parts[p.id] > 0) || (pw.length && (p.qty?.[S.store] || 0) > 0 && pw.every(w => p.name.toLowerCase().includes(w))))
+      .sort((a, b) => ((+T.parts[b.id] > 0) - (+T.parts[a.id] > 0)) || a.name.localeCompare(b.name)).slice(0, 60);
+    const nParts = Object.values(T.parts).reduce((a, x) => a + (+x || 0), 0);
     el.innerHTML = `<div class="stack"><div class="crumb"><a id="back">Transfers</a><span class="muted">›</span><b>New transfer from ${STORES[S.store]}</b></div>
-      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));align-items:start">
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(340px,1fr));align-items:start">
         <div class="panel stack"><div class="field"><label class="label" for="tr-to">Send to</label><select id="tr-to">${Object.entries(STORES).filter(([k]) => k !== S.store).map(([k, v]) => `<option value="${k}" ${T.to === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
-          <span class="label">Devices</span>
-          <div class="row"><input id="tr-scan" placeholder="Scan or type stock #" inputmode="numeric" style="max-width:240px" autocomplete="off"><button id="tr-add">Add</button></div>
-          <div class="tbl"><table><tbody>${avail.map(d => `<tr class="click" data-td="${d.id}"><td style="width:40px">${T.devices.includes(d.id) ? '<span class="pill ok">✓</span>' : ''}</td><td class="num">${d.stockNo}</td><td>${esc(d.model)} ${esc(d.storage)}</td><td class="small">${STATUS_LABEL[d.status]}</td></tr>`).join('') || '<tr><td class="muted">No devices here.</td></tr>'}</tbody></table></div></div>
-        <div class="panel stack"><span class="label">Parts</span>
-          <div class="tbl"><table><tbody>${parts.map(p => `<tr><td>${esc(p.name)}<div class="small muted">${p.qty[S.store] || 0} here</div></td><td class="r"><input data-tp="${p.id}" inputmode="numeric" value="${T.parts[p.id] || ''}" placeholder="0" style="width:70px;min-height:36px;text-align:right" aria-label="Send ${esc(p.name)}"></td></tr>`).join('')}</tbody></table></div>
+          <span class="label">Devices · ${T.devices.length} picked</span>
+          <div class="statusbar" role="group" aria-label="Kind of device">${Object.entries(TGRP).filter(([k]) => k === 'all' || avail.some(d => grpOf(d) === k)).map(([k, v]) => `<button data-tf="${k}" aria-pressed="${T.f === k}">${v} (${k === 'all' ? avail.length : avail.filter(d => grpOf(d) === k).length})</button>`).join('')}</div>
+          <div class="row"><input id="tr-scan" value="${esc(T.q)}" placeholder="Scan stock # or search model / IMEI" style="max-width:300px" autocomplete="off"><button id="tr-add">Add</button></div>
+          <div class="tbl" style="max-height:50vh;overflow:auto"><table><tbody>${shownDevs.map(d => `<tr class="click" data-td="${d.id}"><td style="width:40px">${T.devices.includes(d.id) ? '<span class="pill ok">✓</span>' : ''}</td><td class="num">${d.stockNo}</td><td>${esc(d.model)} ${esc(d.storage || '')}${d.color ? ` <span class="small muted">${esc(d.color)}</span>` : ''}</td><td class="small">${STATUS_LABEL[d.status] || d.status}</td></tr>`).join('') || '<tr><td class="muted">No devices match.</td></tr>'}</tbody></table></div></div>
+        <div class="panel stack"><span class="label">Parts &amp; accessories · ${nParts} picked</span>
+          <input id="tr-pq" value="${esc(T.pq)}" placeholder="Search parts or accessories (15 pro battery, s24 glass…)" autocomplete="off">
+          <div class="tbl" style="max-height:40vh;overflow:auto"><table><tbody>${shownItems.map(p => `<tr><td>${esc(p.name)}<div class="small muted">${p.acc ? 'Accessory · ' : ''}${p.qty?.[S.store] || 0} here</div></td><td class="r"><input data-tp="${p.id}" inputmode="numeric" value="${T.parts[p.id] || ''}" placeholder="0" style="width:70px;min-height:36px;text-align:right" aria-label="Send ${esc(p.name)}"></td></tr>`).join('') || `<tr><td class="muted small">${pw.length ? 'Nothing here matches.' : 'Search to add parts or accessories.'}</td></tr>`}</tbody></table></div>
           <div class="field"><label class="label" for="tr-note">Note</label><input id="tr-note" value="${esc(T.note)}" placeholder="Riding with Josh tonight. For ticket #200004"></div>
           <div class="err" id="tr-err" role="alert"></div>
-          <button class="primary" id="tr-go" style="min-height:52px">Send ${T.devices.length} devices, ${Object.values(T.parts).reduce((a, x) => a + (+x || 0), 0)} parts</button></div></div></div>`;
+          <button class="primary" id="tr-go" style="min-height:52px">Send ${T.devices.length} device${T.devices.length === 1 ? '' : 's'}, ${nParts} part${nParts === 1 ? '' : 's'} to ${STORES[T.to]}</button></div></div></div>`;
     $('#back').onclick = () => { S.newTransfer = false; S.tDraft = null; viewTransfers(el); };
-    $('#tr-to').onchange = e => { T.to = e.target.value; };
+    $('#tr-to').onchange = e => { T.to = e.target.value; viewTransfers(el); };
     $('#tr-note').oninput = e => { T.note = e.target.value; };
-    const tog = id => { T.devices.includes(id) ? T.devices.splice(T.devices.indexOf(id), 1) : T.devices.push(id); viewTransfers(el); };
+    const redraw = (focus) => { const y = window.scrollY; viewTransfers(el).then(() => { window.scrollTo(0, y); if (focus) { const n = $(focus); n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }); };
+    const tog = id => { T.devices.includes(id) ? T.devices.splice(T.devices.indexOf(id), 1) : T.devices.push(id); redraw(); };
     el.querySelectorAll('[data-td]').forEach(tr => tr.onclick = () => tog(tr.dataset.td));
-    const add = () => { const d = avail.find(x => String(x.stockNo) === $('#tr-scan').value.trim()); if (!d) { $('#tr-err').textContent = 'That stock # is not on hand at this store.'; return; } if (!T.devices.includes(d.id)) tog(d.id); };
-    $('#tr-add').onclick = add; $('#tr-scan').onkeydown = e => { if (e.key === 'Enter') add(); };
-    el.querySelectorAll('[data-tp]').forEach(i => i.onchange = () => { T.parts[i.dataset.tp] = Math.max(0, parseInt(i.value) || 0); const y = window.scrollY; viewTransfers(el).then(() => window.scrollTo(0, y)); });
-    $('#tr-go').onclick = async () => { try { const r = await Store.createTransfer(S.user, S.store, {to: T.to, devices: T.devices, parts: Object.entries(T.parts).filter(([, q]) => q > 0).map(([id, qty]) => ({id, qty})), note: T.note});
-      S.newTransfer = false; S.tDraft = null; toast(`Transfer T${r.number} sent. ${STORES[r.to]} has been alerted.`); viewTransfers(el); } catch (e) { $('#tr-err').textContent = e.message; } };
+    el.querySelectorAll('[data-tf]').forEach(b => b.onclick = () => { T.f = b.dataset.tf; redraw(); });
+    const add = () => { const v = $('#tr-scan').value.trim(); const d = avail.find(x => String(x.stockNo) === v);
+      if (!d) { const any = devs.find(x => String(x.stockNo) === v); $('#tr-err').textContent = !v ? '' : any ? (any.transferId ? `#${v} is already on a transfer.` : `#${v} is at ${STORES[any.store] || any.store} (${STATUS_LABEL[any.status] || any.status}), not available here.`) : `No device #${v}.`; return; }
+      T.q = ''; if (!T.devices.includes(d.id)) tog(d.id); else redraw('#tr-scan'); };
+    $('#tr-add').onclick = add;
+    let tq; $('#tr-scan').oninput = e => { clearTimeout(tq); tq = setTimeout(() => { T.q = e.target.value; if (!/^\d+$/.test(T.q.trim())) redraw('#tr-scan'); }, 300); };
+    $('#tr-scan').onkeydown = e => { if (e.key === 'Enter') { clearTimeout(tq); add(); } };
+    let tp; $('#tr-pq').oninput = e => { clearTimeout(tp); tp = setTimeout(() => { T.pq = e.target.value; redraw('#tr-pq'); }, 300); };
+    el.querySelectorAll('[data-tp]').forEach(i => i.onchange = () => { const p = items.find(x => x.id === i.dataset.tp); const q = Math.max(0, parseInt(i.value) || 0);
+      if (q > (p.qty?.[S.store] || 0)) { $('#tr-err').textContent = `Only ${p.qty?.[S.store] || 0} ${p.name} here.`; i.value = T.parts[p.id] || ''; return; }
+      T.parts[i.dataset.tp] = q; redraw(); });
+    $('#tr-go').onclick = async () => { const btn = $('#tr-go'); btn.disabled = true;
+      try { const r = await Store.createTransfer(S.user, S.store, {to: T.to, devices: T.devices, parts: Object.entries(T.parts).filter(([, q]) => q > 0).map(([id, qty]) => ({id, qty})), note: T.note});
+        S.newTransfer = false; S.tDraft = null; toast(`Transfer T${r.number} sent to ${STORES[r.to]}. They tap Received when it gets there.`); viewTransfers(el); } catch (e) { btn.disabled = false; $('#tr-err').textContent = e.message; } };
     return;
   }
   const mine = trs.filter(t => can(3) || t.to === S.store || t.from === S.store);
-  el.innerHTML = `<div class="stack"><div class="row" style="justify-content:space-between"><div><h2>Transfers</h2><p class="muted small" style="margin:0">Parts leave the sending store's count when sent and land in the receiving store's count when it receives them. Devices stay on the sender's books until received.</p></div><button class="primary" id="tr-new">+ New transfer</button></div>
+  const incoming = mine.filter(t => t.status === 'transit' && t.to === S.store);
+  const pill = t => t.status === 'transit' ? `<span class="pill warn">In transit ${daysOld(t.at)}d</span>` : t.status === 'cancelled' ? '<span class="pill">Cancelled</span>' : `<span class="pill ok">Received ${fmtDate(t.receivedAt)}${t.receivedBy ? ' · ' + esc(staffName(t.receivedBy)) : ''}</span>`;
+  el.innerHTML = `<div class="stack"><div class="row" style="justify-content:space-between"><div><h2>Transfers</h2><p class="muted small" style="margin:0">Move phones (for sale, repair stock, wholesale), parts and accessories between stores. Parts and accessories leave the sending store's count when sent and land in the other store's count when it taps <b>Received</b>. Devices show <b>In transit</b> and can't be sold until they're received.</p></div><button class="primary" id="tr-new">+ New transfer</button></div>
+    ${incoming.length ? `<div class="banner warn"><b>${incoming.length} transfer${incoming.length > 1 ? 's' : ''} on the way to ${STORES[S.store]}.</b> Check everything is in the bag, then tap Received.</div>` : ''}
     <div class="tbl"><table><thead><tr><th>#</th><th>From → to</th><th>What</th><th>Sent</th><th>Status</th><th></th></tr></thead><tbody>
-    ${mine.map(t => `<tr><td class="num">T${t.number}</td><td>${t.from} → ${t.to}</td><td class="small">${[...t.devices.map(x => esc(x.label)), ...t.parts.map(x => `${esc(x.name)} ×${x.qty}`)].join('<br>')}${t.note ? `<div class="muted">${esc(t.note)}</div>` : ''}</td>
-      <td class="small">${fmtDate(t.at)} · ${esc(staffName(t.by))}</td><td>${t.status === 'transit' ? `<span class="pill warn">In transit ${daysOld(t.at)}d</span>` : `<span class="pill ok">Received ${fmtDate(t.receivedAt)}</span>`}</td>
-      <td class="r">${t.status === 'transit' && t.to === S.store ? `<button class="primary" data-rcv="${t.id}" style="min-height:34px;padding:4px 10px">Received</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No transfers yet.</td></tr>'}
+    ${mine.map(t => `<tr><td class="num">T${t.number}</td><td>${STORES[t.from] || t.from} → ${STORES[t.to] || t.to}</td><td class="small">${[...(t.devices || []).map(x => esc(x.label) + (x.status ? ` <span class="muted">(${esc(STATUS_LABEL[x.status] || x.status)})</span>` : '')), ...(t.parts || []).map(x => `${esc(x.name)} ×${x.qty}`)].join('<br>')}${t.note ? `<div class="muted">${esc(t.note)}</div>` : ''}</td>
+      <td class="small">${fmtDate(t.at)} ${fmtTime(t.at)} · ${esc(staffName(t.by))}</td><td>${pill(t)}</td>
+      <td class="r" style="white-space:nowrap">${t.status === 'transit' && t.to === S.store ? `<button class="primary" data-rcv="${t.id}" style="min-height:34px;padding:4px 10px">Received</button>` : ''}${t.status === 'transit' && (t.from === S.store || can(2)) ? ` <button data-tcx="${t.id}" style="min-height:34px;padding:4px 10px">Cancel</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No transfers yet.</td></tr>'}
     </tbody></table></div></div>`;
   $('#tr-new').onclick = () => { S.newTransfer = true; viewTransfers(el); };
-  el.querySelectorAll('[data-rcv]').forEach(b => b.onclick = async () => { try { await Store.receiveTransfer(S.user, S.store, b.dataset.rcv); toast('Received. Counts updated.'); viewTransfers(el); } catch (e) { toast(e.message); } });
+  el.querySelectorAll('[data-rcv]').forEach(b => b.onclick = async () => { b.disabled = true; try { await Store.receiveTransfer(S.user, S.store, b.dataset.rcv); toast('Received. Devices and counts are now at ' + STORES[S.store] + '.'); viewTransfers(el); } catch (e) { b.disabled = false; toast(e.message); } });
+  el.querySelectorAll('[data-tcx]').forEach(b => b.onclick = async () => { const t = mine.find(x => x.id === b.dataset.tcx);
+    if (!confirm(`Cancel T${t.number}? Everything on it goes back to ${STORES[t.from]}.`)) return; b.disabled = true;
+    try { await Store.cancelTransfer(S.user, S.store, t.id); toast(`T${t.number} cancelled. Everything is back at ${STORES[t.from]}.`); viewTransfers(el); } catch (e) { b.disabled = false; toast(e.message); } });
 }
 
 /* ---------------- CUSTOMERS ---------------- */
@@ -6437,7 +6477,7 @@ async function partsBatterySheet(d, after){
 function deviceSheet(d, after){
   sheet(`
     <div class="row" style="justify-content:space-between"><h3>#${d.stockNo ?? ''} ${esc(d.model)} ${esc([d.storage, d.carrier].filter(Boolean).join(' · '))}</h3><button data-close>Close</button></div>
-    <div class="row"><button type="button" id="d-lbl">Print label</button>${d.buybackId ? '<button type="button" id="d-bbr">How we bought it</button><button type="button" id="d-bos2">Bill of sale</button>' : ''}${d.status === 'repair' ? '<button type="button" id="d-rep2">Open in repair stock</button>' : ''}${!['sold', 'atlas'].includes(d.status) ? '<button type="button" id="d-pb">Parts & battery</button>' : ''}<button type="button" id="d-edit">Edit details</button></div>
+    <div class="row"><button type="button" id="d-lbl">Print label</button>${d.buybackId ? '<button type="button" id="d-bbr">How we bought it</button><button type="button" id="d-bos2">Bill of sale</button>' : ''}${d.status === 'repair' ? '<button type="button" id="d-rep2">Open in repair stock</button>' : ''}${!['sold', 'atlas'].includes(d.status) ? '<button type="button" id="d-pb">Parts & battery</button>' : ''}${!['sold', 'atlas'].includes(d.status) && !d.transferId && d.store === S.store ? '<button type="button" id="d-tr">Transfer to another store</button>' : ''}${d.transferId ? '<span class="pill warn">In transit</span>' : ''}<button type="button" id="d-edit">Edit details</button></div>
     <div class="grid g3 small">
       <div class="stat"><span class="label">Cost</span><span class="num">${money(d.cost)}</span></div>
       <div class="stat"><span class="label">Bought</span><span>${fmtDate(d.createdAt)} · ${d.store}</span></div>
@@ -6461,6 +6501,7 @@ function deviceSheet(d, after){
       L.querySelector('#d-lbl').onclick = () => labelSheet(d);
       L.querySelector('#d-bos2') && (L.querySelector('#d-bos2').onclick = () => bosSheet(d.buybackId, d.id));
       L.querySelector('#d-bbr') && (L.querySelector('#d-bbr').onclick = () => buybackRecordSheet(d.buybackId, d.id));
+      L.querySelector('#d-tr') && (L.querySelector('#d-tr').onclick = () => { $('#layer').innerHTML = ''; S.newTransfer = true; S.tDraft = {to: Object.keys(STORES).find(k => k !== S.store), devices: [d.id], parts: {}, note: '', f: 'all', q: ''}; go('transfers'); });
       L.querySelector('#d-rep2') && (L.querySelector('#d-rep2').onclick = () => { close(); go('repair', {deviceId: d.id}); });
       L.querySelector('#d-pb') && (L.querySelector('#d-pb').onclick = () => { close(); partsBatterySheet(d, after); });
       L.querySelector('#d-edit').onclick = () => { close(); deviceEditSheet(d, after); };
