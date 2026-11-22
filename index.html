@@ -352,7 +352,7 @@ const PAYOUTS = ['Cash','Apple Pay','Cash App','Zelle','PayPal','Trade-in credit
 const SAM_PAYS = ['Apple Pay','Cash App','Zelle','PayPal'];
 const payToLabel = p => p + (p === 'Cash App' ? ' $cashtag or phone' : p === 'PayPal' ? ' email or phone' : ' phone or email');                              // these need Sam to send the money
 const dqOf = (p, st) => p?.dqs && p.dqs[st] != null && p.dqs[st] !== '' ? +p.dqs[st] : (+p?.dq || 0);   /* desired qty at a store (per-store DQ, else the shared one) */
-const PART_KINDS = ['Screen', 'Battery', 'Charging port', 'Rear camera', 'Camera lens', 'Flex cable', 'Back glass', 'Housing', 'Protector', 'Small part', 'Other'];
+const PART_KINDS = ['Screen', 'Battery', 'Charging port', 'Rear camera', 'Camera lens', 'Flex cable', 'Back glass', 'Housing', 'Small part', 'Other'];
 const partBrand = n => /^iphone/i.test(n) ? 'iPhone' : /^(galaxy|samsung|s\d|note)/i.test(n) ? 'Samsung' : /^ipad/i.test(n) ? 'iPad' : /playstation|xbox|switch/i.test(n) ? 'Console' : 'Other';
 const isSmallPart = p => !(p.kind === 'Screen' || isScreenPart(p) && !/batter|charg|port|camera|lens|flex/i.test(p.name));
 const isScreenPart = p => /screen|lcd|oled|xo7|x07|aq7|incell|digitizer|display/i.test(p.name + ' ' + (p.kind || ''));
@@ -6453,6 +6453,7 @@ function deviceSheet(d, after){
 S.pTab = 'stock';
 S.ac = {q: '', cat: '', stockOnly: true, inStock: false};
 async function viewAccessories(box, again){
+  const acDq = p => +(p.dqs?.[S.store] || 0);
   const A = S.ac; const all = await Store.products(); S.prods = all; S.prodsAt = Date.now();
   const cats = [...new Set(all.map(p => p.category).filter(Boolean))].sort();
   const rows = all.filter(p => (!A.stockOnly || p.maintainStock) && (!A.cat || p.category === A.cat) && (!A.inStock || (p.qty?.[S.store] || 0) > 0) && (!A.q.trim() || prodMatch(p, A.q)));
@@ -6466,9 +6467,9 @@ async function viewAccessories(box, again){
       <div class="field"><span class="label">Show</span><label class="row small" style="gap:6px"><input type="checkbox" id="ac-in" ${A.inStock ? 'checked' : ''} style="width:auto;min-height:0"> Only in stock at ${STORES[S.store]}</label><label class="row small" style="gap:6px"><input type="checkbox" id="ac-all" ${A.stockOnly ? '' : 'checked'} style="width:auto;min-height:0"> Include non-stock items (labor, discounts)</label></div>
     </div>
     <p class="small muted" style="margin:0">${rows.length} items · ${here} on the shelf at ${STORES[S.store]}${can(2) ? ` · ${money(atCost)} at cost` : ''}. Counts go down automatically when sold on the Register.</p>
-    <div class="tbl"><table><thead><tr><th>Item</th><th>Category</th><th class="r">Price</th>${can(2) ? '<th class="r">Cost</th>' : ''}<th class="r">${S.store}</th>${can(3) ? Object.keys(STORES).filter(k => k !== S.store).map(k => `<th class="r">${k}</th>`).join('') : ''}<th></th></tr></thead><tbody>
+    <div class="tbl"><table><thead><tr><th>Item</th><th>Category</th><th class="r">Price</th>${can(2) ? '<th class="r">Cost</th>' : ''}<th class="r">${S.store}</th><th class="r" title="Desired quantity at ${STORES[S.store]}">DQ</th>${can(3) ? Object.keys(STORES).filter(k => k !== S.store).map(k => `<th class="r">${k}</th>`).join('') : ''}<th></th></tr></thead><tbody>
     ${shown.map(p => { const q = p.qty?.[S.store] || 0; return `<tr><td><b>${esc(p.name)}</b>${p.upc ? `<div class="mono small muted">${esc(p.upc)}</div>` : ''}</td><td class="small">${esc(p.category || '')}</td><td class="r num">${cents(p.price)}</td>${can(2) ? `<td class="r num">${cents(p.cost)}</td>` : ''}
-      <td class="r num"><b style="color:${p.maintainStock && q < 1 ? 'var(--bad)' : 'inherit'}">${p.maintainStock ? q : '—'}</b></td>${can(3) ? Object.keys(STORES).filter(k => k !== S.store).map(k => `<td class="r num">${p.maintainStock ? (p.qty?.[k] || 0) : '—'}</td>`).join('') : ''}
+      <td class="r num"><b style="color:${p.maintainStock && (q < 1 || q < acDq(p)) ? 'var(--bad)' : 'inherit'}">${p.maintainStock ? q : '—'}</b></td><td class="r num small muted">${acDq(p) || ''}</td>${can(3) ? Object.keys(STORES).filter(k => k !== S.store).map(k => `<td class="r num">${p.maintainStock ? (p.qty?.[k] || 0) : '—'}</td>`).join('') : ''}
       <td class="r" style="white-space:nowrap">${can(2) && p.maintainStock ? `<button data-acfix="${p.id}" style="min-height:32px;padding:3px 10px">Fix count</button>` : ''}${can(2) ? ` <button data-acedit="${p.id}" style="min-height:32px;padding:3px 10px">Edit</button>` : ''}</td></tr>`; }).join('') || '<tr><td colspan="8" class="muted">Nothing matches.</td></tr>'}
     </tbody></table></div>${rows.length > shown.length ? `<p class="small muted">Showing the first 300. Search to narrow it down.</p>` : ''}</div>`;
   const qi = box.querySelector('#ac-q'); let t; qi.oninput = () => { clearTimeout(t); t = setTimeout(() => { A.q = qi.value; again().then(() => { const n = $('#ac-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 250); };
@@ -6517,11 +6518,11 @@ async function viewParts(el){
       ${lks.map(l => `<tr><td class="small">${ago(l.at)}</td><td><b>${esc(l.device)}</b> · ${esc(l.part)}</td><td class="small">${esc(staffName(l.by))} · ${l.store}</td>
         <td>${l.status === 'pending' ? '<span class="pill warn">Waiting on Claude</span>' : l.status === 'done' ? `<span class="pill ok">Answered${l.cached ? ' (reused)' : ''}</span>` : '<span class="pill bad">Not found</span>'}</td>
         <td class="num small">${l.options?.length ? cents(Math.min(...l.options.map(o => o.cost))) : ''}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No lookups yet.</td></tr>'}</tbody></table></div></div>`; return; }
-  const PF = [['all', 'All'], ['low', 'Low here'], ['Screen', 'Screens'], ['Battery', 'Batteries'], ['Charging port', 'Ports'], ['cam', 'Cameras & lenses'], ['Flex cable', 'Flex cables'], ['Back glass', 'Back glass'], ['Housing', 'Housings'], ['Protector', 'Protectors'], ['etc', 'Other']];
+  const PF = [['all', 'All'], ['low', 'Low here'], ['Screen', 'Screens'], ['Battery', 'Batteries'], ['Charging port', 'Ports'], ['cam', 'Cameras & lenses'], ['Flex cable', 'Flex cables'], ['Back glass', 'Back glass'], ['Housing', 'Housings'], ['etc', 'Other']];
   S.pf = S.pf || {f: 'all', q: ''};
   const kindOf = p => p.kind === 'Screen' || isScreenPart(p) && !/batter|charg|port|camera|lens|flex/i.test(p.name) ? 'Screen' : p.kind;
-  const inF = (p, f) => f === 'all' ? true : f === 'low' ? (p.qty[S.store] || 0) < dqOf(p, S.store) : f === 'cam' ? /camera/i.test(p.kind || '') || /camera|lens/i.test(p.name) && !['Screen', 'Protector'].includes(kindOf(p))
-    : f === 'etc' ? !['Screen', 'Battery', 'Charging port', 'Rear camera', 'Camera lens', 'Flex cable', 'Back glass', 'Housing', 'Protector'].includes(kindOf(p)) : kindOf(p) === f;
+  const inF = (p, f) => f === 'all' ? true : f === 'low' ? (p.qty[S.store] || 0) < dqOf(p, S.store) : f === 'cam' ? /camera/i.test(p.kind || '') || /camera|lens/i.test(p.name) && kindOf(p) !== 'Screen'
+    : f === 'etc' ? !['Screen', 'Battery', 'Charging port', 'Rear camera', 'Camera lens', 'Flex cable', 'Back glass', 'Housing'].includes(kindOf(p)) : kindOf(p) === f;
   const draw = () => {
     const words = S.pf.q.toLowerCase().split(/\s+/).filter(Boolean);
     const rows = parts.filter(p => inF(p, S.pf.f) && words.every(w => p.name.toLowerCase().includes(w)))
