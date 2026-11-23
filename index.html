@@ -321,12 +321,12 @@ const TS = Object.fromEntries(TSTATUS.map(t => [t[0], t]));
 const stPill = k => `<span class="st ${TS[k][2]}">${TS[k][1]}</span>`;
 /* common ticket subjects per issue (new-ticket dropdown; "Custom subject…" lets them type anything) */
 const SUBJECTS = {
-  'iPhone Repair': ['Glass Repair (Incell)', 'Incell LCD Repair', 'Glass Only (OLED)', 'OLED Replacement', 'Battery Replacement', 'Back Glass Replacement', 'Charging Port Replacement', 'Front Camera Replacement', 'Rear Camera Replacement', 'Diagnostics', 'Water Damage'],
-  'Smartphone Repair': ['Screen Replacement', 'Battery Replacement', 'Back Glass Replacement', 'Charging Port Replacement', 'Front Camera Replacement', 'Rear Camera Replacement', 'Diagnostics', 'Water Damage'],
-  'iPad Repair': ['Glass/Digitizer Replacement', 'LCD Replacement', 'Battery Replacement', 'Charging Port Replacement', 'Front Camera Replacement', 'Rear Camera Replacement', 'Diagnostics', 'Water Damage'],
-  'Tablet Repair': ['Screen Replacement', 'Battery Replacement', 'Charging Port Replacement', 'Front Camera Replacement', 'Rear Camera Replacement', 'Diagnostics', 'Water Damage'],
-  'Macbook Repair': ['Screen Replacement', 'Battery Replacement', 'Keyboard Replacement', 'Charging Port Repair', 'Software Restore', 'Data Backup', 'Diagnostics', 'Water Damage'],
-  'Computer Repair': ['Screen Replacement', 'Battery Replacement', 'Keyboard Replacement', 'Charging Port / DC Jack Repair', 'Software Restore / Virus Removal', 'Data Backup', 'Diagnostics', 'Water Damage'],
+  'iPhone Repair': ['Glass Repair (Incell)', 'Incell LCD Repair', 'Glass Only (OLED)', 'OLED Replacement', 'Battery Replacement', 'Back Glass Replacement', 'Charging Port Replacement', 'Front Camera Replacement', 'Rear Camera Replacement', 'Data Transfer', 'Diagnostics', 'Water Damage'],
+  'Smartphone Repair': ['Screen Replacement', 'Battery Replacement', 'Back Glass Replacement', 'Charging Port Replacement', 'Front Camera Replacement', 'Rear Camera Replacement', 'Data Transfer', 'Diagnostics', 'Water Damage'],
+  'iPad Repair': ['Glass/Digitizer Replacement', 'LCD Replacement', 'Battery Replacement', 'Charging Port Replacement', 'Front Camera Replacement', 'Rear Camera Replacement', 'Data Transfer', 'Diagnostics', 'Water Damage'],
+  'Tablet Repair': ['Screen Replacement', 'Battery Replacement', 'Charging Port Replacement', 'Front Camera Replacement', 'Rear Camera Replacement', 'Data Transfer', 'Diagnostics', 'Water Damage'],
+  'Macbook Repair': ['Screen Replacement', 'Battery Replacement', 'Keyboard Replacement', 'Charging Port Repair', 'Software Restore', 'Data Backup', 'Data Transfer', 'Diagnostics', 'Water Damage'],
+  'Computer Repair': ['Screen Replacement', 'Battery Replacement', 'Keyboard Replacement', 'Charging Port / DC Jack Repair', 'Software Restore / Virus Removal', 'Data Backup', 'Data Transfer', 'Diagnostics', 'Water Damage'],
   'Game Console Repair': ['HDMI Port Replacement', 'Overheating (Cleaning + Thermal Paste)', 'Disc Drive Repair', 'Charging Port Replacement', 'Joy-Con / Controller Drift Repair', 'Diagnostics'],
   'Phone Sale': ['Phone Sale']
 };
@@ -2939,7 +2939,7 @@ function partsFor(parts, device, want, store, type){
   const score = p => (want === 'digi' ? (partQual(p.name) ? 0 : 2) : want && partQual(p.name) === want ? 2 : 0) + ((p.qty?.[store] || 0) > 0 ? 1 : 0);
   return hits.sort((a, b) => score(b) - score(a) || a.name.localeCompare(b.name)).slice(0, 8);
 }
-const repairWants = name => /\bipad\b.*glass repair/i.test(name) ? 'digi' : /^glass (repair|only)/i.test(name) ? 'none' : /lcd replacement \(aftermarket\)|^lcd/i.test(name) ? 'lcd' : /oled/i.test(name) ? 'oled' : /lcd/i.test(name) ? 'lcd' : null;
+const repairWants = name => /\bipad\b.*glass repair/i.test(name) ? 'digi' : /^glass (repair|only)|data (transfer|backup)|software|virus/i.test(name) ? 'none' : /lcd replacement \(aftermarket\)|^lcd/i.test(name) ? 'lcd' : /oled/i.test(name) ? 'oled' : /lcd/i.test(name) ? 'lcd' : null;
 
 /* ---------- passcode / Samsung pattern ----------
    A pattern is saved in the passcode field as "Pattern 1-2-3-6-9": dots numbered 1-9, left to right, top to bottom. */
