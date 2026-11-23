@@ -284,7 +284,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795117277";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795409233";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -1837,9 +1837,10 @@ const HELP_KB = [
   'From a ticket: **Communication to customer** → type or pick a template → **Send text**. Tap **Email [name]** to send an email instead.',
   'Someone called the store\'s direct line? **Inbox → Calls & texts → + Text a number**, type their number.',
   '**Send address** sends the store\'s address in one tap. Texts go out from the store\'s number and replies come back in the Inbox.']},
- {t: 'Inbox: calls, texts and website leads', k: 'inbox calls texts missed call website leads quote request reply start ticket start buy', s: [
+ {t: 'Inbox: calls, texts, website and buyback leads', k: 'inbox calls texts missed call website leads buyback leads price lock quote request reply start ticket start buy', s: [
   '**Inbox → Calls & texts**: every call and text to the store number. Tap **Text** / **Reply** to answer, **Start ticket** to check them in.',
-  '**Website leads**: quote and buyback requests from the website. Text them, set the status, then **Start ticket** or **Start buy**.']},
+  '**Website leads**: repair quote requests from the website widget. Text them, set the status, then **Start ticket**.',
+  '**Buyback leads**: every 72-hour price lock from the buyback pages (sell-your-iphone, -samsung, -ipad, -macbook, -apple-watch) with the seller\'s number, device, condition and locked range. Text them, mark **Coming in**, then **Start buy** when they walk in and honor the locked range if the device matches.']},
  {t: 'Print a ticket or device label', k: 'label print dymo sticker barcode ticket label device label ready for sale wholesale repair stock tag', s: [
   'Ticket: open it and tap **Print label**.',
   'Device: open the device and tap **Print label**. The label says READY FOR SALE, WHOLESALE or REPAIR STOCK.',
@@ -3365,13 +3366,16 @@ async function viewCalls(el){
 /* ---------------- INBOX: calls & texts, web leads, review requests ---------------- */
 S.ibTab = 'calls';
 const LEAD_ST = [['new','New'],['contacted','Contacted'],['coming','Coming in'],['won','Won'],['lost','Lost']];
+const isBBLead = l => l.kind === 'buyback' || (!l.kind && /buyback|sell|price lock/i.test((l.source || '') + ' ' + (l.request || '')));
 async function viewInbox(el){
-  const [leads, reviews] = await Promise.all([Store.leads(), Store.reviews()]);
-  const newLeads = leads.filter(l => l.status === 'new').length;
+  const [allLeads, reviews] = await Promise.all([Store.leads(), Store.reviews()]);
+  const quotes = allLeads.filter(l => !isBBLead(l)), bb = allLeads.filter(isBBLead);
+  const newQ = quotes.filter(l => l.status === 'new').length, newBB = bb.filter(l => l.status === 'new').length;
   const due = reviews.filter(r => r.status === 'scheduled').length;
   el.innerHTML = `<div class="stack"><div class="statusbar" role="group" aria-label="Inbox section">
       <button data-ib="calls" aria-pressed="${S.ibTab === 'calls'}">Calls &amp; texts</button>
-      <button data-ib="leads" aria-pressed="${S.ibTab === 'leads'}">Website leads${newLeads ? ` (${newLeads} new)` : ''}</button>
+      <button data-ib="leads" aria-pressed="${S.ibTab === 'leads'}">Website leads${newQ ? ` (${newQ} new)` : ''}</button>
+      <button data-ib="buyback" aria-pressed="${S.ibTab === 'buyback'}">Buyback leads${newBB ? ` (${newBB} new)` : ''}</button>
       <button data-ib="reviews" aria-pressed="${S.ibTab === 'reviews'}">Review requests${due ? ` (${due} scheduled)` : ''}</button></div><div id="ib"></div></div>`;
   el.querySelectorAll('[data-ib]').forEach(b => b.onclick = () => { S.ibTab = b.dataset.ib; viewInbox(el); });
   const box = $('#ib');
@@ -3389,28 +3393,43 @@ async function viewInbox(el){
     return;
   }
   const C = await Store.customers();
-  box.innerHTML = `<div class="stack"><p class="muted small" style="margin:0">Quote and buyback requests from the website widgets land here. Text them from the store number, then turn them into a ticket or a buy.</p>
+  const BB = S.ibTab === 'buyback', leads = BB ? bb : quotes;
+  const statusSel = l => `<select class="techsel" data-ls="${l.id}" aria-label="Lead status">${LEAD_ST.map(([k, v]) => `<option value="${k}" ${l.status === k ? 'selected' : ''}>${v}</option>`).join('')}</select>`;
+  const lockLeft = l => { const x = l.lock?.expires ? new Date(l.lock.expires) : null; if (!x) return ''; const h = (x - Date.now()) / 36e5;
+    return h <= 0 ? '<span class="pill warn">Lock expired</span>' : `<span class="pill ${h < 12 ? 'warn' : 'acc'}">Locked · ${h < 24 ? Math.ceil(h) + ' h left' : Math.ceil(h / 24) + ' days left'}</span>`; };
+  if (BB) box.innerHTML = `<div class="stack"><p class="muted small" style="margin:0">Every 72-hour price lock from the buyback pages (cellularzonesa.com/sell-your-…) lands here with the seller's number, the device and the locked range. Text them from the store number, mark them <b>Coming in</b> when they say so, and tap <b>Start buy</b> when they walk in — honor the locked range if the device matches what they picked.</p>
+    <div class="tbl"><table><thead><tr><th>When</th><th>Seller</th><th>Device &amp; locked price</th><th>Store</th><th>Status</th><th></th></tr></thead><tbody>
+    ${leads.map(l => { const k = l.lock || {}; return `<tr><td class="small" style="white-space:nowrap">${fmtTime(l.at)}<div class="muted">${ago(l.at)}</div></td>
+      <td><b>${esc(l.name)}</b>${l.example ? ' <span class="pill">example</span>' : ''}<div class="small muted num">${fmtPhone(l.phone)}${l.email ? ' · ' + esc(l.email) : ''}</div>${l.paid ? '<div class="small muted">From a Google ad</div>' : ''}</td>
+      <td class="small"><div><b>${esc(l.device)}</b>${k.condition ? ' · ' + esc(k.condition) : ''}${k.pay ? ' · ' + esc(k.pay) : ''}${k.carrier ? ' (' + esc(k.carrier) + ')' : ''}</div>
+        <div><b class="num">${esc(k.offer || (l.total ? '$' + l.total : ''))}</b>${k.code ? ` · code <span class="num">${esc(k.code)}</span>` : ''} ${lockLeft(l)}</div>
+        <div class="muted"><span class="pill">${esc(l.source)}</span>${k.sheetPrice ? ` sheet max $${k.sheetPrice}` : ''}</div>${l.notes[0] ? `<div class="muted">Last note: ${esc(l.notes[0].text)}</div>` : ''}</td>
+      <td>${l.store || ''}</td><td>${statusSel(l)}</td>
+      <td class="r" style="white-space:nowrap"><button data-lt="${l.id}" style="min-height:34px;padding:4px 10px">Text</button> <button class="primary" data-lgo="${l.id}" style="min-height:34px;padding:4px 10px">Start buy</button></td></tr>`; }).join('') || '<tr><td colspan="6" class="muted">No buyback leads yet. They appear the moment someone locks a price on the buyback pages.</td></tr>'}
+    </tbody></table></div></div>`;
+  else box.innerHTML = `<div class="stack"><p class="muted small" style="margin:0">Repair quote requests from the website widget land here. Text them from the store number, then turn them into a ticket. (Price locks from the buyback pages are under <b>Buyback leads</b>.)</p>
     <div class="tbl"><table><thead><tr><th>When</th><th>From</th><th>Wants</th><th>Store</th><th>Status</th><th></th></tr></thead><tbody>
     ${leads.map(l => `<tr><td class="small" style="white-space:nowrap">${fmtTime(l.at)}<div class="muted">${ago(l.at)}</div></td>
       <td><b>${esc(l.name)}</b>${l.example ? ' <span class="pill">example</span>' : ''}<div class="small muted num">${fmtPhone(l.phone)}${l.email ? ' · ' + esc(l.email) : ''}</div></td>
       <td class="small"><span class="pill">${esc(l.source)}</span><div><b>${esc(l.device)}</b> · ${esc(l.request)}</div>${l.notes[0] ? `<div class="muted">Last note: ${esc(l.notes[0].text)}</div>` : ''}</td>
       <td>${l.store || ''}</td>
-      <td><select class="techsel" data-ls="${l.id}" aria-label="Lead status">${LEAD_ST.map(([k, v]) => `<option value="${k}" ${l.status === k ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
-      <td class="r" style="white-space:nowrap"><button data-lt="${l.id}" style="min-height:34px;padding:4px 10px">Text</button> <button data-lgo="${l.id}" style="min-height:34px;padding:4px 10px">${/sell|buyback/i.test(l.source + l.request) ? 'Start buy' : 'Start ticket'}</button></td></tr>`).join('') || '<tr><td colspan="6" class="muted">No website leads yet.</td></tr>'}
+      <td>${statusSel(l)}</td>
+      <td class="r" style="white-space:nowrap"><button data-lt="${l.id}" style="min-height:34px;padding:4px 10px">Text</button> <button data-lgo="${l.id}" style="min-height:34px;padding:4px 10px">Start ticket</button></td></tr>`).join('') || '<tr><td colspan="6" class="muted">No website leads yet.</td></tr>'}
     </tbody></table></div></div>`;
   box.querySelectorAll('[data-ls]').forEach(sel => sel.onchange = async () => { await Store.updateLead(S.user, sel.dataset.ls, {status: sel.value}, 'Status: ' + LEAD_ST.find(x => x[0] === sel.value)[1]); toast('Lead updated'); });
-  box.querySelectorAll('[data-lt]').forEach(b => b.onclick = () => { const l = leads.find(x => x.id === b.dataset.lt); const first = l.name.split(' ')[0];
+  box.querySelectorAll('[data-lt]').forEach(b => b.onclick = () => { const l = leads.find(x => x.id === b.dataset.lt); const first = l.name.split(' ')[0]; const k = l.lock || {};
+    const bbMsg = `Hi ${first}, this is Cellular Zone${l.store ? ' ' + STORES[l.store] : ''}. Your price for the ${l.device} is locked${k.offer ? ' at ' + k.offer : ''}${k.code ? ' (code ' + k.code + ')' : ''}${k.expires ? ' until ' + new Date(k.expires).toLocaleString('en-US', {weekday: 'short', hour: 'numeric', minute: '2-digit'}) : ''}. Bring it in any time, we pay cash on the spot. Open till 8.`;
     sheet(`<div class="row" style="justify-content:space-between"><h3>Text ${esc(l.name)}</h3><button data-close>Close</button></div>
-      <textarea id="lt-msg" rows="4">${esc(`Hi ${first}, this is Cellular Zone${l.store ? ' ' + STORES[l.store] : ''}. Thanks for reaching out about your ${l.device}. ${/sell|buyback/i.test(l.source + l.request) ? 'We can take a look and pay you today. Can you swing by one of our 3 locations? Open till 8.' : 'We have the part in stock and it takes about 30 minutes. Can you come in today? Open till 8.'}`)}</textarea>
+      <textarea id="lt-msg" rows="4">${esc(isBBLead(l) ? bbMsg : `Hi ${first}, this is Cellular Zone${l.store ? ' ' + STORES[l.store] : ''}. Thanks for reaching out about your ${l.device}. We have the part in stock and it takes about 30 minutes. Can you come in today? Open till 8.`)}</textarea>
       <div class="row" style="gap:8px"><button class="primary" id="lt-go">Send text</button>${STORE_ADDR[l.store || S.store] ? '<button id="lt-addr">Send address</button>' : ''}</div>`, (L, close) => (L.querySelector('#lt-addr') && (L.querySelector('#lt-addr').onclick = async e => { e.target.disabled = true;
         try { const r = await Store.ghlSend(S.user, l.store || S.store, {customer: {name: l.name, phone: l.phone}, message: STORE_ADDR[l.store || S.store]}); await Store.updateLead(S.user, l.id, {status: l.status === 'new' ? 'contacted' : l.status}, 'Texted the address'); close(); toast(r.demo ? 'Demo: address logged, not actually sent' : 'Address sent'); viewInbox(el); }
         catch (err) { toast(err.message); e.target.disabled = false; } }), L.querySelector('#lt-go').onclick = async () => {
         try { const r = await Store.ghlSend(S.user, l.store || S.store, {customer: {name: l.name, phone: l.phone}, message: L.querySelector('#lt-msg').value}); await Store.updateLead(S.user, l.id, {status: l.status === 'new' ? 'contacted' : l.status}, 'Texted'); close(); toast(r.demo ? 'Demo: text logged, not actually sent' : 'Text sent'); viewInbox(el); } catch (e) { toast(e.message); } })); });
   box.querySelectorAll('[data-lgo]').forEach(b => b.onclick = async () => { const l = leads.find(x => x.id === b.dataset.lgo);
     let c = C.find(x => x.phone === l.phone);
-    if (!c) c = await Store.saveCustomer(S.user, S.store, {name: l.name, phone: l.phone, email: l.email, heardFrom: /widget|website/i.test(l.source || '') ? 'Website' : (l.source || 'Website')});
+    if (!c) c = await Store.saveCustomer(S.user, S.store, {name: l.name, phone: l.phone, email: l.email, heardFrom: l.paid ? 'Google' : (/widget|website|landing/i.test(l.source || '') ? 'Website' : (l.source || 'Website'))});
     await Store.updateLead(S.user, l.id, {status: 'coming'}, 'Customer came in');
-    if (/sell|buyback/i.test(l.source + l.request)) { S.bb = newBB(); S.bb.seller.phone = l.phone; S.bb.seller.firstName = l.name.split(' ')[0]; S.bb.seller.lastName = l.name.split(' ').slice(1).join(' '); go('buyback'); }
+    if (isBBLead(l)) { S.bb = newBB(); S.bb.seller.phone = l.phone; S.bb.seller.firstName = l.name.split(' ')[0]; S.bb.seller.lastName = l.name.split(' ').slice(1).join(' '); if (l.email) S.bb.seller.email = l.email; S.bb.seller.heardFrom = l.paid ? 'Google' : 'Website'; S.bb.webLead = {id: l.id, device: l.device, lock: l.lock || null}; go('buyback'); }
     else go('newticket', {draft: {customerId: c.id, device: l.device, issue: issueGuess(l.device)}}); });
 }
 
