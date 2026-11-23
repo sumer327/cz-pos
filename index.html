@@ -284,7 +284,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795409233";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795469678";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -1913,8 +1913,9 @@ const HELP_KB = [
   '**Sundays: the screen check.** After the phones, type how many of each screen are on the shelf (0 if none), then count the RMA bin and the refurb bin. The POS tracks screens all week; Sunday shows how close it is to the shelf. Goal: 0 off.',
   'Missed Sunday? A manager can tap **Manager: do the screen check now** on any night.']},
  {t: 'Original screen to the refurb bin', k: 'refurb bin original screen glass repair refurb credit old screen keep', s: [
-  '**Glass repair:** the screen you take off ALWAYS goes in the refurb bin.',
+  '**Glass repair on a phone:** the screen you take off ALWAYS goes in the refurb bin.',
   '**LCD / OLED replacement on an OLED phone**: the POS asks when you add the charge. Lights up and touch works = refurb bin. Lines, black spots or no touch = damaged.',
+  '**iPads:** glass / digitizer jobs and LCD replacements never go to the refurb bin. Only an iPad **OLED** replacement asks, like a phone.',
   'Put it in the bin right away. The bin count is checked every night.']},
  {t: 'Tech board', k: 'tech board lineup queue order priority pickup time waiting tech dashboard resolved today notes', s: [
   'Tap **Tech board**. Pick the tech at the top (techs see their own).',
@@ -4658,9 +4659,13 @@ const refurbModel = device => { const n = String(device || '');
   if (/iphone/i.test(n)) return !lcdIphone(n) && /iphone\s*(x|xs|1[1-9]|air)/i.test(n);
   if (/galaxy|samsung|\bnote\b|\bs\d{2}\b|\bz\s*(fold|flip)/i.test(n)) return !lcdSamsung(n) && !/\bA(0|1)\d/i.test(n);
   return false; };
-/* iPads: a glass (digitizer) repair never goes to refurb; an iPad LCD / OLED replacement asks like a phone does */
+/* iPads (Sam, Nov 23): ONLY an OLED replacement can go to the refurb bin (it asks like a phone). Glass / digitizer jobs and
+   LCD replacements on iPads never do — nothing to credit on a digitizer or a fused LCD. */
 const isIpadJob = (desc, device) => /\bipad\b/i.test(device || '') || /\bipad\b/i.test(desc || '');
-const refurbAsk = (desc, device) => /^glass repair/i.test(repairName(desc)) ? (isIpadJob(desc, device) ? null : 'always') : repairType(desc) === 'display' && (refurbModel(device) || isIpadJob(desc, device)) ? 'ask' : null;
+const refurbAsk = (desc, device) => {
+  if (isIpadJob(desc, device)) return /\boled\b/i.test(desc || '') && !/digitizer/i.test(desc || '') ? 'ask' : null;
+  return /^glass repair/i.test(repairName(desc)) ? 'always' : repairType(desc) === 'display' && refurbModel(device) ? 'ask' : null;
+};
 const repairName = desc => String(desc || '').replace(/^.*?(Glass Repair|LCD Replacement|OLED Replacement)/i, '$1');
 
 /* ---------------- END-OF-DAY COUNT ----------------
