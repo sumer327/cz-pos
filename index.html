@@ -3015,11 +3015,11 @@ function printTicketLabel(t, c){
   const L = LABELS['30252'];
   printHTML('Ticket ' + t.number, `<div class="t"><span>CELLULAR ZONE · ${esc(STORES[t.store] || t.store)}</span><b>#${t.number}</b></div>
     <div class="m">${esc(c?.name || 'Walk-in')} · ${esc(fmtPhone(c?.phone))}</div>
-    <div class="s">${esc([t.device, (t.subject || '').slice(0, 60)].filter(Boolean).join(' · '))}</div>
+    <div class="iss">${t.device ? `<span class="dv">${esc(t.device)}</span>${t.subject ? ' · ' : ''}` : ''}${esc((t.subject || '').slice(0, 70))}</div>
     <div class="t s"><span>In ${fmtDate(t.createdAt)}${t.passcode && t.passcode !== 'None' ? ` · <b class="pc">PC: ${esc(isPattern(t.passcode) ? 'pattern ' + patSeq(t.passcode).join('') : t.passcode)}</b>` : t.passcode === 'None' ? ' · No passcode' : ''}</span><span style="white-space:nowrap">${t.techId ? esc(staffName(t.techId).split(' ')[0]) : ''}</span></div>
-    <div class="bc">${barcodeSVG(t.number, 20)}</div>`,
+    <div class="bc">${barcodeSVG(t.number, 18)}</div>`,
     `@page{size:${L.w} ${L.h};margin:0}*{box-sizing:border-box}html,body{margin:0}body{width:${L.w};height:${L.h};padding:${L.pad};font:600 8.5px/1.15 Arial,Helvetica,sans-serif;color:#000;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden}
-     .t{display:flex;justify-content:space-between;gap:4px}.t b{font-size:12px}.m{font-size:11px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.s{font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bc svg{width:100%;height:20px;display:block}.pc{font-size:10px;font-weight:800}`);
+     .t{display:flex;justify-content:space-between;gap:4px}.t b{font-size:12px}.m{font-size:11px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.s{font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.iss{font-size:12.5px;font-weight:800;line-height:1.1;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.iss .dv{font-size:10px;font-weight:600}.bc svg{width:100%;height:18px;display:block}.pc{font-size:10px;font-weight:800}`);
 }
 /* after a payment, or from an invoice: print / text / email the receipt */
 const REVIEW_TEXT = 'Thank you for your business! Keep us in mind if you need to BUY, SELL, or REPAIR any electronic :) https://cellularzonesa.com/customer-review/';
