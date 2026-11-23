@@ -4207,8 +4207,8 @@ function suggestTransfer(from, to, devs, parts, prods){
   };
   parts.forEach(p => add(p, false));
   prods.filter(p => p.maintainStock && !p.disabled).forEach(p => add(p, true));
-  /* devices: only plain for-sale stock (not listed on Swappa, not mid-test, not already moving) */
-  const sale = d => ['hot', 'tolist'].includes(d.status) && !d.transferId;
+  /* devices: for-sale stock, including phones listed on Swappa (they sell from any store); not mid-test, not already moving */
+  const sale = d => ['hot', 'tolist', 'swappa'].includes(d.status) && !d.transferId;
   const mine = devs.filter(d => d.store === from && sale(d)), theirs = devs.filter(d => d.store === to && sale(d));
   const byKey = {}; mine.forEach(d => (byKey[sugModelKey(d.model)] ||= []).push(d));
   const devices = [];
