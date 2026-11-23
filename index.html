@@ -2078,7 +2078,7 @@ async function renderShell(){
     <div class="dd-wrap"><button class="me" id="mebtn" aria-haspopup="true"><span class="av ${open ? 'on' : ''}">${esc(first[0] || '?')}</span><span class="t">${esc(first)}<small class="${open ? 'on' : ''}">${open ? '● Clocked in ' + fmtTime(open.t_in) : 'Not clocked in'}</small></span><span class="dim">▾</span></button>
       <div class="menu" id="memenu" hidden style="min-width:230px">
         <button data-me="clock">${open ? '🕒 Clock out' : '🕒 Clock in'}</button>${can(2) ? '<button data-me="hours">🗓 Timesheets</button>' : ''}<hr>
-        <button data-me="theme">${isDark() ? '☀ Light mode' : '☾ Dark mode'}</button><button data-me="tab">⧉ Open in new tab</button><hr>
+        <button data-me="store">📍 Switch store (now ${STORES[S.store]})</button><button data-me="theme">${isDark() ? '☀ Light mode' : '☾ Dark mode'}</button><button data-me="tab">⧉ Open in new tab</button><hr>
         <button data-me="lock">🔒 Lock</button></div></div>
    </div>
    <div class="in r2"><nav aria-label="Sections">
@@ -2100,7 +2100,7 @@ async function renderShell(){
   $('#storemenu').querySelectorAll('[data-store]').forEach(b => b.onclick = () => { const k = b.dataset.store; if (k === S.store) return;
     const keep = S.tab; enterStore(S.user, k, {switched: true}); if (S.tab !== keep) go(keep); toast(`Now working at ${STORES[k]}`); });
   $('#memenu').querySelectorAll('[data-me]').forEach(b => b.onclick = () => { const k = b.dataset.me;
-    if (k === 'clock') go('clock'); else if (k === 'hours') go('hours'); else if (k === 'theme') { toggleTheme(); b.textContent = isDark() ? '☀ Light mode' : '☾ Dark mode'; } else if (k === 'tab') openTab(urlFor(S.tab, S)); else if (k === 'lock') renderLock(); });
+    if (k === 'store') { setTimeout(() => $('#storebtn').click(), 0); return; } if (k === 'clock') go('clock'); else if (k === 'hours') go('hours'); else if (k === 'theme') { toggleTheme(); b.textContent = isDark() ? '☀ Light mode' : '☾ Dark mode'; } else if (k === 'tab') openTab(urlFor(S.tab, S)); else if (k === 'lock') renderLock(); });
   const menu = $('#newmenu');
   $('#bellmenu').querySelectorAll('[data-note]').forEach(b => b.onclick = () => { const n = mine.find(x => x.id === b.dataset.note); if (n?.link) { if (n.link.sub) S.sw.tab = n.link.sub; go(n.link.tab); } });
   menu.querySelectorAll('[data-n]').forEach(b => b.onclick = () => {
