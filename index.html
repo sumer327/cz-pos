@@ -6869,6 +6869,15 @@ const devKind = d => { const m = (d.model || '').toLowerCase();
   return /iphone/.test(m) ? 'iphone' : /galaxy|samsung|note ?\d|^s\d|xcover|^a\d/.test(m) ? 'samsung' : /ipad/.test(m) ? 'ipad' : /macbook|imac|mac mini|mac studio/.test(m) ? 'mac'
     : /watch/.test(m) ? 'watch' : /pixel/.test(m) ? 'pixel' : /ps5|ps4|playstation|xbox|switch|steam deck|console/.test(m) ? 'console' : 'other'; };
 const isUnlocked = d => /unlock/i.test(d.carrier || '');
+/* the order the phones sit in the safe (Sam, Nov 22-23): unlocked iPhones, unlocked Samsungs/Androids, then AT&T (iPhones, then Androids),
+   T-Mobile, Metro, Cricket, other carriers, then iPads, Apple Watches, Macs, consoles. Inside each group: oldest model first, then storage. */
+const safeRank = d => { const k = devKind(d);
+  if (k === 'ipad') return 20; if (k === 'watch') return 21; if (k === 'mac') return 22; if (k === 'console') return 23;
+  const c = (d.carrier || '').toLowerCase();
+  const cr = /unlock/.test(c) ? 0 : /at\s*&?\s*t|^att/.test(c) ? 1 : /t-?\s*mobile|tmo/.test(c) ? 2 : /metro/.test(c) ? 3 : /cricket/.test(c) ? 4 : /verizon/.test(c) ? 5 : 6;
+  return cr * 2 + (k === 'iphone' ? 0 : 1); };
+const safeModel = d => (d.model || '').replace(/iphone\s*(xs max|xs|xr|x)\b/i, (m, x) => 'iPhone 10 ' + x).replace(/\bse\b/i, 'SE');
+const gbOrder = d => { const m = String(d.storage || '').match(/([\d.]+)\s*(tb|gb)?/i); return m ? +m[1] * (/tb/i.test(m[2] || '') ? 1024 : 1) : 0; };
 const DEV_CATS = [['all', 'All devices', () => true], ['iphone-unl', 'Unlocked iPhones', d => devKind(d) === 'iphone' && isUnlocked(d)], ['iphone', 'All iPhones', d => devKind(d) === 'iphone'],
   ['samsung-unl', 'Unlocked Samsungs', d => devKind(d) === 'samsung' && isUnlocked(d)], ['samsung', 'All Samsungs', d => devKind(d) === 'samsung'], ['ipad', 'iPads', d => devKind(d) === 'ipad'],
   ['mac', 'MacBooks & iMacs', d => devKind(d) === 'mac'], ['watch', 'Apple Watch', d => devKind(d) === 'watch'], ['pixel', 'Pixels', d => devKind(d) === 'pixel'], ['console', 'Consoles', d => devKind(d) === 'console'], ['other', 'Other', d => devKind(d) === 'other']];
@@ -6884,7 +6893,7 @@ async function viewInventory(el){
   let rows = here.filter(d => stF(d) && catF(d));
   const q = F.q.trim().toLowerCase();
   if (q) rows = rows.filter(d => (d.stockNo + ' ' + d.model + ' ' + (d.storage || '') + ' ' + (d.carrier || '') + ' ' + (d.imei || '')).toLowerCase().includes(q));
-  rows.sort((a, b) => (a.model || '').localeCompare(b.model || '', undefined, {numeric: true}) || (parseInt(a.storage) || 0) - (parseInt(b.storage) || 0) || (a.stockNo || 0) - (b.stockNo || 0));
+  rows.sort((a, b) => safeRank(a) - safeRank(b) || safeModel(a).localeCompare(safeModel(b), undefined, {numeric: true}) || gbOrder(a) - gbOrder(b) || (a.stockNo || 0) - (b.stockNo || 0));
   // click a column header to sort by it (click again to flip)
   const calc = d => { const sold = ['sold', 'atlas'].includes(d.status) && d.soldPrice; const ret = retailPrice(d) || d.listPrice || null; const swp = d.swappa?.price && d.status !== 'sold' ? +d.swappa.price : d.status === 'sold' && d.channel === 'Swappa' ? null : d.swappa?.price ? +d.swappa.price : null; const profit = sold ? d.soldPrice - d.cost : ret && +d.cost ? ret - d.cost : null; return {sold, ret, swp, profit, price: sold ? +d.soldPrice : ret}; };
   const CV = new Map(rows.map(d => [d, calc(d)]));
