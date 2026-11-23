@@ -2880,8 +2880,8 @@ function receiptHTML(r){
   return `<div style="font:13px/1.45 -apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111;max-width:320px;margin:0 auto">
     <div style="text-align:center"><div style="font-size:18px;font-weight:700">Cellular Zone</div><div>${esc(STORES[r.store] || '')}</div><div>${esc(si.addr || '')}</div><div>${esc(si.phone || '')} · cellularzonesa.com</div></div>
     <hr style="border:0;border-top:1px dashed #999;margin:10px 0">
-    ${r.total < 0 ? '<div style="text-align:center;font-size:16px;font-weight:700;letter-spacing:.08em">REFUND</div>' : ''}
-    <div>Receipt #${esc(r.number)}<span style="float:right">${new Date(r.at).toLocaleString('en-US', {month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'})}</span></div>
+    ${r.quote ? '<div style="text-align:center;font-size:16px;font-weight:700;letter-spacing:.08em">PRICE BREAKDOWN</div><div style="text-align:center;font-size:12px;margin-bottom:4px">Not paid yet · this is not a receipt</div>' : r.total < 0 ? '<div style="text-align:center;font-size:16px;font-weight:700;letter-spacing:.08em">REFUND</div>' : ''}
+    <div>${r.quote ? 'Invoice' : 'Receipt'} #${esc(r.number)}<span style="float:right">${new Date(r.at).toLocaleString('en-US', {month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'})}</span></div>
     ${r.customer ? `<div>Customer: ${esc(r.customer)}</div>` : ''}${r.ticket ? `<div>Ticket${multiT ? 's' : ''} #${esc(r.ticket)}${r.device ? ' · ' + esc(r.device) : ''}</div>` : ''}
     <hr style="border:0;border-top:1px dashed #999;margin:10px 0">
     ${(r.lines || []).map(l => `<div style="display:flex;justify-content:space-between;gap:10px"><span>${esc(l.desc)}${+l.qty > 1 ? ' × ' + l.qty : ''}</span><span style="white-space:nowrap">${+l.orig > +l.price ? `<s style="color:#777">${cents(+l.orig * (+l.qty || 1))}</s> ` : ''}${cents(+l.price * (+l.qty || 1))}</span></div>${discNote(l) ? `<div style="font-size:11px;color:#555;margin:-2px 0 2px">${esc(discNote(l))}</div>` : ''}${multiT && l.ticketNo ? `<div style="font-size:11px;color:#555;margin:-2px 0 2px">Ticket #${esc(l.ticketNo)}</div>` : ''}`).join('')}
@@ -2889,7 +2889,7 @@ function receiptHTML(r){
     <div style="display:flex;justify-content:space-between"><span>Subtotal</span><span>${cents(sub)}</span></div>
     <div style="display:flex;justify-content:space-between"><span>Sales tax (8.25%)</span><span>${cents(tax)}</span></div>
     <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:700"><span>Total</span><span>${cents(r.total)}</span></div>
-    ${(r.payments?.length > 1 ? r.payments : [{method: r.payment, amount: r.total}]).map(p => `<div style="display:flex;justify-content:space-between"><span>${r.payments?.length > 1 ? esc(p.method) : (r.total < 0 ? 'Refunded to' : 'Paid with')}</span><span>${r.payments?.length > 1 ? cents(p.amount) : esc(p.method || '')}</span></div>`).join('')}
+    ${r.quote ? `<div style="display:flex;justify-content:space-between;font-weight:700"><span>Balance due</span><span>${cents(r.total)}</span></div>` : (r.payments?.length > 1 ? r.payments : [{method: r.payment, amount: r.total}]).map(p => `<div style="display:flex;justify-content:space-between"><span>${r.payments?.length > 1 ? esc(p.method) : (r.total < 0 ? 'Refunded to' : 'Paid with')}</span><span>${r.payments?.length > 1 ? cents(p.amount) : esc(p.method || '')}</span></div>`).join('')}
     ${r.cashBack > 0 ? `<div style="display:flex;justify-content:space-between"><span>Trade-in credit given back in cash</span><span>${cents(r.cashBack)}</span></div>` : ''}
     ${r.creditLeft > 0 ? `<div style="display:flex;justify-content:space-between"><span>Trade-in credit still on file</span><span>${cents(r.creditLeft)}</span></div>` : ''}
     <hr style="border:0;border-top:1px dashed #999;margin:10px 0">
@@ -5107,6 +5107,7 @@ async function viewInvoice(el){
         ${open ? `<div class="row" style="justify-content:space-between"><span>Balance due</span><b class="num" style="color:var(--bad);font-size:20px">${cents(inv.total)}</b></div>
           <div class="err" id="iv-err" role="alert"></div>
           <button class="primary" id="iv-pay" style="min-height:56px;font-size:17px" ${L.length ? '' : 'disabled'}>Take payment · ${cents(inv.total)}</button>
+          ${L.length ? '<button id="iv-brk" style="align-self:flex-start">Print breakdown for the customer (receipt printer)</button>' : ''}
           ${t && t.status !== 'resolved' && !isDepOnly(inv) ? '<button id="iv-part" style="align-self:flex-start">Customer pays part now (deposit / partial payment)</button>' : ''}
           ${can(2) ? `<button id="iv-del" class="danger" style="align-self:flex-start">Delete this invoice</button>
           <span class="small muted">Nothing is charged until you take payment. Deleting puts the ticket's charges back on the ticket.</span>` : '<span class="small muted">Nothing is charged until you take payment. Need it deleted? Ask a manager.</span>'}`
@@ -5120,6 +5121,9 @@ async function viewInvoice(el){
   </div>`;
   $('#iv-back').onclick = () => go('invoices');
   $('#iv-part') && ($('#iv-part').onclick = () => partPaySheet(t, inv));
+  /* unpaid invoice: print the line-by-line breakdown on the receipt printer so the customer can see it before paying */
+  $('#iv-brk') && ($('#iv-brk').onclick = () => printReceipt({number: inv.number, at: Date.now(), store: inv.store, lines: inv.lines, subtotal: inv.subtotal ?? inv.total, tax: inv.tax || 0, total: inv.total,
+    ticket: t?.number || null, device: t?.device || null, customer: (c?.name || '').split(' ')[0], quote: true}));
   [$('#iv-tk'), $('#iv-t')].forEach(a => a && (a.onclick = () => go('ticket', {ticketId: t.id})));
   $('#iv-c') && ($('#iv-c').onclick = () => go('customer', {customerId: c.id}));
   $('#iv-setc') && ($('#iv-setc').onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Customer for invoice #${inv.number}</h3><button data-close>Close</button></div>
