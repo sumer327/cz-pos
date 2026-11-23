@@ -7311,7 +7311,7 @@ function suggestOrder(store, parts, reqs, pos){
   });
   return lines;
 }
-const nextOrderDay = () => { const d = new Date(); for (let i = 0; i < 8; i++) { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate() + i, 9); if ((x.getDay() === 1 || x.getDay() === 4) && x > d) return (i === 0 ? 'today' : i === 1 ? 'tomorrow' : x.toLocaleDateString('en-US', {weekday: 'long'})) + ' 9 AM'; } return 'Mon/Thu 9 AM'; };
+const nextOrderDay = () => { const d = new Date(); for (let i = 0; i < 8; i++) { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate() + i, 8); if ((x.getDay() === 1 || x.getDay() === 4) && x > d) return (i === 0 ? 'today' : i === 1 ? 'tomorrow' : x.toLocaleDateString('en-US', {weekday: 'long'})) + ' before opening'; } return 'Mon/Thu before opening'; };
 /* Special orders: parts bought from a link (Amazon, eBay, a supplier), not MobileSentrix. Josh orders them and taps Ordered; the store taps Arrived. */
 function viewSpecialOrders(box, reqs, re){
   const st = S.store, mine = reqs.filter(r => r.store === st && r.source === 'link');
