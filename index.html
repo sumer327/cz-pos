@@ -321,7 +321,7 @@ const TS = Object.fromEntries(TSTATUS.map(t => [t[0], t]));
 const stPill = k => `<span class="st ${TS[k][2]}">${TS[k][1]}</span>`;
 /* common ticket subjects per issue (new-ticket dropdown; "Custom subject…" lets them type anything) */
 const SUBJECTS = {
-  'iPhone Repair': ['Glass Repair', 'LCD/OLED Replacement', 'Battery Replacement', 'Back Glass Replacement', 'Charging Port Replacement', 'Front Camera Replacement', 'Rear Camera Replacement', 'Diagnostics', 'Water Damage'],
+  'iPhone Repair': ['Glass Repair (Incell)', 'Incell LCD Repair', 'Glass Only (OLED)', 'OLED Replacement', 'Battery Replacement', 'Back Glass Replacement', 'Charging Port Replacement', 'Front Camera Replacement', 'Rear Camera Replacement', 'Diagnostics', 'Water Damage'],
   'Smartphone Repair': ['Screen Replacement', 'Battery Replacement', 'Back Glass Replacement', 'Charging Port Replacement', 'Front Camera Replacement', 'Rear Camera Replacement', 'Diagnostics', 'Water Damage'],
   'iPad Repair': ['Glass/Digitizer Replacement', 'LCD Replacement', 'Battery Replacement', 'Charging Port Replacement', 'Front Camera Replacement', 'Rear Camera Replacement', 'Diagnostics', 'Water Damage'],
   'Tablet Repair': ['Screen Replacement', 'Battery Replacement', 'Charging Port Replacement', 'Front Camera Replacement', 'Rear Camera Replacement', 'Diagnostics', 'Water Damage'],
@@ -1739,7 +1739,7 @@ const HELP_KB = [
  {t: 'Check in a repair (new ticket)', k: 'new ticket check in repair create ticket drop off customer device subject issue', s: [
   'Tap **+ New → New ticket** (or **Start ticket** from **Quote**, which fills the device, repair and price).',
   'Search the customer by phone. Not there? Tap **New customer** and ask "How did you hear about us?"',
-  'Type the device: the **Issue** fills itself in. Pick the **Subject** from the list (Glass Repair, LCD/OLED Replacement, Battery Replacement…) or **Custom subject…** to type your own.',
+  'Type the device: the **Issue** fills itself in. Pick the **Subject** from the list (for iPhones: Glass Repair (Incell), Incell LCD Repair, Glass Only (OLED), OLED Replacement, Battery Replacement…) or **Custom subject…** to type your own.',
   'iPhones: type the **battery health %** (Settings → Battery → Battery Health) or pick N/A. Add the passcode and notes for the tech.',
   'Tap **Create ticket** once (it locks so you can\'t make two). Then **Print ticket label** and stick it on the device.',
   'A price from the Quote tool goes on as a charge and pulls the part from stock by itself.']},
@@ -2939,7 +2939,7 @@ function partsFor(parts, device, want, store, type){
   const score = p => (want === 'digi' ? (partQual(p.name) ? 0 : 2) : want && partQual(p.name) === want ? 2 : 0) + ((p.qty?.[store] || 0) > 0 ? 1 : 0);
   return hits.sort((a, b) => score(b) - score(a) || a.name.localeCompare(b.name)).slice(0, 8);
 }
-const repairWants = name => /\bipad\b.*glass repair/i.test(name) ? 'digi' : /^glass repair/i.test(name) ? 'none' : /lcd replacement \(aftermarket\)|^lcd/i.test(name) ? 'lcd' : /oled/i.test(name) ? 'oled' : /lcd/i.test(name) ? 'lcd' : null;
+const repairWants = name => /\bipad\b.*glass repair/i.test(name) ? 'digi' : /^glass (repair|only)/i.test(name) ? 'none' : /lcd replacement \(aftermarket\)|^lcd/i.test(name) ? 'lcd' : /oled/i.test(name) ? 'oled' : /lcd/i.test(name) ? 'lcd' : null;
 
 /* ---------- passcode / Samsung pattern ----------
    A pattern is saved in the passcode field as "Pattern 1-2-3-6-9": dots numbered 1-9, left to right, top to bottom. */
