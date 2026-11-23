@@ -1137,6 +1137,11 @@ const DemoStore = {
     this.log(d, emp.id, store, 'Day closed', `${c.day} · cash counted ${cents(c.counted)} vs expected ${cents(c.expected)}`); this.save(d); return row; },
   /* ---------- counts ---------- */
   async counts(){ return this.db().counts; },
+  async spotCheck(store, day){ const d = this.db(); const t0 = new Date(day + 'T00:00:00'), t1 = new Date(t0.getTime() + 86400000), inD = x => x && new Date(x) >= t0 && new Date(x) < t1;
+    return {day, store, moves: [], tracking: null, negative: [],
+      tickets: d.tickets.filter(t => t.store === store && ((t.partsUsed || []).some(u => inD(u.at)) || (t.charges || []).some(c => inD(c.at) || inD(c.paidAt)) || inD(t.deletedAt))),
+      invoices: d.invoices.filter(i => i.store === store && inD(i.at)), sold: d.devices.filter(x => x.store === store && inD(x.soldAt)),
+      log: d.audit.filter(a => a.store === store && inD(a.at)).reverse()}; },
   async partUses(stores){ return this.db().audit.filter(a => a.action === 'Part used' && stores.includes(a.store)); },
   async writeOffs(stores){ return this.db().audit.filter(a => WO_ACTIONS.includes(a.action) && stores.includes(a.store)); },
   async saveCount(emp, store, c){
@@ -1479,6 +1484,7 @@ const LiveStore = {
   async saveCloseout(){ throw new Error('This part of the POS is in the demo only for now. It gets connected to the database after the pilot sign-off.'); },
   async writeOffs(stores){ const {data} = await this.sb.from('audit').select('who,at,store,action,detail').in('action', WO_ACTIONS).in('store', stores).gte('at', new Date(Date.now() - 14 * 864e5).toISOString()).order('at', {ascending: false}).limit(500); return data || []; },
   async partUses(stores){ const {data} = await this.sb.from('audit').select('who,at,store,detail').eq('action', 'Part used').in('store', stores).gte('at', new Date(Date.now() - 45 * 864e5).toISOString()).order('at', {ascending: false}).limit(1500); return data || []; },
+  async spotCheck(store, day){ return this.rpc('pos_spot_check', {p_pin: this.pinFor(S.user), p_store: store, p_day: day}); },
   async counts(){ const {data, error} = await this.sb.from('shelf_counts_v').select('*').order('at', {ascending: false}).limit(60); if (error) throw error; return data; },
   async saveCount(emp, store, c){ return this.rpc('pos_save_count', {p_pin: this.pinFor(emp), p_store: store, p_c: c.kind === 'parts' ? {kind: 'parts', apply: !!c.apply, items: c.items.map(i => ({id: i.id, counted: i.counted}))} : c}); },
   async transfers(){ return this.swr('transfers', async () => { const {data, error} = await this.sb.from('transfers_v').select('*').order('at', {ascending: false}).limit(200); if (error) return []; return data; }); },
@@ -1948,6 +1954,11 @@ const HELP_KB = [
   'Go to **Quote** and search the device.',
   'Pick the repair: Glass Repair, LCD Replacement (aftermarket), OLED Replacement (premium) or the genuine part.',
   'Tap **Start ticket** to check it in with that price.']},
+ {t: 'Inventory spot check', k: 'spot check inventory changes daily check checks and balances red flags parts used accessories sold stock missing', s: [
+  'Managers: **More → Inventory spot check**. Pick the day (and the store, for owners).',
+  '**Red flags** come first: parts used but not charged, repairs that took no part, accessories rung up as typed-in items, stock changed with nothing logged, phones sold with no cost, anything below zero.',
+  'Below that: every part used on a ticket, every accessory and phone sold, and every other stock change (orders received, counts, transfers, hand changes) with who did it and why.',
+  'Each day, clear the red flags and spot-count a few of the parts that moved. That keeps the big count close.']},
  {t: 'Refund or return', k: 'refund return money back give back cancel sale void exchange undo returned brought back', s: [
   'Go to **Register** and tap **↩ Return / refund** (or open the invoice and tap **Refund**).',
   'Find the sale by receipt #, ticket # or phone, and tap it.',
@@ -2025,7 +2036,7 @@ const NAV = [
   ['dashboard','Dashboard',0],['customers','Customers',0],['tickets','Tickets',0],['techboard','Tech board',0],['invoices','Invoices',0],['register','Register',0],['inbox','Inbox',0],['buyback','Buyback',0],
   ['inventory','Devices',0],['swappa','Swappa',0],['wholesale','Wholesale',0],['repairs','Repair stock',0],['parts','Parts',0],['quote','Quote',0]
 ];
-const MORE = [['reports','Reports',2],['eod','End-of-day count',0],['counts','Counts & parts check',0],['transfers','Transfers',0],['closeout','Close out',0],['hours','Timesheets',2],['swappasync','Swappa sync',3],['staff','Admin',3]];
+const MORE = [['reports','Reports',2],['spotcheck','Inventory spot check',2],['eod','End-of-day count',0],['counts','Counts & parts check',0],['transfers','Transfers',0],['closeout','Close out',0],['hours','Timesheets',2],['swappasync','Swappa sync',3],['staff','Admin',3]];
 const ALIAS = {bblog: 'buyback', invoice: 'invoices', ticket: 'tickets', newticket: 'tickets', customer: 'customers', repair: 'repairs', calls: 'inbox'};
 /* browser Back / Forward: every screen change is a history entry; Back closes an open popup first, and never leaves the POS */
 const NAV_KEYS = ['customerId', 'ticketId', 'deviceId', 'invoiceId', 'q'];
@@ -2175,7 +2186,7 @@ async function renderShell(){
   const views = {clock: viewClock, buyback: viewBuyback, inventory: viewInventory, parts: viewParts, quote: viewQuote, swappa: viewSwappa, offerup: viewOfferup, wholesale: viewWholesale, dashboard: viewDashboard,
     hours: viewHours, staff: viewStaff, tickets: viewTickets, ticket: viewTicket, newticket: viewNewTicket, customers: viewCustomers,
     customer: viewCustomer, search: viewSearch, invoices: viewInvoices, invoice: viewInvoice, eod: viewEod, techboard: viewTechboard, calls: viewInbox, inbox: viewInbox, repairs: viewRepairs, repair: viewRepair,
-    register: viewRegister, closeout: viewCloseout, bblog: viewBbLog, reports: viewReports, counts: viewCounts, transfers: viewTransfers, swappasync: viewSwappaSync, appts: viewAppts};
+    register: viewRegister, closeout: viewCloseout, bblog: viewBbLog, reports: viewReports, counts: viewCounts, spotcheck: viewSpotCheck, transfers: viewTransfers, swappasync: viewSwappaSync, appts: viewAppts};
   const mainEl = $('#main');
   CUR_VIEW = () => mainEl.isConnected && tok === RENDER_NO ? (views[S.tab] || viewTickets)(mainEl) : null;
   try { await (views[S.tab] || viewTickets)(mainEl); }
@@ -4035,6 +4046,90 @@ async function viewCloseout(el){
 /* ---------------- COUNTS: phones every day, small parts every Sunday (screens are in the end-of-day count) ---------------- */
 S.cnt = null;
 const partsCountDay = () => new Date().getDay() === 0;
+/* ---------- Inventory spot check (managers): one store, one day ----------
+   Every part / accessory stock change (stock_moves, v90) next to what explains it: a ticket, a sale, a receipt, a count.
+   Red flags = anything that changes stock without a matching sale or ticket, or a sale/repair that didn't touch stock. */
+S.spot = {store: null, day: null};
+const SPOT_CONSUMABLE = /adhesive|tape|screw|sticker|mesh|gasket|bracket|glue|b7000|t7000|uv/i;
+const SPOT_NOPART = /diag|labor|data|software|water|clean|unlock|setup|set up|backup|transfer|restore|virus|install|recovery|reset|thermal|program|board|micro|deposit|warranty|rework|discount|credit/i;
+const SPOT_SRC = {pos_checkout: 'Sale', pos_refund: 'Refund', pos_ticket_part: 'Used on a ticket', pos_ticket_charge: 'Used on a ticket', pos_ticket_part_remove: 'Taken off a ticket', pos_ticket_part_defective: 'Defective part (RMA)',
+  pos_adjust_part: 'Manual adjustment', pos_adjust_product: 'Manual adjustment', pos_save_part: 'Edited on the part page', pos_save_product: 'Edited on the product page', pos_save_count: 'Shelf count', pos_eod_apply: 'End-of-day count',
+  pos_po_receive: 'Order received', pos_po_link: 'Order received', pos_sync_sentrix_done: 'Order received', _po_import: 'Order received', pos_part_order_status: 'Order received',
+  pos_transfer_create: 'Transfer sent', pos_transfer_receive: 'Transfer received', pos_transfer_cancel: 'Transfer canceled', pos_product_move: 'Moved between stores', pos_device_part: 'Used on a repair-stock phone', pos_device_extra: 'Used on a repair-stock phone'};
+const SPOT_EXPECTED = ['pos_checkout', 'pos_refund', 'pos_ticket_part', 'pos_ticket_charge', 'pos_ticket_part_remove', 'pos_ticket_part_defective', 'pos_po_receive', 'pos_po_link', 'pos_sync_sentrix_done', '_po_import', 'pos_part_order_status',
+  'pos_transfer_create', 'pos_transfer_receive', 'pos_transfer_cancel', 'pos_product_move', 'pos_device_part', 'pos_device_extra', 'pos_save_count', 'pos_eod_apply'];
+async function viewSpotCheck(el){
+  const F = S.spot; F.store = F.store || S.store; F.day = F.day || dayKey(new Date());
+  el.innerHTML = '<div class="panel"><p class="muted">Loading the spot check…</p></div>';
+  let D, parts = [], prods = [];
+  try { [D, parts, prods] = await Promise.all([Store.spotCheck(F.store, F.day), Store.parts().catch(() => []), Store.products().catch(() => [])]); }
+  catch (e) { el.innerHTML = `<div class="panel"><h2>Inventory spot check</h2><p class="err">${esc(e.message)}</p></div>`; return; }
+  if (!D) { el.innerHTML = '<div class="panel"><p class="err">Sign in again to load the spot check.</p></div>'; return; }
+  const t0 = new Date(F.day + 'T00:00:00'), t1 = new Date(t0.getTime() + 86400000), inDay = x => x && new Date(x) >= t0 && new Date(x) < t1;
+  const who = id => id ? staffName(id) : '—', qtyNow = (list, id) => list.find(p => p.id === id)?.qty?.[F.store];
+  const flags = [], warn = (lvl, text, ref) => flags.push({lvl, text, ref});
+  const tks = D.tickets || [], invs = D.invoices || [], moves = D.moves || [], log = D.log || [];
+  /* 1) parts that came off the shelf for tickets today */
+  const used = []; tks.forEach(t => (t.partsUsed || []).filter(u => inDay(u.at)).forEach(u => { const ch = (t.charges || []).find(c => c.id === u.chargeId);
+    used.push({t, u, ch}); if (!ch && !t.deletedAt && !SPOT_CONSUMABLE.test(u.name || '')) warn('bad', `<b>${esc(u.name)}</b> came off the shelf for ticket #${t.number} but isn't charged on it`, '#' + t.number);
+    if (t.deletedAt) warn('bad', `Ticket #${t.number} was deleted but <b>${esc(u.name)}</b> was used on it: is the part back on the shelf?`, '#' + t.number); }));
+  /* 2) repairs charged today that didn't take a part */
+  tks.forEach(t => (t.charges || []).filter(c => (inDay(c.at) || inDay(c.paidAt)) && /repair/i.test(c.cat || '') && !c.partId && !(t.partsUsed || []).some(u => u.chargeId === c.id)).forEach(c => {
+    if (repairWants(c.desc || '') === 'none' || SPOT_NOPART.test(c.desc || '') || +c.price <= 0) return;
+    warn('bad', `Ticket #${t.number}: <b>${esc(c.desc)}</b> (${cents(c.price)}) didn't take a part out of stock`, '#' + t.number); }));
+  tks.filter(t => inDay(t.deletedAt)).forEach(t => { if (!(t.partsUsed || []).length) warn('info', `Ticket #${t.number} deleted${t.deleteReason ? ': ' + esc(t.deleteReason) : ''}`, '#' + t.number); });
+  /* 3) sales: accessories, glass, phones */
+  const acc = [], phones = [];
+  invs.forEach(i => (i.lines || []).forEach(l => {
+    const q = +l.qty || 1;
+    if (l.deviceId || /phone sale/i.test(l.cat || '')) { phones.push({i, l}); if (!l.deviceId && +l.price > 0 && !i.refundOf) warn('bad', `Invoice #${i.number}: phone sold as a typed-in item (<b>${esc(l.desc)}</b>), no stock # so no device came off`, '#' + i.number); return; }
+    if (l.productId || /accessor|glass|case|charger|cable/i.test(l.cat || '')) { acc.push({i, l, q});
+      if (!l.productId && +l.price > 0 && !i.refundOf) warn('warn', `Invoice #${i.number}: <b>${esc(l.desc)}</b> rung up as a typed-in item, so nothing came out of stock`, '#' + i.number);
+      if (l.productId && +l.orig > 0 && +l.price > 0 && +l.price < +l.orig * .75 && !l.wty) warn('warn', `Invoice #${i.number}: <b>${esc(l.desc)}</b> sold for ${cents(l.price)} (regular ${cents(l.orig)})`, '#' + i.number); }
+  }));
+  invs.filter(i => i.refundOf || +i.total < 0).forEach(i => warn('info', `Refund #${i.number} (${cents(i.total)}): if an item came back, make sure it's back on the shelf`, '#' + i.number));
+  (D.sold || []).forEach(d => { const c = (+d.cost || 0) + (+d.partsCost || 0);
+    if (!c) warn('bad', `#${d.stockNo} ${esc(d.model)} sold with no cost: profit is wrong until the cost is filled in`, '#' + d.stockNo);
+    else if (d.soldPrice != null && +d.soldPrice < c) warn('warn', `#${d.stockNo} ${esc(d.model)} sold for ${cents(d.soldPrice)}, below its cost ${cents(c)}`, '#' + d.stockNo);
+    if (d.soldPrice == null) warn('warn', `#${d.stockNo} ${esc(d.model)} marked sold with no sale price`, '#' + d.stockNo); });
+  /* 4) every stock move, with what explains it */
+  const other = moves.filter(m => !['pos_checkout', 'pos_ticket_part', 'pos_ticket_charge'].includes(m.src));
+  moves.forEach(m => { const why = (m.why || []).map(w => w.action + ': ' + w.detail).join(' · ');
+    if (!SPOT_EXPECTED.includes(m.src) && !(m.why || []).length) warn('bad', `<b>${esc(m.name)}</b> ${m.delta > 0 ? '+' : ''}${m.delta} (${m.before} → ${m.after}) with nothing logged`, m.name);
+    else if (/adjust|save_part|save_product|direct/.test(m.src || '') && (Math.abs(m.delta) >= 3 || m.delta < 0 && !/broke|damag|defect|write|lost|rma/i.test(why))) warn('warn', `<b>${esc(m.name)}</b> changed by hand ${m.delta > 0 ? '+' : ''}${m.delta} (${m.before} → ${m.after})${why ? ': ' + esc(why) : ''}`, m.name); });
+  (D.negative || []).forEach(n => warn('bad', `<b>${esc(n.name)}</b> is at ${n.qty} in stock: something came off that was never counted in`, n.name));
+  log.filter(a => /part taken off ticket/i.test(a.action)).forEach(a => warn('info', `Part taken off a ticket: ${esc(a.detail)}. Check it's back on the shelf`, ''));
+  const tracked = D.tracking && new Date(D.tracking) < t1;
+  const lvlPill = {bad: '<span class="pill" style="background:var(--bad);color:#fff">Check</span>', warn: '<span class="pill warn">Look</span>', info: '<span class="pill">FYI</span>'};
+  const bought = log.filter(a => /^buyback$/i.test(a.action)), devMoves = log.filter(a => /device updated|repair done|transfer|device added|wholesale/i.test(a.action));
+  const stat = (n, l) => `<div class="stat"><span class="label">${l}</span><b style="font-size:22px">${n}</b></div>`;
+  const rows = (cols, list, empty) => `<div class="tbl"><table><thead><tr>${cols.map(c => `<th${/^\$|^#/.test(c) ? ' class="r"' : ''}>${c.replace(/^[$#]/, '')}</th>`).join('')}</tr></thead><tbody>${list.join('') || `<tr><td colspan="${cols.length}" class="muted">${empty}</td></tr>`}</tbody></table></div>`;
+  const sec = (title, n, body, open = true) => `<div class="panel stack"><details ${open ? 'open' : ''}><summary style="cursor:pointer"><b>${title}</b> <span class="muted small">(${n})</span></summary><div style="margin-top:8px">${body}</div></details></div>`;
+  const order = {bad: 0, warn: 1, info: 2}; flags.sort((a, b) => order[a.lvl] - order[b.lvl]);
+  el.innerHTML = `<div class="stack">
+    <div class="panel stack">
+      <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><h2>Inventory spot check</h2>
+        <div class="row" style="gap:6px;flex-wrap:wrap">${can(3) ? `<select id="sp-st" style="width:auto">${Object.entries(STORES).map(([k, v]) => `<option value="${k}" ${k === F.store ? 'selected' : ''}>${v}</option>`).join('')}</select>` : `<b>${STORES[F.store]}</b>`}
+          <button id="sp-prev" aria-label="Previous day">‹</button><input type="date" id="sp-day" value="${F.day}" max="${dayKey(new Date())}" style="width:auto"><button id="sp-next" aria-label="Next day" ${F.day >= dayKey(new Date()) ? 'disabled' : ''}>›</button></div></div>
+      <p class="small muted" style="margin:0">Everything that changed ${STORES[F.store]}'s parts and accessories on ${new Date(F.day + 'T12:00').toLocaleDateString('en-US', {weekday: 'long', month: 'short', day: 'numeric'})}, next to the ticket or sale that explains it. Check the red flags, then spot-count a few of the parts that moved.${tracked ? '' : ' <b>Exact stock tracking started ' + (D.tracking ? fmtDate(D.tracking) + ' ' + fmtTime(D.tracking) : 'today') + ':</b> before that this page works from tickets and sales only.'}</p>
+      <div class="grid g3" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr))">${stat(flags.filter(f => f.lvl === 'bad').length, 'Red flags')}${stat(used.length, 'Parts used')}${stat(acc.reduce((s, a) => s + a.q, 0), 'Accessories sold')}${stat(phones.length, 'Phones sold')}${stat(bought.length, 'Buybacks')}${stat(other.length, 'Other stock changes')}</div>
+    </div>
+    ${sec('Red flags', flags.length, flags.length ? `<div class="stack" style="gap:6px">${flags.map(f => `<div class="row" style="gap:8px;align-items:flex-start">${lvlPill[f.lvl]}<span>${f.text}</span></div>`).join('')}</div>` : '<p class="muted">Nothing out of place. Everything that moved has a sale or a ticket behind it.</p>')}
+    ${sec('Parts used on tickets', used.length, rows(['Time', 'Ticket', 'Part', 'Charged as', '$Price', 'Paid', '#Left now', 'By'], used.map(({t, u, ch}) => `<tr data-sptk="${t.id}" style="cursor:pointer"><td>${fmtTime(u.at)}</td><td>#${t.number}${t.deletedAt ? ' <span class="pill warn">deleted</span>' : ''}</td><td>${esc(u.name)}</td><td>${ch ? esc(ch.desc) : SPOT_CONSUMABLE.test(u.name || '') ? '<span class="muted">supplies</span>' : '<b style="color:var(--bad)">not charged</b>'}</td><td class="r num">${ch ? cents(ch.price) : '—'}</td><td>${ch?.paidAt ? '✓' : ''}</td><td class="r num">${qtyNow(parts, u.partId) ?? '—'}</td><td>${esc(who(u.by))}</td></tr>`), 'No parts came off the shelf for tickets.'))}
+    ${sec('Accessories & glass sold', acc.length, rows(['Time', 'Invoice', 'Item', '#Qty', '$Price', 'Stock', '#Left now'], acc.map(({i, l, q}) => `<tr data-spinv="${i.id}" style="cursor:pointer"><td>${fmtTime(i.at)}</td><td>#${i.number}</td><td>${esc(l.desc)}${l.wty ? ' <span class="pill">warranty</span>' : ''}</td><td class="r num">${q}</td><td class="r num">${cents(l.price)}</td><td>${l.productId ? 'taken off' : '<b style="color:var(--warn)">typed in, not taken off</b>'}</td><td class="r num">${l.productId ? (qtyNow(prods, l.productId) ?? '—') : '—'}</td></tr>`), 'No accessories sold.'))}
+    ${sec('Phones & devices', phones.length + bought.length + devMoves.length, `${rows(['Time', 'Invoice', 'Device', '$Cost', '$Sold for', '$Profit'], phones.map(({i, l}) => { const d = (D.sold || []).find(x => x.id === l.deviceId); const c = d ? (+d.cost || 0) + (+d.partsCost || 0) : null; return `<tr data-spinv="${i.id}" style="cursor:pointer"><td>${fmtTime(i.at)}</td><td>#${i.number}</td><td>${esc(l.desc)}</td><td class="r num">${c ? cents(c) : '<b style="color:var(--bad)">none</b>'}</td><td class="r num">${cents(l.price)}</td><td class="r num">${c ? cents(+l.price - c) : '—'}</td></tr>`; }), 'No phones sold.')}
+      ${bought.length || devMoves.length ? `<div class="stack small" style="gap:4px;margin-top:10px">${[...bought, ...devMoves].sort((a, b) => new Date(a.at) - new Date(b.at)).map(a => `<div><span class="muted">${fmtTime(a.at)} · ${esc(who(a.who))}</span> · <b>${esc(a.action)}</b> ${esc(a.detail || '')}</div>`).join('')}</div>` : ''}`)}
+    ${sec('Other stock changes', other.length, rows(['Time', 'Item', '#Change', 'Count', 'What did it', 'Logged as'], other.map(m => `<tr><td>${fmtTime(m.at)}</td><td>${esc(m.name)}</td><td class="r num" style="color:${m.delta < 0 ? 'var(--bad)' : 'var(--ok)'}">${m.delta > 0 ? '+' : ''}${m.delta}</td><td class="num">${m.before} → ${m.after}</td><td>${esc(SPOT_SRC[m.src] || m.src || '')}</td><td class="small">${(m.why || []).map(w => `${esc(w.action)}: ${esc(w.detail)} <span class="muted">(${esc(who(w.who))})</span>`).join('<br>') || '<b style="color:var(--bad)">nothing logged</b>'}</td></tr>`), tracked ? 'No receipts, counts, transfers or hand changes.' : 'Exact tracking starts today.'), other.length > 0)}
+    ${sec('Everything logged at this store', log.length, `<div class="stack small" style="gap:3px">${log.map(a => `<div><span class="muted">${fmtTime(a.at)} · ${esc(who(a.who))}</span> · <b>${esc(a.action)}</b> ${esc(a.detail || '')}</div>`).join('') || '<p class="muted">Nothing logged.</p>'}</div>`, false)}
+  </div>`;
+  const reload = () => viewSpotCheck(el);
+  $('#sp-st') && ($('#sp-st').onchange = e => { F.store = e.target.value; reload(); });
+  $('#sp-day').onchange = e => { if (e.target.value) { F.day = e.target.value; reload(); } };
+  const shift = n => { const d = new Date(F.day + 'T12:00'); d.setDate(d.getDate() + n); F.day = dayKey(d); reload(); };
+  $('#sp-prev').onclick = () => shift(-1); $('#sp-next').onclick = () => shift(1);
+  el.querySelectorAll('[data-sptk]').forEach(r => r.onclick = () => go('ticket', {ticketId: r.dataset.sptk}));
+  el.querySelectorAll('[data-spinv]').forEach(r => r.onclick = () => go('invoice', {invoiceId: r.dataset.spinv}));
+}
 async function viewCounts(el){
   const [devs, allParts, counts, trs, prods] = await Promise.all([Store.devices(), Store.parts(), Store.counts(), Store.transfers(), Store.products().catch(() => [])]);
   /* stock-tracked accessories (glass, lens protectors, cables…) are checked here too, in their own sections */
