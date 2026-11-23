@@ -1225,6 +1225,10 @@ const DemoStore = {
     if (kind === 'price') { const dv = d.devices.find(x => x.id === id); dv.swappa = Object.assign({}, dv.swappa || {}, {syncedPrice: +value, syncedAt: now(), syncOk: !!ok, syncNote: note || null}); this.log(d, emp.id, dv.store, ok ? 'Swappa price synced' : 'Swappa price not synced', `#${dv.stockNo} $${value}${note ? ' · ' + note : ''}`); }
     else { const sh = d.ships.find(x => x.id === id); Object.assign(sh, ok ? {swappaPostedAt: now(), swappaError: null} : {swappaError: note || 'failed'}); this.log(d, emp.id, sh.store, ok ? 'Swappa tracking added' : 'Swappa tracking failed', `${sh.label} · ${sh.tracking}`); }
     this.save(d); return {ok: true}; },
+  async offerupDrop(emp, store, id, price){ const d = this.db(); const dv = d.devices.find(x => x.id === id); const cur = +(dv.offerup?.price ?? dv.offerup?.postedPrice); if (!dv.offerup?.url) throw new Error(`This device isn't on OfferUp yet. List it with "Ref #${dv.stockNo}" in the description first.`);
+    if (!(price > 0 && (!cur || price < cur))) throw new Error('New price must be lower than ' + cents(cur) + '.'); dv.offerup = {...dv.offerup, price, drops: [{at: now(), from: cur, to: price, by: emp.id}, ...(dv.offerup.drops || [])]}; this.log(d, emp.id, store, 'OfferUp price drop', `#${dv.stockNo} ${cents(cur)} → ${cents(price)}`); this.save(d); return dv; },
+  async offerupStatus(){ return this.db().offerupStatus || {lastSync: null, last: null, pending: null}; },
+  async offerupRequest(emp, store){ const d = this.db(); d.offerupStatus = {...(d.offerupStatus || {}), pending: d.offerupStatus?.pending || now()}; this.save(d); return d.offerupStatus; },
   async swappaSkip(emp, store, id, reason){ const d = this.db(); const dv = d.devices.find(x => x.id === id); dv.swappa = Object.assign({}, dv.swappa || {}, reason ? {skip: true, skipReason: reason, skipAt: now(), skipBy: emp.id} : {skip: false, skipReason: null}); this.save(d); return dv; },
   async ppEmails(){ return []; },
   async ship(b){ await new Promise(r => setTimeout(r, 200));
@@ -1493,6 +1497,9 @@ const LiveStore = {
   async swappaSold(emp, store, id, price, buyer){ return this.rpc('pos_swappa_sold', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_price: price, p_buyer: buyer || ''}); },
   async ships(){ const {data, error} = await this.sb.from('ships_v').select('*').order('at', {ascending: false}).limit(1000); if (error) throw error; return data; },
   async swappaSync(emp, kind, id, value, ok, note){ return this.rpc('pos_swappa_sync', {p_pin: this.pinFor(emp), p_kind: kind, p_id: id, p_value: String(value ?? ''), p_ok: !!ok, p_note: note || ''}); },
+  async offerupDrop(emp, store, id, price){ return this.rpc('pos_offerup_drop', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_price: price}); },
+  async offerupStatus(){ const {data, error} = await this.sb.rpc('pos_offerup_status'); if (error) throw error; return data || {}; },
+  async offerupRequest(emp, store){ return this.rpc('pos_offerup_request', {p_pin: this.pinFor(emp), p_store: store}); },
   async swappaSkip(emp, store, id, reason){ return this.rpc('pos_swappa_skip', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_reason: reason || null}); },
   async ppEmails(){ const {data, error} = await this.sb.from('paypal_payments_v').select('*').gt('at', new Date(Date.now() - 21 * 864e5).toISOString()).order('at', {ascending: false}).limit(60); if (error) throw error; return data || []; },
   async ship(body){ const {data, error} = await this.sb.functions.invoke('ship', {body}); if (error) { let m = error.message; try { m = (await error.context.json()).error || m; } catch {} throw new Error(m); } if (data?.error) throw new Error(data.error); return data; },
@@ -1863,6 +1870,12 @@ const HELP_KB = [
   '**Devices → Swappa**: **Ready to list** shows what to list. After listing on Swappa tap **Listed it · enter price**.',
   'Price drop: tap **Lower price** and type the new price. The 2-hour Swappa sync changes it on Swappa for you.',
   'Sold on Swappa: open the sale and tap **Ship · print label**. Tracking goes to Swappa and PayPal by itself.']},
+ {t: 'OfferUp: list a phone, lower the price', k: 'offerup offer up list listing ref price drop lower sync needs', s: [
+  'List the phone on OfferUp at the **store price** (the price on its label) and put **Ref #** and the stock number on its own line in the description, like **Ref #50123**. That is how the POS finds the listing.',
+  'You do not enter anything in the POS. Every 2 hours Claude reads our OfferUp listings and marks each phone **Listed on OfferUp** with the price and link. In a hurry? **Devices → OfferUp → Sync from OfferUp**.',
+  '**Needs OfferUp** lists every phone in stock that is not on OfferUp yet. Work it down to zero.',
+  'Price drop: open the phone (or **Devices → OfferUp → Listed**) and tap **Lower OfferUp price**. The 2-hour sync changes it on OfferUp.',
+  'We never take listings down when a phone sells: buyers who ask get pointed to a similar phone.']},
  {t: 'Ship wholesale devices to Atlas', k: 'wholesale atlas ship box pack tracking packing list', s: [
   'Go to **Wholesale**.',
   'Tick the devices going in the box and tap **Ship to Atlas**.',
@@ -2037,7 +2050,7 @@ const NAVG = [
   {k: 'dashboard', l: 'Dashboard'},
   {l: 'Counter', items: [['register','Register',0],['invoices','Invoices',0],['customers','Customers',0]]},
   {l: 'Repairs', badge: 'tickets', items: [['tickets','Tickets',0],['techboard','Tech board',0],['repairs','Repair stock',0],['parts','Parts',0],['quote','Quote',0]]},
-  {l: 'Devices', badge: 'devices', items: [['buyback','Buyback',0],['inventory','Devices',0],['swappa','Swappa',0],['wholesale','Wholesale',0]]},
+  {l: 'Devices', badge: 'devices', items: [['buyback','Buyback',0],['inventory','Devices',0],['swappa','Swappa',0],['offerup','OfferUp',0],['wholesale','Wholesale',0]]},
   {k: 'inbox', l: 'Inbox'},
   {l: 'More', items: MORE},
 ];
@@ -2137,7 +2150,7 @@ async function renderShell(){
   const gs = $('#gsearch');
   gs.onkeydown = e => { if (e.key === 'Enter' && gs.value.trim()) go('search', {q: gs.value.trim()}); if (e.key === 'Escape') gs.blur(); };
   barCounts(tok);
-  const views = {clock: viewClock, buyback: viewBuyback, inventory: viewInventory, parts: viewParts, quote: viewQuote, swappa: viewSwappa, wholesale: viewWholesale, dashboard: viewDashboard,
+  const views = {clock: viewClock, buyback: viewBuyback, inventory: viewInventory, parts: viewParts, quote: viewQuote, swappa: viewSwappa, offerup: viewOfferup, wholesale: viewWholesale, dashboard: viewDashboard,
     hours: viewHours, staff: viewStaff, tickets: viewTickets, ticket: viewTicket, newticket: viewNewTicket, customers: viewCustomers,
     customer: viewCustomer, search: viewSearch, invoices: viewInvoices, invoice: viewInvoice, eod: viewEod, techboard: viewTechboard, calls: viewInbox, inbox: viewInbox, repairs: viewRepairs, repair: viewRepair,
     register: viewRegister, closeout: viewCloseout, bblog: viewBbLog, reports: viewReports, counts: viewCounts, transfers: viewTransfers, swappasync: viewSwappaSync};
@@ -6306,6 +6319,60 @@ async function viewWholesale(el){
         close(); W.pick.clear(); W.tab = 'log'; toast(`Batch #${b.number} shipped · ${picked.length} devices out of wholesale`); viewWholesale(el); packing(b); }
       catch (e) { L.querySelector('#sh-e').textContent = e.message; btn.disabled = false; } }));
 }
+/* ---------------- OFFERUP ---------------- */
+S.ou = {tab: 'needs', store: 'mine'};
+const OU_SELL = ['hot', 'tolist', 'swappa'];
+const ouListed = d => !!(d.offerup?.url || d.offerup?.id);
+const ouPrice = d => +(d.offerup?.price ?? d.offerup?.postedPrice ?? 0) || null;
+function ouDropSheet(d, after){
+  const cur = ouPrice(d);
+  sheet(`<div class="row" style="justify-content:space-between"><h3>Lower OfferUp price · #${d.stockNo}</h3><button data-close>Close</button></div>
+    <p class="muted small" style="margin:0">${esc(d.model)} ${esc(d.storage || '')} · ${esc(d.carrier || '')} · now ${cents(cur)} on OfferUp${retailPrice(d) ? ` · store price ${cents(retailPrice(d))}` : ''}</p>
+    <div class="field"><label class="label" for="od-p">New OfferUp price</label><input id="od-p" inputmode="decimal"></div>
+    <p class="small muted" style="margin:0">The 2-hour OfferUp sync changes the listing for you. The in-store price stays the same.</p>
+    <div class="err" id="od-e" role="alert"></div><button class="primary" id="od-go">Lower it</button>`,
+    (L, close) => L.querySelector('#od-go').onclick = async () => { const v = parseFloat(String(L.querySelector('#od-p').value).replace(/[$,]/g, ''));
+      try { await Store.offerupDrop(S.user, S.store, d.id, v); close(); toast(`OfferUp price set to ${cents(v)}. It changes on OfferUp at the next sync.`); after && after(); } catch (e) { L.querySelector('#od-e').textContent = e.message; } });
+}
+async function viewOfferup(el){
+  const O = S.ou; const [all, st] = await Promise.all([Store.devices(), Store.offerupStatus().catch(() => ({}))]);
+  if (!can(3)) O.store = 'mine';
+  const inS = s => O.store === 'all' || s === (O.store === 'mine' ? S.store : O.store);
+  const sell = all.filter(d => OU_SELL.includes(d.status) && inS(d.store));
+  const needs = sell.filter(d => !ouListed(d)).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  const listed = all.filter(d => ouListed(d) && !['sold', 'atlas'].includes(d.status) && inS(d.store)).sort((a, b) => a.stockNo - b.stockNo);
+  const drops = listed.filter(d => +d.offerup.price < +d.offerup.postedPrice);
+  const last = st.last || {}; const odd = [...(last.noRef || []).map(x => ({...x, why: 'No Ref # in the description'})), ...(last.unknownRef || []).map(x => ({...x, why: `Ref #${x.ref} is not a stock # in the POS`}))];
+  const btn = 'style="min-height:32px;padding:2px 10px"';
+  const tabs = [['needs', `Needs OfferUp (${needs.length})`], ['listed', `Listed (${listed.length})`], ['drops', `Price drops waiting (${drops.length})`], ['odd', `Listings to fix (${odd.length})`]];
+  const syncLine = st.pending ? `<span class="pill warn">Sync requested ${ago(st.pending)} · runs within 2 hours</span>` : `<span class="small muted">${st.lastSync ? `Last checked ${ago(st.lastSync)} · ${last.listings ?? 0} listings, ${last.matched ?? 0} matched` : 'Not checked yet'}</span>`;
+  let body = '';
+  if (O.tab === 'needs') body = `<p class="muted small" style="margin:0">Phones in stock that are not on OfferUp yet, oldest first. List each one on OfferUp at the store price and add <b>Ref #&lt;stock #&gt;</b> to the description. The sync marks it listed by itself.</p>
+    <div class="tbl"><table><thead><tr><th>Stock #</th><th>Device</th>${O.store === 'all' ? '<th>Store</th>' : ''}<th class="r">List at</th><th>In stock</th><th></th></tr></thead><tbody>
+    ${needs.map(d => `<tr><td class="num">${d.stockNo}</td><td><b>${esc(d.model)}</b> <span class="muted">${esc([d.storage, d.carrier].filter(Boolean).join(' · '))}</span></td>${O.store === 'all' ? `<td>${d.store}</td>` : ''}
+      <td class="r num">${devPrice(d) ? cents(devPrice(d)) : '<span class="small muted">no price</span>'}</td><td class="small"><span class="${daysOld(d.createdAt) >= 2 ? 'pill warn' : ''}">${daysOld(d.createdAt)}d</span></td>
+      <td class="r"><button data-ref="${d.stockNo}" ${btn}>Copy "Ref #${d.stockNo}"</button></td></tr>`).join('') || `<tr><td colspan="6" class="muted">Everything in stock is on OfferUp.</td></tr>`}</tbody></table></div>`;
+  if (O.tab === 'listed' || O.tab === 'drops') { const L = O.tab === 'drops' ? drops : listed; body = `<p class="muted small" style="margin:0">${O.tab === 'drops' ? 'Prices lowered in the POS that the sync has not changed on OfferUp yet.' : 'Phones the sync found on OfferUp. Tap <b>Lower price</b> to drop one: the sync changes it on OfferUp.'}</p>
+    <div class="tbl"><table><thead><tr><th>Stock #</th><th>Device</th>${O.store === 'all' ? '<th>Store</th>' : ''}<th class="r">On OfferUp</th><th class="r">Store price</th><th>Last seen</th><th></th></tr></thead><tbody>
+    ${L.map(d => { const o = d.offerup, pend = +o.price < +o.postedPrice; return `<tr><td class="num">${d.stockNo}</td><td><b>${esc(d.model)}</b> <span class="muted">${esc([d.storage, d.carrier].filter(Boolean).join(' · '))}</span>${d.status === 'swappa' ? ' <span class="pill">also on Swappa</span>' : ''}</td>${O.store === 'all' ? `<td>${d.store}</td>` : ''}
+      <td class="r num">${cents(o.postedPrice)}${pend ? `<div class="small" style="color:var(--warn)">→ ${cents(o.price)} at next sync</div>` : ''}${o.syncOk === false && o.syncNote ? `<div class="small" style="color:var(--bad)">${esc(o.syncNote)}</div>` : ''}</td>
+      <td class="r num">${devPrice(d) ? cents(devPrice(d)) : '—'}</td><td class="small">${o.seenAt ? ago(o.seenAt) : '—'}</td>
+      <td class="r" style="white-space:nowrap">${o.url ? `<a href="${esc(o.url)}" target="_blank" rel="noopener" class="small">Open ↗</a> ` : ''}<button data-oud="${d.id}" ${btn}>Lower price</button></td></tr>`; }).join('') || '<tr><td colspan="7" class="muted">Nothing here.</td></tr>'}</tbody></table></div>`; }
+  if (O.tab === 'odd') body = `<p class="muted small" style="margin:0">OfferUp listings from the last sync that could not be matched to a phone. Edit the listing on OfferUp and add the right <b>Ref #&lt;stock #&gt;</b> to the description.</p>
+    <div class="tbl"><table><thead><tr><th>Listing</th><th class="r">Price</th><th>Problem</th><th></th></tr></thead><tbody>
+    ${odd.map(x => `<tr><td>${esc(x.title || '—')}</td><td class="r num">${x.price ? cents(x.price) : '—'}</td><td class="small">${esc(x.why)}</td><td class="r">${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener" class="small">Open ↗</a>` : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">Every listing has a working Ref #.</td></tr>'}</tbody></table></div>`;
+  el.innerHTML = `<div class="stack">
+    <div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap"><h2 style="margin:0">OfferUp</h2>
+      <div class="row" style="gap:8px">${can(3) ? `<select id="ou-store" style="width:auto"><option value="mine" ${O.store === 'mine' ? 'selected' : ''}>${STORES[S.store]}</option><option value="all" ${O.store === 'all' ? 'selected' : ''}>All stores</option></select>` : ''}${syncLine}<button id="ou-sync" ${st.pending ? 'disabled' : ''}>Sync from OfferUp</button></div></div>
+    <div class="statusbar" role="group" aria-label="OfferUp section">${tabs.map(([k, l]) => `<button data-out="${k}" aria-pressed="${O.tab === k}">${l}</button>`).join('')}</div>
+    ${body}</div>`;
+  const again = () => viewOfferup(el);
+  el.querySelectorAll('[data-out]').forEach(b => b.onclick = () => { O.tab = b.dataset.out; again(); });
+  $('#ou-store') && ($('#ou-store').onchange = e => { O.store = e.target.value; again(); });
+  $('#ou-sync').onclick = async () => { try { await Store.offerupRequest(S.user, S.store); toast('OfferUp sync requested. It runs within 2 hours.'); again(); } catch (e) { toast(e.message); } };
+  el.querySelectorAll('[data-ref]').forEach(b => b.onclick = async () => { try { await navigator.clipboard.writeText('Ref #' + b.dataset.ref); toast(`Copied "Ref #${b.dataset.ref}". Paste it in the OfferUp description.`); } catch { toast('Type Ref #' + b.dataset.ref + ' in the OfferUp description.'); } });
+  el.querySelectorAll('[data-oud]').forEach(b => b.onclick = () => ouDropSheet(all.find(d => d.id === b.dataset.oud), again));
+}
 async function viewSwappa(el){
   const W = S.sw; const [all, ships] = await Promise.all([Store.devices(), Store.ships()]);
   retryPaypalTracking(ships).then(n => { if (n && S.tab === 'swappa') { toast(`Tracking added to ${n} PayPal payment${n === 1 ? '' : 's'}`); viewSwappa(el); } }).catch(() => {});
@@ -6677,6 +6744,7 @@ function deviceSheet(d, after){
       <div class="stat"><span class="label">IMEI</span><span class="mono">${esc(d.imei || '—')}</span></div>
     </div>
     ${d.notes ? `<p class="small muted">${esc(d.notes)}</p>` : ''}
+    ${!['sold', 'atlas', 'repair', 'wholesale'].includes(d.status) || ouListed(d) ? `<div class="row small" style="gap:8px;align-items:center">${ouListed(d) ? `<span class="pill ok">On OfferUp · ${cents(d.offerup.postedPrice)}${+d.offerup.price < +d.offerup.postedPrice ? ` → ${cents(d.offerup.price)} at next sync` : ''}</span>${d.offerup.url ? `<a href="${esc(d.offerup.url)}" target="_blank" rel="noopener">Open ↗</a>` : ''}${!['sold', 'atlas'].includes(d.status) ? '<button type="button" id="d-oud" style="min-height:30px;padding:2px 10px">Lower OfferUp price</button>' : ''}` : `<span class="pill warn">Not on OfferUp yet</span><span class="muted">List it with <b>Ref #${d.stockNo}</b> in the description.</span>`}</div>` : ''}
     <div class="grid g2"><div class="field"><label class="label" for="d-imei">IMEI / serial</label><input id="d-imei" value="${esc(d.imei || '')}" inputmode="numeric" autocomplete="off" placeholder="Dial *#06# or check Settings"></div>
       ${can(2) || COST_OPEN ? `<div class="field"><label class="label" for="d-cost">Our cost</label><input id="d-cost" inputmode="decimal" value="${+d.cost ? d.cost : ''}" placeholder="What we paid"></div>` : ''}</div>
     <div class="field"><label class="label" for="d-s">Move to</label><select id="d-s">${STATUSES.filter(([k]) => k !== 'atlas' || d.status === 'atlas').map(([k, l]) => `<option value="${k}" ${d.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
@@ -6691,6 +6759,7 @@ function deviceSheet(d, after){
     <button class="primary" id="d-save">Save</button>`,
     (L, close) => {
       L.querySelector('#d-lbl').onclick = () => labelSheet(d);
+      L.querySelector('#d-oud') && (L.querySelector('#d-oud').onclick = () => { close(); ouDropSheet(d, after); });
       L.querySelector('#d-bos2') && (L.querySelector('#d-bos2').onclick = () => bosSheet(d.buybackId, d.id));
       L.querySelector('#d-bbr') && (L.querySelector('#d-bbr').onclick = () => buybackRecordSheet(d.buybackId, d.id));
       L.querySelector('#d-tr') && (L.querySelector('#d-tr').onclick = () => { $('#layer').innerHTML = ''; S.newTransfer = true; S.tDraft = {to: Object.keys(STORES).find(k => k !== S.store), devices: [d.id], parts: {}, note: '', f: 'all', q: ''}; go('transfers'); });
