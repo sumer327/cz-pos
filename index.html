@@ -5499,6 +5499,43 @@ async function htmlToDymo(body, css, opt = {}){
     return btoa(bin);
   } finally { f.remove(); }
 }
+/* 4x6 shipping labels: Babcock's iDPRT SP410 driver reports no paper sizes, so PrintNode blows PDFs up ~2x. It gets native
+   TSPL commands instead: a 203-dpi black-and-white picture of the label (800 x 1200 dots = 100 x 150 mm), then print. */
+const SHIP_TSPL = {DZ: true};
+function canvasToTspl(c){
+  const W = 800, H = 1200, bw = W / 8;
+  const cw = Math.min(W, c.width), ch = Math.min(H, c.height), px = c.getContext('2d').getImageData(0, 0, cw, ch).data;
+  const out = [...('SIZE 100 mm,150 mm\r\nGAP 2 mm,0 mm\r\nDIRECTION 1\r\nREFERENCE 0,0\r\nCLS\r\nBITMAP 0,0,' + bw + ',' + H + ',0,')].map(ch2 => ch2.charCodeAt(0));
+  for (let y = 0; y < H; y++) for (let xb = 0; xb < bw; xb++) { let v = 0xff;   /* TSPL: bit 0 = black dot */
+    if (y < ch) for (let bit = 0; bit < 8; bit++) { const x = xb * 8 + bit; if (x < cw) { const i = (y * cw + x) * 4; if (px[i] * .3 + px[i + 1] * .59 + px[i + 2] * .11 < 150) v &= ~(0x80 >> bit); } }
+    out.push(v & 255); }
+  for (const ch2 of '\r\nPRINT 1,1\r\n') out.push(ch2.charCodeAt(0));
+  let bin = ''; for (let i = 0; i < out.length; i += 8192) bin += String.fromCharCode.apply(null, out.slice(i, i + 8192));
+  return btoa(bin);
+}
+async function htmlToTspl(body, css){
+  const f = document.createElement('iframe'); f.setAttribute('aria-hidden', 'true');
+  f.style.cssText = 'position:fixed;left:-20000px;top:0;border:0;width:4in;height:20px;background:#fff';
+  document.body.appendChild(f);
+  try {
+    const doc = f.contentDocument; doc.open(); doc.write(`<!doctype html><html><head><meta charset="utf-8"><style>${css}html,body{background:#fff;color:#000;margin:0}</style></head><body>${body}</body></html>`); doc.close();
+    await loadScript(doc, H2C); try { await doc.fonts.ready; } catch {}
+    const cssW = doc.body.getBoundingClientRect().width || 384;
+    return canvasToTspl(await f.contentWindow.html2canvas(doc.body, {scale: 800 / cssW, backgroundColor: '#ffffff', logging: false, windowHeight: Math.max(20, doc.documentElement.scrollHeight)}));
+  } finally { f.remove(); }
+}
+/* a bought Shippo label (4x6 PDF) drawn at 203 dpi with pdf.js, then sent as TSPL */
+async function pdfToTspl(b64){
+  if (!window.pdfjsLib) await loadScript(document, PDFJS);
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_W;
+  const bytes = Uint8Array.from(atob(b64), ch2 => ch2.charCodeAt(0));
+  const pdf = await window.pdfjsLib.getDocument({data: bytes}).promise; const page = await pdf.getPage(1);
+  let vp = page.getViewport({scale: 1}); if (vp.width > vp.height) vp = page.getViewport({scale: 1, rotation: 90});
+  const sc = Math.min(800 / vp.width, 1200 / vp.height); const v = page.getViewport({scale: sc, rotation: vp.rotation});
+  const c = document.createElement('canvas'); c.width = 800; c.height = 1200; const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, 800, 1200);
+  await page.render({canvasContext: g, viewport: v}).promise;
+  return canvasToTspl(c);
+}
 function printLocal(title, body, css){
   const f = document.createElement('iframe');
   f.setAttribute('aria-hidden', 'true'); f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
@@ -5513,6 +5550,7 @@ async function printHTML(title, body, css, kind = printKind(css), extra = {}){
     toast(`Sending to the ${PRINT_KIND[kind]}…`);
     try { const {stretch, ...ex} = extra; const st = kind === 'label' ? (stretch ?? LABEL_STRETCH[S.store] ?? 1) : 1;
       const r = kind === 'receipt' ? await Store.cloudPrint({store: S.store, kind, title, raw: await htmlToEscpos(body, css)})
+        : kind === 'ship' && SHIP_TSPL[S.store] ? await Store.cloudPrint({store: S.store, kind, title, raw: await htmlToTspl(body, css)})
         : kind === 'label' && (ex.native ?? DYMO_NATIVE[S.store]) ? await Store.cloudPrint({store: S.store, kind, title, raw: await htmlToDymo(body, css, ex), ...(ex.printerId ? {printerId: ex.printerId} : {})})
         : await Store.cloudPrint({store: S.store, kind, title, pdf: await htmlToPdf(body, css, kind, st), ...(kind === 'label' ? {paper: DYMO_PAPER[labelSize()]} : {}), ...ex});
       toast(`Printing on ${r.printer}${r.paper ? ' · ' + r.paper : ''} ✓`); return; }
@@ -6808,7 +6846,7 @@ function shipLabelSheet(x, d, after){
         await Store.shipLabel(S.user, S.store, x.id, {tracking: r.tracking, shipTo: t, service: rate.service, cost: st.test ? 0 : rate.amount, labelUrl: r.labelUrl, shippoTx: r.shippoTx,
           paypalTxn: (pp?.ok && pp.txn) || pid[0] || '', paypalOk: !!pp?.ok, paypalError: pp && !pp.ok ? pp.error : (st.pay && st.test ? 'test label: not sent to PayPal' : '')});
         let printed = false;
-        if (r.pdf) { try { await Store.cloudPrint({store: S.store, kind: 'ship', pdf: r.pdf, fit: true, title: 'Label ' + x.label}); printed = 'the shipping label printer'; }
+        if (r.pdf) { try { await Store.cloudPrint(SHIP_TSPL[S.store] ? {store: S.store, kind: 'ship', raw: await pdfToTspl(r.pdf), title: 'Label ' + x.label} : {store: S.store, kind: 'ship', pdf: r.pdf, fit: true, title: 'Label ' + x.label}); printed = 'the shipping label printer'; }
           catch (e) { if (/No shipping label printer/i.test(e.message)) { try { await Store.cloudPrint({store: S.store, kind: 'paper', pdf: r.pdf, fit: false, title: 'Label ' + x.label}); printed = 'the Brother'; } catch (e2) { toast('Printer: ' + e2.message); } } else toast('Printer: ' + e.message); } }
         if (!printed && r.labelUrl) window.open(r.labelUrl, '_blank', 'noopener');
         close();
