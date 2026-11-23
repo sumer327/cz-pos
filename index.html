@@ -5397,7 +5397,7 @@ const printKind = css => /72mm/.test(css) ? 'receipt' : /@page\{size:[\d.]+in [\
 /* the DYMO driver's own name for each label roll (width × height in points) */
 const DYMO_PAPER = {'30252': 'w79h252', '30336': 'w72h154', '30334': '30334_2-1_4_in_x_1-1_4_in', '30330': 'w54h144'};
 const LABEL_STRETCH = {};
-const DYMO_NATIVE = {BV: true};   /* Nov 14: BV's DYMO prints blank from PDFs through PrintNode; native commands print right */   /* stores whose DYMO gets native commands */   /* per store, once measured */
+const DYMO_NATIVE = {BV: true, PT: true};   /* Nov 14: BV's DYMO prints blank from PDFs through PrintNode; native commands print right */   /* stores whose DYMO gets native commands */   /* per store, once measured */
 const PRINT_KIND = {label: 'DYMO label printer', receipt: 'Epson receipt printer', paper: 'Brother printer', ship: 'Shipping label printer (4×6)'};
 const H2C = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js', JSPDF = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
 const loadScript = (doc, src) => new Promise((ok, no) => { const s = doc.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => no(new Error("couldn't load the PDF maker")); doc.head.appendChild(s); });
@@ -5501,7 +5501,7 @@ async function htmlToDymo(body, css, opt = {}){
 }
 /* 4x6 shipping labels: Babcock's iDPRT SP410 driver reports no paper sizes, so PrintNode blows PDFs up ~2x. It gets native
    TSPL commands instead: a 203-dpi black-and-white picture of the label (800 x 1200 dots = 100 x 150 mm), then print. */
-const SHIP_TSPL = {DZ: true};
+const SHIP_TSPL = {DZ: true, PT: true};
 function canvasToTspl(c){
   const W = 800, H = 1200, bw = W / 8;
   const cw = Math.min(W, c.width), ch = Math.min(H, c.height), px = c.getContext('2d').getImageData(0, 0, cw, ch).data;
