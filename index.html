@@ -369,7 +369,7 @@ const HEARD_FROM = ['Walk In / Drive By', 'Returning Customer', 'Referred', 'Goo
 const PAYOUTS = ['Cash','Apple Pay','Cash App','Zelle','PayPal','Trade-in credit'];          // how a buyback seller gets paid
 const SAM_PAYS = ['Apple Pay','Cash App','Zelle','PayPal'];
 const payToLabel = p => p + (p === 'Cash App' ? ' $cashtag or phone' : p === 'PayPal' ? ' email or phone' : ' phone or email');                              // these need Sam to send the money
-const dqOf = (p, st) => p?.dqs && p.dqs[st] != null && p.dqs[st] !== '' ? +p.dqs[st] : (+p?.dq || 0);   /* desired qty at a store (per-store DQ, else the shared one) */
+const dqOf = (p, st) => p?.dqs && p.dqs[st] != null && p.dqs[st] !== '' ? +p.dqs[st] : 0;   /* desired qty at a store (no DQ set there = 0; never borrow another store's) */
 const PART_KINDS = ['Screen', 'Battery', 'Charging port', 'Rear camera', 'Camera lens', 'Flex cable', 'Back glass', 'Housing', 'Small part', 'Other'];
 const partBrand = n => /^iphone/i.test(n) ? 'iPhone' : /^(galaxy|samsung|s\d|note)/i.test(n) ? 'Samsung' : /^ipad/i.test(n) ? 'iPad' : /playstation|xbox|switch/i.test(n) ? 'Console' : 'Other';
 const isSmallPart = p => !(p.kind === 'Screen' || isScreenPart(p) && !/batter|charg|port|camera|lens|flex/i.test(p.name));
