@@ -3688,8 +3688,17 @@ function sheetRetail(d){
     const ram = Math.max(0, ...[...raw.matchAll(/(\d+)\s*gb/gi)].map(x => +x[1]).filter(x => x <= 128 && x !== +String(gb).replace(/\D/g, '')));
     if (ram > base) { const b = SR.up.get(rows[0][1] + '|' + ram + 'gb'); if (b) price += b; }
   }
-  return {price, row: rows[0]};
+  let swappa = rows[0][8] || null, swBase = '';
+  if (!swappa && fam === 'phone') { const u = (SR.by.get(rows[0][1]) || []).find(r => r[2] === 'U' && r[3] === rows[0][3] && r[8]); if (u) { swappa = u[8]; swBase = 'Unlocked'; } }
+  return {price, row: rows[0], swappa, swBase};
 }
+/* Swappa math, same as the MASTER BUYBACK SHEET: we net list x 0.884375 (Swappa + PayPal fees), minus shipping ($18, or $33 when the list is over $675) */
+const SW_NET = 0.884375;
+const swShip = list => list > 675 ? 33 : 18;
+const swProfit = (list, cost) => Math.round((list * SW_NET - swShip(list) - (+cost || 0)) * 100) / 100;
+const swTarget = list => list < 250 ? 70 : 100;   /* Sam's profit target: $100, or $70 when the sale is under $250 */
+function swSuggest(d){ const sh = sheetRetail(d); if (!sh) return null; if (!sh.swappa) return {none: true}; const cost = (+d.cost || 0) + (+d.partsCost || 0); const list = sh.swappa;
+  return {list, cost, fees: Math.round(list * (1 - SW_NET) * 100) / 100, ship: swShip(list), profit: swProfit(list, cost), target: swTarget(list), base: sh.swBase, row: sh.row}; }
 /* the store price for a device, or null when it isn't on a sheet (or is carrier locked / financed: those go to Atlas, not the shelf).
    1) the MASTER BUYBACK SHEET 2.0 RETAIL columns (retail.json, Nov 22 2026: every phone, iPad, watch, Mac, console, Surface)
    2) the older built-in phone table  3) the price stamped on the device at buyback */
@@ -6342,10 +6351,11 @@ async function viewSwappa(el){
     </tbody></table></div>`;
   if (W.tab === 'ready') body = `
     <p class="muted small" style="margin:0">Devices marked Ready to list that aren't on Swappa yet, oldest first. List it on Swappa, then enter the price here so it's tracked. If it shouldn't go on Swappa, tap <b>Not listing</b>.</p>
-    <div class="tbl"><table><thead><tr><th>Stock #</th><th>Device</th>${W.store === 'all' ? '<th>Store</th>' : ''}<th class="r">Cost</th><th>Waiting</th><th></th></tr></thead><tbody>
-    ${ready.map(d => `<tr><td class="num">${d.stockNo}</td><td><b>${esc(d.model)}</b> <span class="muted">${esc(d.storage)} · ${esc(d.carrier)}</span>${d.example ? ' <span class="pill">example</span>' : ''}</td>${W.store === 'all' ? `<td>${d.store}</td>` : ''}
-      <td class="r num">${money((+d.cost || 0) + (+d.partsCost || 0))}</td><td class="small"><span class="${daysOld(d.createdAt) >= 3 ? 'pill warn' : ''}">${daysOld(d.createdAt)}d</span></td>
-      <td class="r" style="white-space:nowrap"><button data-skip="${d.id}" ${btn}>Not listing</button> <button class="primary" data-list="${d.id}" ${btn}>Listed it · enter price</button></td></tr>`).join('') || '<tr><td colspan="6" class="muted">Everything ready is listed.</td></tr>'}
+    <div class="tbl"><table><thead><tr><th>Stock #</th><th>Device</th>${W.store === 'all' ? '<th>Store</th>' : ''}<th class="r">Cost</th><th class="r">Suggested Swappa price</th><th>Waiting</th><th></th></tr></thead><tbody>
+    ${ready.map(d => { const sg = swSuggest(d); return `<tr><td class="num">${d.stockNo}</td><td><b>${esc(d.model)}</b> <span class="muted">${esc(d.storage)} · ${esc(d.carrier)}</span>${d.example ? ' <span class="pill">example</span>' : ''}</td>${W.store === 'all' ? `<td>${d.store}</td>` : ''}
+      <td class="r num">${money((+d.cost || 0) + (+d.partsCost || 0))}</td>
+      <td class="r">${sg?.none ? '<span class="small muted">no Swappa comp (hot-list model)</span>' : sg ? `<button data-swp="${d.id}" style="min-height:32px;padding:2px 10px" title="See the math"><b class="num">${money(sg.list)}</b> <span class="small" style="color:${sg.profit >= sg.target ? 'var(--ok)' : sg.profit >= 50 ? 'var(--warn)' : 'var(--bad)'}">${sg.profit < 0 ? '−' + money(-sg.profit) : money(sg.profit)} profit</span></button>` : '<span class="small muted">not on the sheet</span>'}</td><td class="small"><span class="${daysOld(d.createdAt) >= 3 ? 'pill warn' : ''}">${daysOld(d.createdAt)}d</span></td>
+      <td class="r" style="white-space:nowrap"><button data-skip="${d.id}" ${btn}>Not listing</button> <button class="primary" data-list="${d.id}" ${btn}>Listed it · enter price</button></td></tr>`; }).join('') || '<tr><td colspan="7" class="muted">Everything ready is listed.</td></tr>'}
     </tbody></table></div>`;
   const SHIP = {pull: 'Pull and pack', label: 'Label printed', shipped: 'Shipped'};
   if (W.tab === 'ship') body = `
@@ -6380,9 +6390,25 @@ async function viewSwappa(el){
   el.querySelectorAll('[data-swt]').forEach(b => b.onclick = () => { W.tab = b.dataset.swt; again(); });
   $('#sw-shq') && ($('#sw-shq').onchange = e => { W.shq = e.target.value; again(); });
   el.querySelectorAll('[data-swf]').forEach(b => b.onclick = () => { W.f = b.dataset.swf; again(); });
+  el.querySelectorAll('[data-swp]').forEach(b => b.onclick = () => { const d = ready.find(x => x.id === b.dataset.swp); const sg = swSuggest(d); if (!sg || sg.none) return;
+    const q = encodeURIComponent([sg.row[5], sg.row[7]].filter(Boolean).join(' '));
+    const calc = L => { const v = parseFloat(L.querySelector('#sp-l').value) || 0; const pr = swProfit(v, sg.cost); L.querySelector('#sp-out').innerHTML = `
+      <div class="row" style="justify-content:space-between"><span>List on Swappa at</span><b class="num">${cents(v)}</b></div>
+      <div class="row" style="justify-content:space-between"><span class="muted">Swappa + PayPal fees (11.56%)</span><span class="num">−${cents(v * (1 - SW_NET))}</span></div>
+      <div class="row" style="justify-content:space-between"><span class="muted">Shipping${v > 675 ? ' (over $675, insured)' : ''}</span><span class="num">−${cents(swShip(v))}</span></div>
+      <div class="row" style="justify-content:space-between"><span class="muted">Our cost${+d.partsCost ? ' (with parts)' : ''}</span><span class="num">−${cents(sg.cost)}</span></div><hr style="margin:4px 0">
+      <div class="row" style="justify-content:space-between"><b>Profit</b><b class="num" style="color:${pr >= swTarget(v) ? 'var(--ok)' : pr >= 50 ? 'var(--warn)' : 'var(--bad)'}">${pr < 0 ? '−' + cents(-pr) : cents(pr)}</b></div>
+      <div class="small muted">Target: ${money(swTarget(v))}${v < 250 ? ' (sale under $250)' : ''}. ${pr >= swTarget(v) ? 'Good to list.' : pr >= 50 ? 'Under target. OK on a phone we have held a while, otherwise ask a manager.' : 'Too thin. Ask a manager: sell in store or wholesale instead?'}</div>`; };
+    sheet(`<div class="row" style="justify-content:space-between"><h3>Swappa price · #${d.stockNo}</h3><button data-close>Close</button></div>
+      <p class="muted small" style="margin:0">${esc(d.model)} ${esc(d.storage || '')} · ${esc(d.carrier || '')}</p>
+      <div class="banner acc small" style="margin:0">Suggested <b>${money(sg.list)}</b>: the competitive Swappa price from this morning's MASTER BUYBACK SHEET check (Good condition, ranked against live listings and recent sales)${sg.base ? `, using the ${sg.base} price because there is no ${esc(d.carrier)} comp` : ''}.</div>
+      <div class="field"><label class="label" for="sp-l">Try a price</label><input id="sp-l" inputmode="decimal" value="${sg.list}"></div>
+      <div class="stack" style="gap:4px" id="sp-out"></div>
+      <a href="https://swappa.com/search?q=${q}" target="_blank" rel="noopener" class="small">Check live listings on Swappa ↗</a>`,
+      L => { calc(L); L.querySelector('#sp-l').oninput = () => calc(L); }); });
   el.querySelectorAll('[data-list]').forEach(b => b.onclick = () => { const d = ready.find(x => x.id === b.dataset.list);
     sheet(`<div class="row" style="justify-content:space-between"><h3>Listed on Swappa · #${d.stockNo}</h3><button data-close>Close</button></div><p class="muted small" style="margin:0">${esc(d.model)} ${esc(d.storage)} · ${esc(d.carrier)} · cost ${money((+d.cost || 0) + (+d.partsCost || 0))}</p>
-      <div class="field"><label class="label" for="ls-p">Swappa price</label><input id="ls-p" inputmode="decimal"></div><div class="grid g2"><div class="field"><label class="label" for="ls-c">Swappa listing code</label><input id="ls-c" placeholder="LALV21983" autocapitalize="characters"></div><div class="field"><label class="label" for="ls-u">Listing link (optional)</label><input id="ls-u" placeholder="https://swappa.com/listing/…"></div></div><div class="err" id="ls-e" role="alert"></div><button class="primary" id="ls-go">Save listing</button>`,
+      <div class="field"><label class="label" for="ls-p">Swappa price</label><input id="ls-p" inputmode="decimal" value="${swSuggest(d)?.list || ''}"></div><div class="grid g2"><div class="field"><label class="label" for="ls-c">Swappa listing code</label><input id="ls-c" placeholder="LALV21983" autocapitalize="characters"></div><div class="field"><label class="label" for="ls-u">Listing link (optional)</label><input id="ls-u" placeholder="https://swappa.com/listing/…"></div></div><div class="err" id="ls-e" role="alert"></div><button class="primary" id="ls-go">Save listing</button>`,
       (L, close) => L.querySelector('#ls-go').onclick = async () => { try { await Store.swappaList(S.user, S.store, d.id, parseFloat(L.querySelector('#ls-p').value), L.querySelector('#ls-u').value.trim(), L.querySelector('#ls-c').value.trim().toUpperCase()); close(); toast('Listing saved'); W.tab = 'listed'; again(); } catch (e) { L.querySelector('#ls-e').textContent = e.message; } }); });
   const SKIP_WHY = ['Store-only (sell in store)', 'Not worth listing (under $65 profit)', 'Going to wholesale / Atlas', 'Carrier locked (AT&T)', 'Other'];
   el.querySelectorAll('[data-skip]').forEach(b => b.onclick = () => { const d = ready.find(x => x.id === b.dataset.skip);
