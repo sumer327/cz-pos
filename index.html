@@ -3599,12 +3599,13 @@ const RETAIL_IDX = Object.fromEntries(Object.keys(RETAIL).map(k => [rKey(k), k])
 const gbOf = s => { const m = String(s || '').match(/(\d+(?:\.\d+)?)\s*(tb|gb)/i); return m ? Math.round(+m[1] * (/tb/i.test(m[2]) ? 1024 : 1)) : null; };
 /* the sheet price for a phone, or null when it isn't on the sheet (or is carrier locked / financed: those go to Atlas, not the shelf) */
 function retailPrice(d){
-  const k = RETAIL_IDX[rKey(d.model)]; if (!k) return null; const r = RETAIL[k];
   if (/lock|financ|blacklist|bad imei/i.test((d.carrier || '').replace(/unlocked/ig, ''))) return null;
-  const gb = gbOf(d.storage); const i = gb == null ? -1 : r.s.indexOf(gb); if (i < 0) return null;
-  const c = /unlock/i.test(d.carrier || '') ? 'u' : /at\s*&?\s*t\b|^att$/i.test(d.carrier || '') && r.a ? 'a' : d.carrier ? 'o' : null; if (!c) return null;
+  const sp = +(d.sheetPrice || d.checklist?.sheetPrice || 0) || null;   /* stamped at buyback from the MASTER BUYBACK SHEET retail column (iPads, watches, consoles, Macs...) */
+  const k = RETAIL_IDX[rKey(d.model)]; if (!k) return sp; const r = RETAIL[k];
+  const gb = gbOf(d.storage); const i = gb == null ? -1 : r.s.indexOf(gb); if (i < 0) return sp;
+  const c = /unlock/i.test(d.carrier || '') ? 'u' : /at\s*&?\s*t\b|^att$/i.test(d.carrier || '') && r.a ? 'a' : d.carrier ? 'o' : null; if (!c) return sp;
   const col = r[c]; const v = c === 'o' && col.length === 1 ? (i === 0 ? col[0] : null) : col[Math.min(i, 2)];
-  return v || null;
+  return v || sp;
 }
 /* old RepairShopr "products" named like a phone (iPhone 16 Pro Max 256GB Unlocked, $899.99) aren't real stock: phones are sold from phone stock by stock # / IMEI */
 const repProd = p => ['Repair', 'Diagnostic', 'Console repair'].includes(prodCat(p));   /* old RepairShopr repair "products": charge repairs as a Repair so the part comes off the shelf */
@@ -5719,7 +5720,8 @@ async function viewBuyback(el){
         <div class="row" style="justify-content:space-between"><h2>1 · Device</h2><span class="row" style="gap:6px"><button id="bb-change">Change device</button><button id="bb-clear">Start over</button></span></div>
         <div class="stack" style="gap:4px"><div style="font-size:18px;font-weight:700">${esc(B.model)} ${esc(B.storage || '')}</div>
           <div class="small muted">${esc([B.carrier, A.condLabel].filter(Boolean).join(' · '))}</div>
-          ${(A.lines || []).length > 1 ? `<div class="small mono">${A.lines.map(([k, v]) => `${esc(k)} ${v < 0 ? '−' + money(-v) : money(v)}`).join(' · ')} = <b>${money(max)}</b></div>` : ''}</div>
+          ${(A.lines || []).length > 1 ? `<div class="small mono">${A.lines.map(([k, v]) => `${esc(k)} ${v < 0 ? '−' + money(-v) : money(v)}`).join(' · ')} = <b>${money(max)}</b></div>` : ''}
+          ${(() => { const sp = retailPrice({model: B.model, storage: B.storage, carrier: B.carrier, sheetPrice: +A.retail || null}); return sp ? `<div class="small" style="margin-top:2px">Store price <b>${cents(sp)}</b> <span class="muted">set on the device automatically, same at every store</span></div>` : ''; })()}</div>
         ${B.model ? `<div class="grid g2"><div class="field"><label class="label" for="bb-imei">${needsIC(B.model) ? 'IMEI' : 'Serial number'}</label><input id="bb-imei" data-b="imei" value="${esc(B.imei)}" inputmode="${needsIC(B.model) ? 'numeric' : 'text'}" autocapitalize="characters" autocomplete="off"></div>
           <div class="field"><label class="label" for="bb-color">Color</label><input id="bb-color" data-b="color" value="${esc(B.color)}" placeholder="Graphite" autocomplete="off"></div></div>` : ''}
         ${B.model ? `<div id="bb-ic">${icHtml(B)}</div>` : ''}
@@ -5865,10 +5867,11 @@ async function viewBuyback(el){
     let override = null;
     if (paid > max) { override = await askPin(`Manager approval: paying ${money(paid)} (max ${money(max)})`, 2); if (!override) return; }
     const r = await Store.recordBuyback(S.user, S.store, {model: B.model, storage: B.storage, carrier: B.carrier, cond: B.cond, color: B.color.trim(), imei: B.imei.trim(),
-      battery: B.battery === '' ? null : +B.battery, checklist: {...B.checks}, needs, paid, max, payout: B.payout, payoutTo: (B.payoutTo || '').trim(), notes: [B.notes.trim(), icNote].filter(Boolean).join(' · '),
+      battery: B.battery === '' ? null : +B.battery, checklist: {...B.checks, ...(+B.appraisal?.retail > 0 ? {sheetPrice: +B.appraisal.retail} : {})}, sheetPrice: +B.appraisal?.retail > 0 ? +B.appraisal.retail : null, needs, paid, max, payout: B.payout, payoutTo: (B.payoutTo || '').trim(), notes: [B.notes.trim(), icNote].filter(Boolean).join(' · '),
       seller: {...sl, phone: ph, email: (sl.email || '').trim().toLowerCase(), firstName: sl.firstName.trim(), lastName: sl.lastName.trim(), state: sl.state.toUpperCase()}}, override);
     /* every buy starts as Pending in inventory until the rep (or a manager later) picks Inventory, Repair stock or Wholesale */
-    if (r.device.status !== 'testing') { try { await Store.updateDevice(S.user, S.store, r.device.id, {status: 'testing'}); } catch {} }
+    { const sp = +B.appraisal?.retail > 0 ? +B.appraisal.retail : null; const patch = {...(r.device.status !== 'testing' ? {status: 'testing'} : {}), ...(sp && !(+r.device.listPrice > 0) ? {listPrice: sp} : {})};
+      if (Object.keys(patch).length) { try { await Store.updateDevice(S.user, S.store, r.device.id, patch); } catch {} } }
     S.bbDone = {deviceId: r.device.id, buybackId: r.buyback.id}; BAR_CNT.at = 0;
     if (!S.visit || S.visit.phone !== ph) S.visit = {phone: ph, seller: {...sl, phone: ph}, payout: B.payout, payoutTo: B.payoutTo || '', items: []};
     S.visit.items.push({buybackId: r.buyback.id, deviceId: r.device.id}); S.sellers = null;
