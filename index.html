@@ -4551,9 +4551,14 @@ function eodResult(el, r, hist){
    Where the tech lives: his repair lineup (New, In progress, Board level) in the order the front set, then his repair-stock phones.
    Reps reorder with ↑ ↓ / Top, and set when the customer is coming back. */
 const TB_ST = ['new', 'progress', 'board'];
+/* staff who show on every store's tech board (board-level tech for all stores); everyone else only shows at their home store */
+const TB_ALL_STORES = ['josh'];
 async function viewTechboard(el){
-  const techs = S.staff.filter(e => e.active && e.role !== 'owner');
+  const techs = S.staff.filter(e => e.active && e.role !== 'owner' && (e.store === S.store || TB_ALL_STORES.includes(String(e.name || '').split(' ')[0].toLowerCase())));
+  const techOpts = cur => { const extra = cur && !techs.some(e => e.id === cur) ? S.staff.filter(e => e.id === cur) : [];
+    return [...techs, ...extra].map(e => `<option value="${e.id}" ${cur === e.id ? 'selected' : ''}>${esc(e.name)}</option>`).join(''); };
   if (S.tbTech === undefined) S.tbTech = S.user.role === 'tech' ? S.user.id : 'all';
+  if (!['all', 'unassigned'].includes(S.tbTech) && S.tbTech !== S.user.id && !techs.some(e => e.id === S.tbTech)) S.tbTech = 'all';   /* picked tech isn't at this store */
   const [all, devs, custs] = await Promise.all([Store.tickets(), Store.devices(), Store.customers()]); const C = custById(custs);
   const UN = S.tbTech === 'unassigned'; const mine = x => S.tbTech === 'all' || (UN ? !x.techId : x.techId === S.tbTech);
   const ord = (a, b) => (a.waiting ? 0 : 1) - (b.waiting ? 0 : 1) || (a.queuePos ?? 9999) - (b.queuePos ?? 9999) || (a.dueAt ? new Date(a.dueAt) : Infinity) - (b.dueAt ? new Date(b.dueAt) : Infinity) || new Date(a.createdAt) - new Date(b.createdAt);
@@ -4583,7 +4588,7 @@ async function viewTechboard(el){
         ${rf ? '<div class="banner warn small" style="padding:6px 10px">Original screen goes in the <b>refurb bin</b></div>' : ''}
         <div class="row" style="gap:6px">
           <select data-st="${t.id}" aria-label="Status" style="width:auto;min-height:36px">${TSTATUS.filter(([k]) => ['new', 'progress', 'board', 'approval', 'order', 'parts', 'customer'].includes(k)).map(([k, l]) => `<option value="${k}" ${t.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
-          ${S.tbTech === 'all' || UN ? `<select data-as="${t.id}" aria-label="Tech" style="width:auto;min-height:36px"><option value="">Unassigned</option>${techs.map(e => `<option value="${e.id}" ${t.techId === e.id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select>` : ''}
+          ${S.tbTech === 'all' || UN ? `<select data-as="${t.id}" aria-label="Tech" style="width:auto;min-height:36px"><option value="">Unassigned</option>${techOpts(t.techId)}</select>` : ''}
           ${t.passcode && t.passcode !== 'None' ? `<button data-pc="${t.id}" style="min-height:36px;padding:2px 10px">Passcode</button>` : ''}
           <button data-due="${t.id}" style="min-height:36px;padding:2px 10px">Pickup time</button>
           <button data-top="${t.id}" ${i ? '' : 'disabled'} style="min-height:36px;padding:2px 10px">Move to top</button>
@@ -4593,7 +4598,7 @@ async function viewTechboard(el){
         <button data-dmv="${d.id}:-1" ${i ? '' : 'disabled'} aria-label="Move up" style="min-height:32px;padding:2px 10px">↑</button><button data-dmv="${d.id}:1" ${i < n - 1 ? '' : 'disabled'} aria-label="Move down" style="min-height:32px;padding:2px 10px">↓</button></div>
       <div class="stack" style="gap:6px;flex:1;min-width:0"><div><a data-dv="${d.id}" style="color:var(--accent);cursor:pointer;font-weight:700">#${d.stockNo}</a> <b>${esc([d.model, d.storage].filter(Boolean).join(' '))}</b> <span class="small muted">${esc(d.color || '')}</span></div>
         <div class="small">${(d.needs || []).length ? 'Needs: ' + esc(d.needs.map(x => x.label || x.name || x).join(', ')) : '<span class="muted">Needs not listed yet</span>'}</div>
-        <div class="row" style="gap:6px"><select data-dt="${d.id}" aria-label="Tech" style="width:auto;min-height:36px"><option value="">Unassigned</option>${techs.map(e => `<option value="${e.id}" ${d.techId === e.id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select>
+        <div class="row" style="gap:6px"><select data-dt="${d.id}" aria-label="Tech" style="width:auto;min-height:36px"><option value="">Unassigned</option>${techOpts(d.techId)}</select>
           <button data-dv="${d.id}" class="primary" style="min-height:36px;padding:2px 12px">Open</button></div></div></div>`;
   el.innerHTML = `<div class="stack">
     <div class="row" style="justify-content:space-between;gap:10px"><h2>Tech board · ${STORES[S.store]}</h2><button id="tb-ref">Refresh</button></div>
