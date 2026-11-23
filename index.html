@@ -1921,6 +1921,12 @@ const HELP_KB = [
   'Sales on the Register take accessories out by themselves. Use this only when an item leaves without a sale, or new stock arrives.',
   'Go to **Parts → Accessories** tab, find the item and tap **Broke / received**.',
   'Pick what happened (broke installing, came defective, used on display, given free, received new stock, found) and how many, add a note (ticket #, supplier) and save. It\'s logged with your name.']},
+ {t: 'Going to another store? Suggest a transfer', k: 'suggest transfer driving going to another store trip balance even out low stock out of stock what to bring babcock bulverde potranco', s: [
+  'Go to **More → Transfers** and tap **Suggest transfer**.',
+  'Tap the store you\'re driving to.',
+  'The POS lists phones to even out (you have 2+ more of a model than they do) and parts and accessories they\'re low on or out of that you have extra of.',
+  'Untick anything you don\'t want to take or change a quantity, then tap **Create transfer**. (Tap **Add more / edit first** to add things by hand.)',
+  'Pull everything on the transfer and take it. The other store taps **Received** when you get there.']},
  {t: 'Transfer a device or part to another store', k: 'transfer another store send move to babcock bulverde potranco', s: [
   'Open the device and tap **Transfer to another store** (or **More → Transfers → + New transfer**).',
   'Pick the store, then add devices (tabs for **For sale**, **Repair stock**, **Wholesale**; scan the stock # or search) and any parts or accessories (search them), and tap **Send**.',
@@ -4184,8 +4190,87 @@ async function viewSwappaSync(el){
 }
 
 /* ---------------- TRANSFERS ---------------- */
+/* Suggested transfer: someone is driving from `from` to `to` — what should ride along?
+   - parts + stock-tracked accessories: the other store is under its desired qty (or out, when it has no desired qty) and we have more than our own desired qty
+   - phones / iPads / watches for sale: even out each model between the two stores (we send half the difference when we have 2+ more) */
+const sugModelKey = m => String(m || '').toLowerCase().replace(/\b(wi-?fi|cellular|lte|gps|unlocked|5g)\b/g, ' ').replace(/\b\d+\s*(gb|tb)\b/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
+function suggestTransfer(from, to, devs, parts, prods){
+  const items = [];
+  const add = (p, acc) => {
+    const have = +(p.qty?.[from] || 0), there = +(p.qty?.[to] || 0); if (have <= 0) return;
+    const hasDq = acc ? p.dqs && p.dqs[to] != null && p.dqs[to] !== '' : true;
+    const dqTo = acc ? +(p.dqs?.[to] || 0) : dqOf(p, to), dqFrom = acc ? +(p.dqs?.[from] || 0) : dqOf(p, from);
+    let qty = 0, why = '';
+    if (hasDq && dqTo > 0 && there < dqTo) { qty = Math.min(dqTo - there, have - dqFrom); why = there === 0 ? `${STORES[to]} is out (wants ${dqTo})` : `${STORES[to]} has ${there}, wants ${dqTo}`; }
+    else if (!hasDq && there === 0 && have >= 3) { qty = Math.floor(have / 3); why = `${STORES[to]} is out · you have ${have}`; }
+    if (qty > 0) items.push({id: p.id, name: p.name, acc, qty, have, there, why, kind: acc ? 'Accessories' : (p.kind || 'Parts'), out: there === 0});
+  };
+  parts.forEach(p => add(p, false));
+  prods.filter(p => p.maintainStock && !p.disabled).forEach(p => add(p, true));
+  /* devices: only plain for-sale stock (not listed on Swappa, not mid-test, not already moving) */
+  const sale = d => ['hot', 'tolist'].includes(d.status) && !d.transferId;
+  const mine = devs.filter(d => d.store === from && sale(d)), theirs = devs.filter(d => d.store === to && sale(d));
+  const byKey = {}; mine.forEach(d => (byKey[sugModelKey(d.model)] ||= []).push(d));
+  const devices = [];
+  Object.entries(byKey).forEach(([k, list]) => {
+    const other = theirs.filter(d => sugModelKey(d.model) === k), diff = list.length - other.length;
+    if (diff < 2) return;
+    const n = Math.floor(diff / 2);
+    const variant = d => `${gbOf(d.storage)}|${String(d.carrier || '').toLowerCase()}`, theyHave = new Set(other.map(variant));
+    list.sort((a, b) => (theyHave.has(variant(a)) - theyHave.has(variant(b))) || (new Date(a.boughtAt || a.createdAt) - new Date(b.boughtAt || b.createdAt)))
+      .slice(0, n).forEach(d => devices.push({...d, why: `You have ${list.length}, ${STORES[to]} has ${other.length}`}));
+  });
+  devices.sort((a, b) => a.model.localeCompare(b.model, undefined, {numeric: true}) || (a.stockNo - b.stockNo));
+  items.sort((a, b) => (b.out - a.out) || a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name, undefined, {numeric: true}));
+  return {devices, items};
+}
+async function viewSuggestTransfer(el, devs, parts, prods){
+  const others = Object.entries(STORES).filter(([k]) => k !== S.store);
+  const back = () => { S.sugTransfer = null; viewTransfers(el); };
+  if (!S.sugTransfer.to) {
+    el.innerHTML = `<div class="stack"><div class="crumb"><a id="back">Transfers</a><span class="muted">›</span><b>Suggest a transfer</b></div>
+      <div class="panel stack" style="max-width:520px"><h3>Where are you headed from ${STORES[S.store]}?</h3>
+      <p class="muted small" style="margin:0">The POS checks both stores and suggests phones to even out, plus parts and accessories the other store is low on or out of.</p>
+      <div class="row">${others.map(([k, v]) => `<button class="primary" data-sg="${k}" style="min-height:56px;min-width:160px">${v}</button>`).join('')}</div></div></div>`;
+    $('#back').onclick = back;
+    el.querySelectorAll('[data-sg]').forEach(b => b.onclick = () => { S.sugTransfer = {to: b.dataset.sg}; viewTransfers(el); });
+    return;
+  }
+  const G = S.sugTransfer, to = G.to;
+  if (!G.sug) { G.sug = suggestTransfer(S.store, to, devs, parts, prods); G.offD = new Set(); G.offP = new Set(); G.qty = {}; }
+  const {devices, items} = G.sug;
+  const nD = devices.filter(d => !G.offD.has(d.id)).length, picked = items.filter(p => !G.offP.has(p.id)), nP = picked.reduce((a, p) => a + (G.qty[p.id] ?? p.qty), 0);
+  const kinds = [...new Set(items.map(p => p.kind))];
+  el.innerHTML = `<div class="stack"><div class="crumb"><a id="back">Transfers</a><span class="muted">›</span><b>Suggested: ${STORES[S.store]} → ${STORES[to]}</b></div>
+    <p class="muted small" style="margin:0">Untick anything you don't want to take, or change a quantity. Then create the transfer, pull everything, and ${STORES[to]} taps <b>Received</b> when you get there.</p>
+    ${!devices.length && !items.length ? `<div class="panel"><b>Nothing to bring right now.</b> <span class="muted">${STORES[to]} isn't short on anything you have extra of, and phones are already even.</span></div>` : ''}
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(340px,1fr));align-items:start">
+      ${devices.length ? `<div class="panel stack"><h3>Phones &amp; devices to even out · ${nD}</h3><div class="tbl"><table><tbody>${devices.map(d => `<tr class="click" data-sd="${d.id}"><td style="width:34px"><input type="checkbox" ${G.offD.has(d.id) ? '' : 'checked'} aria-label="Take #${d.stockNo}" tabindex="-1"></td><td class="num">#${d.stockNo}</td><td>${esc(d.model)} ${esc(d.storage || '')} <span class="small muted">${esc(d.carrier || '')}${d.color ? ' · ' + esc(d.color) : ''}</span><div class="small muted">${esc(d.why)}</div></td></tr>`).join('')}</tbody></table></div></div>` : ''}
+      ${items.length ? `<div class="panel stack"><h3>Parts &amp; accessories ${STORES[to]} needs · ${nP}</h3>${kinds.map(k => `<div class="label">${esc(k)}</div><div class="tbl"><table><tbody>${items.filter(p => p.kind === k).map(p => `<tr><td style="width:34px"><input type="checkbox" data-sp="${p.id}" ${G.offP.has(p.id) ? '' : 'checked'} aria-label="Take ${esc(p.name)}"></td><td>${esc(p.name)}${p.out ? ' <span class="pill bad">out</span>' : ''}<div class="small muted">${esc(p.why)} · you have ${p.have}</div></td><td class="r"><input data-sq="${p.id}" inputmode="numeric" value="${G.qty[p.id] ?? p.qty}" style="width:60px;min-height:34px;text-align:right" aria-label="How many ${esc(p.name)}"></td></tr>`).join('')}</tbody></table></div>`).join('')}</div>` : ''}
+    </div>
+    <div class="err" id="sg-err" role="alert"></div>
+    ${nD + nP ? `<div class="row"><button class="primary" id="sg-go" style="min-height:52px">Create transfer: ${nD} device${nD === 1 ? '' : 's'}, ${nP} part${nP === 1 ? '' : 's'} → ${STORES[to]}</button><button id="sg-edit">Add more / edit first</button></div>` : ''}</div>`;
+  $('#back').onclick = back;
+  const redraw = () => { const y = window.scrollY; viewTransfers(el).then(() => window.scrollTo(0, y)); };
+  el.querySelectorAll('[data-sd]').forEach(tr => tr.onclick = () => { const id = tr.dataset.sd; G.offD.has(id) ? G.offD.delete(id) : G.offD.add(id); redraw(); });
+  el.querySelectorAll('[data-sp]').forEach(c => c.onchange = () => { const id = c.dataset.sp; c.checked ? G.offP.delete(id) : G.offP.add(id); redraw(); });
+  el.querySelectorAll('[data-sq]').forEach(i => i.onchange = () => { const p = items.find(x => x.id === i.dataset.sq); const q = Math.max(0, parseInt(i.value) || 0);
+    if (q > p.have) { $('#sg-err').textContent = `Only ${p.have} ${p.name} here.`; i.value = G.qty[p.id] ?? p.qty; return; }
+    G.qty[p.id] = q; if (!q) G.offP.add(p.id); else G.offP.delete(p.id); redraw(); });
+  const payload = () => ({to, devices: devices.filter(d => !G.offD.has(d.id)).map(d => d.id),
+    parts: picked.map(p => ({id: p.id, qty: G.qty[p.id] ?? p.qty})).filter(x => x.qty > 0), note: `Suggested transfer · ${S.user?.name || ''} driving to ${STORES[to]}`});
+  const go = $('#sg-go');
+  if (go) go.onclick = async () => { go.disabled = true;
+    try { const r = await Store.createTransfer(S.user, S.store, payload()); S.sugTransfer = null;
+      toast(`Transfer T${r.number} created. Pull everything on it; ${STORES[to]} taps Received when it gets there.`); viewTransfers(el); }
+    catch (e) { go.disabled = false; $('#sg-err').textContent = e.message; } };
+  const ed = $('#sg-edit');
+  if (ed) ed.onclick = () => { const p = payload(); S.tDraft = {to, devices: p.devices, parts: Object.fromEntries(p.parts.map(x => [x.id, x.qty])), note: p.note, f: 'all', q: '', pq: ''};
+    S.sugTransfer = null; S.newTransfer = true; viewTransfers(el); };
+}
 async function viewTransfers(el){
   const [trs, devs, parts, prods] = await Promise.all([Store.transfers(), Store.devices(), Store.parts(), Store.products().catch(() => [])]);
+  if (S.sugTransfer) return viewSuggestTransfer(el, devs, parts, prods);
   const TGRP = {all: 'All', sale: 'For sale', repair: 'Repair stock', wholesale: 'Wholesale', other: 'Other'};
   const grpOf = d => SELLABLE.includes(d.status) ? 'sale' : d.status === 'repair' ? 'repair' : d.status === 'wholesale' ? 'wholesale' : 'other';
   if (S.newTransfer) {
@@ -4239,7 +4324,7 @@ async function viewTransfers(el){
   const mine = trs.filter(t => can(3) || t.to === S.store || t.from === S.store);
   const incoming = mine.filter(t => t.status === 'transit' && t.to === S.store);
   const pill = t => t.status === 'transit' ? `<span class="pill warn">In transit ${daysOld(t.at)}d</span>` : t.status === 'cancelled' ? '<span class="pill">Cancelled</span>' : `<span class="pill ok">Received ${fmtDate(t.receivedAt)}${t.receivedBy ? ' · ' + esc(staffName(t.receivedBy)) : ''}</span>`;
-  el.innerHTML = `<div class="stack"><div class="row" style="justify-content:space-between"><div><h2>Transfers</h2><p class="muted small" style="margin:0">Move phones (for sale, repair stock, wholesale), parts and accessories between stores. Parts and accessories leave the sending store's count when sent and land in the other store's count when it taps <b>Received</b>. Devices show <b>In transit</b> and can't be sold until they're received.</p></div><button class="primary" id="tr-new">+ New transfer</button></div>
+  el.innerHTML = `<div class="stack"><div class="row" style="justify-content:space-between"><div><h2>Transfers</h2><p class="muted small" style="margin:0">Move phones (for sale, repair stock, wholesale), parts and accessories between stores. Parts and accessories leave the sending store's count when sent and land in the other store's count when it taps <b>Received</b>. Devices show <b>In transit</b> and can't be sold until they're received.</p></div><div class="row"><button id="tr-sug" title="Going to another store? See what to bring">Suggest transfer</button><button class="primary" id="tr-new">+ New transfer</button></div></div>
     ${incoming.length ? `<div class="banner warn"><b>${incoming.length} transfer${incoming.length > 1 ? 's' : ''} on the way to ${STORES[S.store]}.</b> Check everything is in the bag, then tap Received.</div>` : ''}
     <div class="tbl"><table><thead><tr><th>#</th><th>From → to</th><th>What</th><th>Sent</th><th>Status</th><th></th></tr></thead><tbody>
     ${mine.map(t => `<tr><td class="num">T${t.number}</td><td>${STORES[t.from] || t.from} → ${STORES[t.to] || t.to}</td><td class="small">${[...(t.devices || []).map(x => esc(x.label) + (x.status ? ` <span class="muted">(${esc(STATUS_LABEL[x.status] || x.status)})</span>` : '')), ...(t.parts || []).map(x => `${esc(x.name)} ×${x.qty}`)].join('<br>')}${t.note ? `<div class="muted">${esc(t.note)}</div>` : ''}</td>
@@ -4247,6 +4332,7 @@ async function viewTransfers(el){
       <td class="r" style="white-space:nowrap">${t.status === 'transit' && t.to === S.store ? `<button class="primary" data-rcv="${t.id}" style="min-height:34px;padding:4px 10px">Received</button>` : ''}${t.status === 'transit' && (t.from === S.store || can(2)) ? ` <button data-tcx="${t.id}" style="min-height:34px;padding:4px 10px">Cancel</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No transfers yet.</td></tr>'}
     </tbody></table></div></div>`;
   $('#tr-new').onclick = () => { S.newTransfer = true; viewTransfers(el); };
+  $('#tr-sug').onclick = () => { S.sugTransfer = {}; viewTransfers(el); };
   el.querySelectorAll('[data-rcv]').forEach(b => b.onclick = async () => { b.disabled = true; try { await Store.receiveTransfer(S.user, S.store, b.dataset.rcv); toast('Received. Devices and counts are now at ' + STORES[S.store] + '.'); viewTransfers(el); } catch (e) { b.disabled = false; toast(e.message); } });
   el.querySelectorAll('[data-tcx]').forEach(b => b.onclick = async () => { const t = mine.find(x => x.id === b.dataset.tcx);
     if (!confirm(`Cancel T${t.number}? Everything on it goes back to ${STORES[t.from]}.`)) return; b.disabled = true;
