@@ -1572,6 +1572,7 @@ async function boot(){
   S.staff = await Store.employees();
   S.rqP = loadRepairPrices().then(r => S.rq = r);
   S.prices = await Store.prices();
+  try { const r = await fetch('retail.json', {cache: 'no-cache'}); if (r.ok) srLoad(await r.json()); } catch {}
   const nav = parseHash(), s = sessRead();
   const emp = s && s.mode === Store.mode && (S.staff || []).find(e => e.id === s.id && e.active !== false);
   if (emp && (Store.mode !== 'live' || s.pin)) {
@@ -3640,9 +3641,61 @@ const rKey = s => String(s || '').toLowerCase().replace(/\+/g, ' plus').replace(
   .replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
 const RETAIL_IDX = Object.fromEntries(Object.keys(RETAIL).map(k => [rKey(k), k]));
 const gbOf = s => { const m = String(s || '').match(/(\d+(?:\.\d+)?)\s*(tb|gb)/i); return m ? Math.round(+m[1] * (/tb/i.test(m[2]) ? 1024 : 1)) : null; };
-/* the sheet price for a phone, or null when it isn't on the sheet (or is carrier locked / financed: those go to Atlas, not the shelf) */
+/* ---- in-store retail from the MASTER BUYBACK SHEET 2.0 (retail.json is rebuilt from the sheet's RETAIL columns) ---- */
+let SR = null;   /* {asof, rows:[[family, model key, variant key, storage key, retail, sheet model, sheet variant, sheet storage]], by: Map(model key -> rows)} */
+/* device names in our stock that don't read like the sheet's model name (model key -> sheet model key) */
+const SR_ALIAS = {
+  'ipad pro 13 in m4': 'ipad pro 13 m4 2024', 'ipad pro 13 m4': 'ipad pro 13 m4 2024',
+  'ipad pro 13 8th gen m5': 'ipad pro 13 m5 2025', 'ipad pro 13 m5': 'ipad pro 13 m5 2025',
+  'ipad air 7 11 m3': 'ipad air 11 m3 2025', 'ipad air 11 m3': 'ipad air 11 m3 2025',
+  'ipad pro 105 2017': 'ipad pro 105', 'ipad pro 11 m5': 'ipad pro 11 m5 2025', 'ipad pro 11 m4': 'ipad pro 11 m4 2024',
+  'ipad mini 6th gen': 'ipad mini 6th gen', 'ipad mini 7th gen': 'ipad mini 7th gen',
+  'imac 24 m1 2021': 'imac 24 m1 2021', 'macbook pro 13 m1 2020': 'macbook pro 13 m1 2020', 'macbook pro 13 2020 m1': 'macbook pro 13 m1 2020',
+  'macbook air 13 2026 m5': 'macbook air 13 m5 2026', 'macbook pro 16 2023 m2 pro': 'macbook pro 16 m2 pro 2023', 'macbook pro 14 m5 2025': 'macbook pro 14 m5 2025',
+  'iphone air': 'iphone 17 air', 'galaxy s21 5g': 'galaxy s21', 'galaxy s21 plus 5g': 'galaxy s21 plus', 'galaxy s21 ultra 5g': 'galaxy s21 ultra',
+};
+const srNorm = s => String(s || '').toLowerCase().replace(/\+/g, ' plus ').replace(/\b(apple|google|samsung|motorola)\b/g, '')
+  .replace(/(\d)\.(\d)/g, '$1$2').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+function srLoad(j){ if (!j || !Array.isArray(j.rows)) return; const by = new Map(), up = new Map();
+  j.rows.forEach(r => { if (r[0] === 'macup') { up.set(r[1] + '|' + r[2], r[4]); return; } if (!by.has(r[1])) by.set(r[1], []); by.get(r[1]).push(r); }); SR = {...j, by, up}; }
+/* the sheet row(s) for a device: model + carrier/Wi-Fi + storage (watch size), or null */
+function sheetRetail(d){
+  if (!SR || !d?.model) return null;
+  const raw = [d.model, d.storage, d.carrier].join(' ');
+  if (/lock|financ|blacklist|bad imei/i.test(String(d.carrier || '').replace(/unlocked/ig, ''))) return null;
+  let m = srNorm(d.model);
+  const size = (raw.match(/(\d{2})\s*mm/i) || [])[1];
+  const gb = (() => { const x = String(d.storage || '').match(/(\d+)\s*(gb|tb)/i) || String(d.model).match(/(\d+)\s*(gb|tb)\b(?!\s*ram)/i); return x ? x[1] + x[2].toLowerCase() : ''; })();
+  /* drop words the sheet keeps in other columns */
+  m = m.replace(/\b(wifi|wi fi|cellular|unlocked|lte|gps|store stock|gb|tb)\b/g, ' ').replace(/\b\d+\s*(gb|tb|mm)\b/g, ' ').replace(/\b\d+gb\b|\b\d+tb\b|\b\d{2}mm\b/g, ' ').replace(/\s+/g, ' ').trim();
+  m = m.replace(/\b(\d+)gb (\d+)gb\b.*$/, '').trim();
+  if (/^(s|a|z|note|xcover)\s?\d/.test(m)) m = 'galaxy ' + m;
+  let rows = SR.by.get(SR_ALIAS[m] || m);
+  if (!rows) { const y = m.replace(/ (5g|4g)$/, ''); rows = SR.by.get(SR_ALIAS[y] || y); }
+  if (!rows) return null;
+  const fam = rows[0][0];
+  const car = String(d.carrier || '');
+  if (fam === 'phone') { const k = /unlock/i.test(car) || !car ? 'U' : /at\s*&?\s*t\b|^att$/i.test(car) ? 'A' : 'O'; rows = rows.filter(r => r[2] === k); }
+  if (fam === 'ipad') { const k = /wi-?\s?fi/i.test(raw) ? 'W' : /cell|unlock|lte|at&t|verizon|t-mobile/i.test(car) ? 'C' : 'W'; const f = rows.filter(r => r[2] === k || r[2] === 'WC'); rows = f.length ? f : rows; }
+  if (fam === 'watch') { if (size) rows = rows.filter(r => r[3] === size + 'mm'); }
+  else if (gb) { const f = rows.filter(r => r[3] === gb); rows = f; }
+  if (!rows.length) return null;
+  const prices = [...new Set(rows.map(r => r[4]))];
+  if (prices.length !== 1) return null;
+  let price = prices[0];
+  if (fam === 'mac') {   /* RAM above the block's base RAM: add the sheet's UPGRADE retail bonus */
+    const base = +((rows[0][2].match(/^(\d+)gb/) || [])[1] || 0);
+    const ram = Math.max(0, ...[...raw.matchAll(/(\d+)\s*gb/gi)].map(x => +x[1]).filter(x => x <= 128 && x !== +String(gb).replace(/\D/g, '')));
+    if (ram > base) { const b = SR.up.get(rows[0][1] + '|' + ram + 'gb'); if (b) price += b; }
+  }
+  return {price, row: rows[0]};
+}
+/* the store price for a device, or null when it isn't on a sheet (or is carrier locked / financed: those go to Atlas, not the shelf).
+   1) the MASTER BUYBACK SHEET 2.0 RETAIL columns (retail.json, Nov 22 2026: every phone, iPad, watch, Mac, console, Surface)
+   2) the older built-in phone table  3) the price stamped on the device at buyback */
 function retailPrice(d){
   if (/lock|financ|blacklist|bad imei/i.test((d.carrier || '').replace(/unlocked/ig, ''))) return null;
+  const sh = sheetRetail(d); if (sh) return sh.price;
   const sp = +(d.sheetPrice || d.checklist?.sheetPrice || 0) || null;   /* stamped at buyback from the MASTER BUYBACK SHEET retail column (iPads, watches, consoles, Macs...) */
   const k = RETAIL_IDX[rKey(d.model)]; if (!k) return sp; const r = RETAIL[k];
   const gb = gbOf(d.storage); const i = gb == null ? -1 : r.s.indexOf(gb); if (i < 0) return sp;
