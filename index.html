@@ -739,8 +739,8 @@ const DemoStore = {
   async loadResolved(){ return 0; },
   async createTicket(emp, store, t){
     const d = this.db();
-    const row = {id: uid(), number: d.nextTicket++, store, status: 'new', priority: 2, partsUsed: [], createdAt: now(), updatedAt: now(), by: emp.id, ...t,
-      comments: [{id: uid(), at: now(), who: emp.id, text: 'Ticket created. ' + t.subject + (t.notes ? ' · ' + t.notes : ''), pub: false, sys: true}]};
+    const row = {id: uid(), number: d.nextTicket++, store, status: t.apptAt ? 'scheduled' : 'new', priority: 2, partsUsed: [], createdAt: now(), updatedAt: now(), by: emp.id, ...t,
+      comments: [{id: uid(), at: now(), who: emp.id, text: (t.apptAt ? 'Appointment booked for ' + apptText(t.apptAt) + '. ' : 'Ticket created. ') + t.subject + (t.notes ? ' · ' + t.notes : ''), pub: false, sys: true}]};
     delete row.notes; d.tickets.unshift(row);
     this.log(d, emp.id, store, 'Ticket created', `#${row.number} ${row.subject}`); this.save(d); return row;
   },
@@ -944,6 +944,11 @@ const DemoStore = {
     const row = {id: uid(), at: now(), day: new Date().toLocaleDateString('en-CA', {timeZone: 'America/Chicago'}), store, by: emp.id, phones, parts, bins, off, note: c.note || null}; (d.eod = d.eod || []).unshift(row); this.save(d); return row; },
   async eodApply(emp, store, id){ if (RANK[emp.role] < 2) throw new Error('A manager fixes counts.'); const d = this.db(); const r = d.eod.find(x => x.id === id); let n = 0; r.parts.forEach(x => { if (x.counted !== x.expected) { d.parts.find(p => p.id === x.id).qty[r.store] = x.counted; n++; } }); this.save(d); return {fixed: n}; },
   async queueSet(emp, store, kind, ids){ const d = this.db(); const list = kind === 'device' ? d.devices : d.tickets; ids.forEach((id, i) => { const x = list.find(y => y.id === id); if (x) x.queuePos = i + 1; }); this.save(d); return {ok: true}; },
+  async ticketAppt(emp, store, id, action, at){ const d = this.db(); const t = d.tickets.find(x => x.id === id);
+    const msg = action === 'set' ? (t.apptAt ? 'Appointment moved to ' : 'Appointment booked for ') + apptText(at) : action === 'cancel' ? 'Appointment cancelled' : action === 'noshow' ? 'No-show for the appointment' : 'Customer checked in for their appointment';
+    if (action === 'set') Object.assign(t, {apptAt: at, status: ['new', 'scheduled'].includes(t.status) ? 'scheduled' : t.status});
+    else if (action === 'here') { if (t.status === 'scheduled') t.status = 'new'; } else Object.assign(t, {status: 'resolved', resolvedAt: now()});
+    t.updatedAt = now(); t.comments.unshift({id: uid(), at: now(), who: emp.id, text: msg, pub: false, sys: true}); this.save(d); return t; },
   async ticketDue(emp, store, id, due, waiting){ const d = this.db(); const t = d.tickets.find(x => x.id === id); Object.assign(t, {dueAt: due, waiting: !!waiting}); this.save(d); return t; },
   async deviceTech(emp, store, id, techId){ const d = this.db(); const x = d.devices.find(y => y.id === id); x.techId = techId || null; this.save(d); return x; },
   async makeInvoice(emp, store, ticketId, chargeIds){ const d = this.db(); const t = d.tickets.find(x => x.id === ticketId);
@@ -1454,6 +1459,7 @@ const LiveStore = {
   async saveEod(emp, store, c){ return this.rpc('pos_save_eod', {p_pin: this.pinFor(emp), p_store: store, p_c: c}); },
   async eodApply(emp, store, id){ return this.rpc('pos_eod_apply', {p_pin: this.pinFor(emp), p_store: store, p_id: id}); },
   async queueSet(emp, store, kind, ids){ const r = await this.rpc('pos_queue_set', {p_pin: this.pinFor(emp), p_store: store, p_kind: kind, p_ids: ids}); if (kind !== 'device') ids.forEach((id, i) => { const t = this.cT.get(id); if (t) t.queuePos = i + 1; }); return r; },
+  async ticketAppt(emp, store, id, action, at){ const r = await this.rpc('pos_ticket_appt', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_action: action, p_at: at || null}); this.keep(this.cT, [r]); return r; },
   async ticketDue(emp, store, id, due, waiting){ const r = await this.rpc('pos_ticket_due', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_due: due, p_waiting: !!waiting}); this.keep(this.cT, [r]); return r; },
   async deviceTech(emp, store, id, techId){ return this.rpc('pos_device_tech', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_tech: techId || null}); },
   async newInvoice(emp, store, customerId){ const r = await this.rpc('pos_new_invoice', {p_pin: this.pinFor(emp), p_store: store, p_customer: customerId || null}); this.keep(this.cI, [r]); return r; },
@@ -1921,6 +1927,12 @@ const HELP_KB = [
   'Sales on the Register take accessories out by themselves. Use this only when an item leaves without a sale, or new stock arrives.',
   'Go to **Parts → Accessories** tab, find the item and tap **Broke / received**.',
   'Pick what happened (broke installing, came defective, used on display, given free, received new stock, found) and how many, add a note (ticket #, supplier) and save. It\'s logged with your name.']},
+ {t: 'Book, move or check in an appointment', k: 'appointment appointments book schedule scheduled calendar booking reschedule move cancel no-show website widget customer here check in', s: [
+  'Tap **Appointments** in the top bar. Website bookings land here on their own (marked **Booked online**).',
+  'To book one: **+ Book appointment** (or **+ Book** on a day), pick the time, then fill in the customer, device and subject and tap **Book appointment**. Battery health and the check-in test wait until they come in.',
+  'Customer walks in: tap **Customer\'s here**. The ticket moves to New and opens, so check them in like any ticket.',
+  'Need another time? **Move**. Not coming? **Cancel** → Customer cancelled or No-show (the ticket closes with a note).',
+  'Appointments also show under **Tickets → Scheduled**, soonest first.']},
  {t: 'Going to another store? Suggest a transfer', k: 'suggest transfer driving going to another store trip balance even out low stock out of stock what to bring babcock bulverde potranco', s: [
   'Go to **More → Transfers** and tap **Suggest transfer**.',
   'Tap the store you\'re driving to.',
@@ -2055,6 +2067,7 @@ let RENDER_NO = 0;
 /* ---------- top bar: grouped sections, per-person pins, live counts ---------- */
 const NAVG = [
   {k: 'dashboard', l: 'Dashboard'},
+  {k: 'appts', l: 'Appointments'},
   {l: 'Counter', items: [['register','Register',0],['invoices','Invoices',0],['customers','Customers',0]]},
   {l: 'Repairs', badge: 'tickets', items: [['tickets','Tickets',0],['techboard','Tech board',0],['repairs','Repair stock',0],['parts','Parts',0],['quote','Quote',0]]},
   {l: 'Devices', badge: 'devices', items: [['buyback','Buyback',0],['inventory','Devices',0],['swappa','Swappa',0],['offerup','OfferUp',0],['wholesale','Wholesale',0]]},
@@ -2085,12 +2098,14 @@ async function barCounts(tok){
         tickets: [tix.filter(t => t.store === S.store && t.status === 'reply').length, tix.filter(t => t.store === S.store && t.status === 'new').length],
         swappa: ships.filter(x => x.store === S.store && x.status !== 'shipped').length,
         pending: devs.filter(d => d.store === S.store && d.status === 'testing').length,
-        inbox: leads.filter(l => l.status === 'new' && (!l.store || l.store === S.store)).length}};
+        inbox: leads.filter(l => l.status === 'new' && (!l.store || l.store === S.store)).length,
+        appts: tix.filter(t => t.store === S.store && t.status === 'scheduled' && t.apptAt && sameDay(new Date(t.apptAt), new Date())).length}};
     }
     if (tok !== RENDER_NO) return;
     const v = BAR_CNT.v, [rep, nw] = v.tickets;
     const set = (k, n, cls, title) => document.querySelectorAll(`#bar [data-cnt="${k}"]`).forEach(c => { c.hidden = !n; c.textContent = n; c.className = 'cnt ' + cls; c.title = title; });
     set('tickets', rep + nw, rep ? 'hot' : 'go', [rep && `${rep} customer replied`, nw && `${nw} new, not started`].filter(Boolean).join(' · '));
+    set('appts', v.appts, 'go', `${v.appts} appointment${v.appts === 1 ? '' : 's'} today`);
     set('swappa', v.swappa, 'hot', `${v.swappa} Swappa sale${v.swappa === 1 ? '' : 's'} to ship`);
     set('inventory', v.pending, 'go', `${v.pending} bought device${v.pending === 1 ? '' : 's'} pending: pick where ${v.pending === 1 ? 'it goes' : 'they go'}`);
     set('devices', v.swappa + v.pending, v.swappa ? 'hot' : 'go', [v.swappa && `${v.swappa} Swappa to ship`, v.pending && `${v.pending} pending`].filter(Boolean).join(' · '));
@@ -2160,7 +2175,7 @@ async function renderShell(){
   const views = {clock: viewClock, buyback: viewBuyback, inventory: viewInventory, parts: viewParts, quote: viewQuote, swappa: viewSwappa, offerup: viewOfferup, wholesale: viewWholesale, dashboard: viewDashboard,
     hours: viewHours, staff: viewStaff, tickets: viewTickets, ticket: viewTicket, newticket: viewNewTicket, customers: viewCustomers,
     customer: viewCustomer, search: viewSearch, invoices: viewInvoices, invoice: viewInvoice, eod: viewEod, techboard: viewTechboard, calls: viewInbox, inbox: viewInbox, repairs: viewRepairs, repair: viewRepair,
-    register: viewRegister, closeout: viewCloseout, bblog: viewBbLog, reports: viewReports, counts: viewCounts, transfers: viewTransfers, swappasync: viewSwappaSync};
+    register: viewRegister, closeout: viewCloseout, bblog: viewBbLog, reports: viewReports, counts: viewCounts, transfers: viewTransfers, swappasync: viewSwappaSync, appts: viewAppts};
   const mainEl = $('#main');
   CUR_VIEW = () => mainEl.isConnected && tok === RENDER_NO ? (views[S.tab] || viewTickets)(mainEl) : null;
   try { await (views[S.tab] || viewTickets)(mainEl); }
@@ -2182,6 +2197,75 @@ function ticketFlag(t){
   return null;
 }
 S.tf = {status: 'open', store: 'mine', mine: false};
+/* ---------------- APPOINTMENTS ----------------
+   A booked appointment is a ticket in "Scheduled" with an appointment time (apptAt). Website widget bookings land here automatically.
+   Customer shows up → "Customer's here" moves it to New, and it's a normal ticket from there. */
+const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+const apptText = at => at ? new Date(at).toLocaleString('en-US', {weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}) : '';
+const apptTime = at => new Date(at).toLocaleTimeString('en-US', {hour: 'numeric', minute: '2-digit'});
+/* 30-minute slots in store hours (Mon–Sat 10–8, Sun 11–6); last slot an hour before close */
+const apptSlots = day => { const open = day.getDay() === 0 ? 11 : 10, last = day.getDay() === 0 ? 17 : 19, out = [];
+  for (let h = open; h <= last; h++) for (const m of [0, 30]) { if (h === last && m) continue; out.push([h, m]); } return out; };
+function apptPicker(title, cur, onPick){
+  const pad = n => String(n).padStart(2, '0'); const dk = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const days = Array.from({length: 21}, (_, i) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + i); return d; });
+  const P = {day: cur ? dk(new Date(cur)) : dk(days[0]), t: cur ? `${new Date(cur).getHours()}:${new Date(cur).getMinutes()}` : ''};
+  sheet(`<div class="row" style="justify-content:space-between"><h3>${esc(title)}</h3><button data-close>Close</button></div><div id="ap-body"></div>`, (S2, close) => {
+    const draw = () => { const day = days.find(d => dk(d) === P.day) || days[0]; const nowM = new Date().getHours() * 60 + new Date().getMinutes();
+      const slots = apptSlots(day).filter(([h, m]) => !sameDay(day, new Date()) || h * 60 + m > nowM);
+      S2.querySelector('#ap-body').innerHTML = `<div class="field"><label class="label" for="ap-day">Day</label><select id="ap-day">${days.map(d => `<option value="${dk(d)}" ${dk(d) === P.day ? 'selected' : ''}>${sameDay(d, new Date()) ? 'Today · ' : ''}${d.toLocaleDateString('en-US', {weekday: 'long', month: 'short', day: 'numeric'})}</option>`).join('')}</select></div>
+        <span class="label">Time</span><div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:6px">${slots.map(([h, m]) => `<button data-ap="${h}:${m}" aria-pressed="${P.t === `${h}:${m}`}" style="min-height:44px">${(h % 12) || 12}:${pad(m)} ${h < 12 ? 'AM' : 'PM'}</button>`).join('') || '<span class="muted small">No times left today. Pick another day.</span>'}</div>
+        <span class="small muted">Double booking is fine: most repairs are quick.</span>`;
+      S2.querySelector('#ap-day').onchange = e => { P.day = e.target.value; P.t = ''; draw(); };
+      S2.querySelectorAll('[data-ap]').forEach(b => b.onclick = () => { const [h, m] = b.dataset.ap.split(':').map(Number); const d = new Date(day); d.setHours(h, m, 0, 0); close(); onPick(d.toISOString()); }); };
+    draw(); });
+}
+async function viewAppts(el){
+  const A = S.ap || (S.ap = {off: 0, store: 'mine'});
+  const [tix, custs] = await Promise.all([Store.tickets(), Store.customers()]);
+  const C = custById(custs);
+  const st = A.store === 'all' ? null : A.store === 'mine' ? S.store : A.store;
+  const start = new Date(); start.setHours(0, 0, 0, 0); start.setDate(start.getDate() + A.off * 7);
+  const days = Array.from({length: 7}, (_, i) => { const d = new Date(start); d.setDate(d.getDate() + i); return d; });
+  const end = new Date(days[6]); end.setDate(end.getDate() + 1);
+  const list = tix.filter(t => t.apptAt && !t.deletedAt && (!st || t.store === st) && new Date(t.apptAt) >= start && new Date(t.apptAt) < end).sort((a, b) => new Date(a.apptAt) - new Date(b.apptAt));
+  const noTime = tix.filter(t => t.status === 'scheduled' && !t.apptAt && !t.deletedAt && (!st || t.store === st));
+  const late = t => t.status === 'scheduled' && Date.now() - new Date(t.apptAt) > 30 * 60000;
+  const card = t => { const c = C[t.customerId] || {}; const web = (t.comments || []).some(x => /booked online/i.test(x.text || ''));
+    return `<div class="panel" style="padding:10px 12px;display:grid;grid-template-columns:78px 1fr auto;gap:10px;align-items:center${t.status === 'scheduled' ? '' : ';opacity:.7'}">
+      <div><b style="font-size:17px">${apptTime(t.apptAt)}</b>${!st ? `<div class="small muted">${STORES[t.store]}</div>` : ''}</div>
+      <div class="click" data-ot="${t.id}"><b>${esc(c.name || '—')}</b> <span class="small muted num">${fmtPhone(c.phone)}</span>
+        <div class="small">${esc(t.device || '')} · ${esc(t.subject || '')}${+t.estimate ? ` · quoted ${cents(+t.estimate)}` : ''}</div>
+        <div class="small muted">#${t.number}${web ? ' · <span class="pill acc">Booked online</span>' : ''} ${t.status === 'scheduled' ? (late(t) ? '<span class="pill bad">Late / no-show?</span>' : '') : `<span class="pill ${t.status === 'resolved' ? '' : 'ok'}">${esc(TS[t.status]?.[1] || t.status)}</span>`}</div></div>
+      <div class="row" style="gap:6px;justify-content:flex-end">${t.status === 'scheduled' ? `<button class="primary" data-here="${t.id}" style="min-height:38px">Customer's here</button><button data-mv="${t.id}" style="min-height:38px">Move</button><button data-cx="${t.id}" style="min-height:38px">Cancel</button>` : ''}</div></div>`; };
+  el.innerHTML = `<div class="stack">
+    <div class="row" style="justify-content:space-between"><div><h2>Appointments</h2><p class="muted small" style="margin:0">Website bookings show up here on their own. When the customer walks in, tap <b>Customer's here</b> and it becomes a normal ticket.</p></div>
+      <div class="row">${can(3) ? `<select id="ap-st" aria-label="Store" style="width:auto"><option value="mine">${STORES[S.store]}</option><option value="all">All stores</option>${Object.entries(STORES).filter(([k]) => k !== S.store).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>` : ''}
+        <button class="primary" id="ap-new">+ Book appointment</button></div></div>
+    <div class="row" style="gap:8px;align-items:center"><button id="ap-prev" ${A.off <= 0 ? 'disabled' : ''}>◀</button><b>${days[0].toLocaleDateString('en-US', {month: 'short', day: 'numeric'})} – ${days[6].toLocaleDateString('en-US', {month: 'short', day: 'numeric'})}</b><button id="ap-next">▶</button>${A.off ? '<button id="ap-today">This week</button>' : ''}<span class="small muted">${list.filter(t => t.status === 'scheduled').length} booked</span></div>
+    ${noTime.length ? `<div class="banner warn small">${noTime.length} ticket${noTime.length === 1 ? ' is' : 's are'} in Scheduled with no appointment time: ${noTime.slice(0, 8).map(t => `<a data-ot="${t.id}" style="color:var(--accent);cursor:pointer">#${t.number}</a>`).join(', ')}. Open ${noTime.length === 1 ? 'it' : 'them'} and set the time.</div>` : ''}
+    ${days.map(d => { const items = list.filter(t => sameDay(new Date(t.apptAt), d)); const today = sameDay(d, new Date());
+      return `<div class="stack" style="gap:6px"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">${today ? 'Today · ' : ''}${d.toLocaleDateString('en-US', {weekday: 'long', month: 'short', day: 'numeric'})} <span class="small muted" style="font-weight:400">${items.length ? `· ${items.length}` : ''}</span></h3><button data-bk="${d.toISOString()}" style="min-height:32px;padding:2px 10px">+ Book</button></div>
+        ${items.map(card).join('') || '<div class="small muted" style="padding:0 4px">Nothing booked.</div>'}</div>`; }).join('')}
+  </div>`;
+  $('#ap-st') && ($('#ap-st').value = A.store, $('#ap-st').onchange = e => { A.store = e.target.value; viewAppts(el); });
+  $('#ap-prev').onclick = () => { A.off = Math.max(0, A.off - 1); viewAppts(el); };
+  $('#ap-next').onclick = () => { A.off++; viewAppts(el); };
+  $('#ap-today') && ($('#ap-today').onclick = () => { A.off = 0; viewAppts(el); });
+  const book = () => apptPicker('Book an appointment: pick the time', null, at => go('newticket', {draft: {apptAt: at}}));
+  $('#ap-new').onclick = book;
+  el.querySelectorAll('[data-bk]').forEach(b => b.onclick = () => { const d = new Date(b.dataset.bk);
+    apptPicker('Book an appointment: pick the time', sameDay(d, new Date()) ? null : d.toISOString(), at => go('newticket', {draft: {apptAt: at}})); });
+  el.querySelectorAll('[data-ot]').forEach(x => x.onclick = () => go('ticket', {ticketId: x.dataset.ot}));
+  const act = async (id, action, at, msg) => { try { await Store.ticketAppt(S.user, S.store, id, action, at); toast(msg); BAR_CNT.v = null; } catch (e) { toast(e.message); } viewAppts(el); };
+  el.querySelectorAll('[data-here]').forEach(b => b.onclick = async () => { b.disabled = true; const t = list.find(x => x.id === b.dataset.here);
+    try { await Store.ticketAppt(S.user, S.store, t.id, 'here'); BAR_CNT.v = null; toast(`#${t.number} checked in. Set its status once you start.`); go('ticket', {ticketId: t.id}); } catch (e) { b.disabled = false; toast(e.message); } });
+  el.querySelectorAll('[data-mv]').forEach(b => b.onclick = () => { const t = list.find(x => x.id === b.dataset.mv); apptPicker(`Move #${t.number} to…`, t.apptAt, at => act(t.id, 'set', at, `#${t.number} moved to ${apptText(at)}`)); });
+  el.querySelectorAll('[data-cx]').forEach(b => b.onclick = () => { const t = list.find(x => x.id === b.dataset.cx);
+    sheet(`<div class="row" style="justify-content:space-between"><h3>Cancel #${t.number}?</h3><button data-close>Back</button></div><p class="small muted" style="margin:0">The ticket gets closed with a note.</p>
+      <div class="row"><button class="primary" data-k="cancel" style="min-height:48px">Customer cancelled</button><button data-k="noshow" style="min-height:48px">No-show</button></div>`,
+      (S2, close) => S2.querySelectorAll('[data-k]').forEach(x => x.onclick = () => { close(); act(t.id, x.dataset.k, null, `#${t.number} ${x.dataset.k === 'cancel' ? 'cancelled' : 'marked no-show'}`); })); });
+}
 async function viewTickets(el){
   const F = S.tf;
   const [all, custs] = await Promise.all([Store.tickets(), Store.customers()]);
@@ -2192,6 +2276,7 @@ async function viewTickets(el){
   const inStore = all.filter(t => F.store === 'all' || t.store === (F.store === 'mine' ? S.store : F.store)).filter(t => !F.mine || t.techId === S.user.id).filter(res14);
   const count = k => inStore.filter(t => k === 'open' ? t.status !== 'resolved' : t.status === k).length;
   const rows = inStore.filter(t => F.status === 'open' ? t.status !== 'resolved' : t.status === F.status);
+  if (F.status === 'scheduled' && !F.sort) rows.sort((a, b) => (a.apptAt ? new Date(a.apptAt) : Infinity) - (b.apptAt ? new Date(b.apptAt) : Infinity));
   /* click a column header to sort by it (click again to flip); no sort picked = the usual order */
   const TSO = {num: t => +t.number, cust: t => (C[t.customerId]?.name || '').toLowerCase(), model: t => (t.device || '').toLowerCase(), subj: t => (t.subject || '').toLowerCase(),
     status: t => TSTATUS.findIndex(([k]) => k === t.status), tech: t => (t.techId ? staffName(t.techId) : t.rsTech || '').toLowerCase(), prio: t => -(t.priority ?? 2),
@@ -2219,7 +2304,7 @@ async function viewTickets(el){
       <td class="num"><a style="color:var(--accent)">${t.number}</a></td>
       <td><a style="color:var(--accent)">${esc(c.name || '—')}</a><div class="small muted num" style="white-space:nowrap">${fmtPhone(c.phone)}</div></td>
       <td>${esc(t.device || '—')}</td>
-      <td><b>${esc(t.subject || '')}</b>${t.example ? ' <span class="pill">example</span>' : ''}${f ? `<div><span class="pill ${f[0]}">${f[1]}</span></div>` : ''}</td>
+      <td><b>${esc(t.subject || '')}</b>${t.example ? ' <span class="pill">example</span>' : ''}${t.status === 'scheduled' ? `<div><span class="pill ${t.apptAt ? 'acc' : 'warn'}">📅 ${t.apptAt ? esc(apptText(t.apptAt)) : 'No appointment time'}</span></div>` : ''}${f ? `<div><span class="pill ${f[0]}">${f[1]}</span></div>` : ''}</td>
       <td><select class="stsel ${TS[t.status][2]}" data-st="${t.id}" aria-label="Status for ticket ${t.number}">${TSTATUS.map(([k, l]) => `<option value="${k}" ${t.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select></td>
       <td><select class="techsel" data-tech="${t.id}" aria-label="Tech for ticket ${t.number}"><option value="">${!t.techId && t.rsTech ? esc(t.rsTech) : 'None assigned'}</option>${techs.map(e => `<option value="${e.id}" ${t.techId === e.id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select></td>
       <td class="small">${PRIORITIES[t.priority ?? 2][1]}</td>
@@ -2297,6 +2382,7 @@ async function viewTicket(el){
           <dt>Passcode</dt><dd class="mono">${t.passcode === 'None' ? '<span class="muted">No passcode</span>' : t.passcode ? `<span id="pc">${isPattern(t.passcode) ? 'Pattern ••••' : '••••'}</span> <button id="pc-show" style="min-height:30px;padding:2px 8px">Show</button>` : '<span class="muted">Not given</span>'}
             <button id="pc-edit" style="min-height:30px;padding:2px 8px;margin-left:4px">${t.passcode ? 'Change' : 'Add'}</button></dd>
           <dt>Charges</dt><dd class="num">${tQuote(t) ? cents(tQuote(t)) + ' <span class="small muted">+ tax</span>' : '<span class="muted">none yet: add them under Charges</span>'}</dd>
+          ${t.apptAt || t.status === 'scheduled' ? `<dt>Appointment</dt><dd>${t.apptAt ? `<b>📅 ${esc(apptText(t.apptAt))}</b> ` : '<span class="pill warn">No time set</span> '}${t.status === 'scheduled' ? `${t.apptAt ? '<button id="t-aphere" class="primary" style="min-height:32px;padding:2px 10px">Customer\'s here</button> ' : ''}<button id="t-apmv" style="min-height:32px;padding:2px 10px">${t.apptAt ? 'Move' : 'Set time'}</button> <button id="t-apcx" style="min-height:32px;padding:2px 10px">Cancel</button>` : ''}</dd>` : ''}
           <dt>Pickup time</dt><dd>${dueText(t) ? `<b${t.waiting || (t.dueAt && new Date(t.dueAt) < new Date() && t.status !== 'resolved') ? ' style="color:var(--bad)"' : ''}>${esc(dueText(t))}</b> ` : '<span class="muted">Not set</span> '}${t.status !== 'resolved' ? `<button id="t-due" style="min-height:32px;padding:2px 10px">${dueText(t) ? 'Change' : 'Set'}</button>` : ''}</dd>
           ${t.bh || t.bhSkip || bhAtCheckin(t.device, t.issue) ? `<dt>Battery health</dt><dd>${t.bh ? `<b>BH ${t.bh}%</b>` : t.bhSkip ? `<span class="muted">${t.bhSkip === 'N/A' ? 'N/A' : "Couldn't read: " + esc(t.bhSkip)}</span>` : needsBH(t) ? '<span class="pill bad">Needed before resolving</span>' : '<span class="muted">—</span>'}
             ${t.status !== 'resolved' ? '<button id="t-bh" style="min-height:30px;padding:2px 8px;margin-left:6px">Record</button>' : ''}</dd>` : ''}
@@ -2387,6 +2473,12 @@ Cellular Zone ${esc(STORES[t.store] || '')}</textarea>
   $('#t-tech').onchange = e => up({techId: e.target.value || null});
   $('#t-pri').onchange = e => up({priority: +e.target.value});
   $('#t-due') && ($('#t-due').onclick = () => pickupSheet(t, () => viewTicket(el)));
+  const apAct = async (action, at, msg) => { try { await Store.ticketAppt(S.user, S.store, t.id, action, at); BAR_CNT.v = null; toast(msg); } catch (e) { toast(e.message); } viewTicket(el); };
+  $('#t-aphere') && ($('#t-aphere').onclick = () => apAct('here', null, 'Checked in. Set the status once you start.'));
+  $('#t-apmv') && ($('#t-apmv').onclick = () => apptPicker(t.apptAt ? `Move #${t.number} to…` : `Appointment time for #${t.number}`, t.apptAt, at => apAct('set', at, `Appointment: ${apptText(at)}`)));
+  $('#t-apcx') && ($('#t-apcx').onclick = () => sheet(`<div class="row" style="justify-content:space-between"><h3>Cancel #${t.number}?</h3><button data-close>Back</button></div><p class="small muted" style="margin:0">The ticket gets closed with a note.</p>
+      <div class="row"><button class="primary" data-k="cancel" style="min-height:48px">Customer cancelled</button><button data-k="noshow" style="min-height:48px">No-show</button></div>`,
+      (S2, close) => S2.querySelectorAll('[data-k]').forEach(x => x.onclick = () => { close(); apAct(x.dataset.k, null, x.dataset.k === 'cancel' ? 'Appointment cancelled' : 'Marked no-show'); })));
   $('#t-ready') && ($('#t-ready').onclick = async () => { await Store.updateTicket(S.user, S.store, t.id, {status: 'customer'}); S.prefillSms = readyMsg; toast('Ready for Pickup · pickup text ready to send'); viewTicket(el); });
   $('#t-pay') && ($('#t-pay').onclick = () => {
     if (rsUnpaid.length) return moveRs(true);
@@ -2642,7 +2734,9 @@ async function viewNewTicket(el){
   const models = S.rq ? rqDeviceNames() : [];
   const ev = await Store.ghlEvents().catch(() => []);
   const seen = new Set(); const callers = ev.filter(g => g.phone && (!g.store || g.store === S.store) && Date.now() - new Date(g.at) < 3*3600000 && !seen.has(g.phone) && seen.add(g.phone)).slice(0, 5);
-  el.innerHTML = `<div class="crumb"><a id="back">Tickets</a><span class="muted">›</span><b>New ticket</b></div>
+  el.innerHTML = `<div class="crumb"><a id="back">${D.apptAt ? 'Appointments' : 'Tickets'}</a><span class="muted">›</span><b>${D.apptAt ? 'Book an appointment' : 'New ticket'}</b></div>
+  ${D.apptAt ? `<div class="banner ok row" style="justify-content:space-between;gap:10px;margin-bottom:10px"><span>📅 Booking for <b>${esc(apptText(D.apptAt))}</b> at ${STORES[S.store]}. It goes in <b>Scheduled</b> until the customer walks in. Battery health and the check-in test happen when they come in.</span><span class="row" style="gap:6px"><button type="button" id="nt-apch" style="min-height:34px">Change time</button><button type="button" id="nt-apx" style="min-height:34px">Not an appointment</button></span></div>`
+    : `<div class="row" style="justify-content:flex-end;margin-bottom:6px"><button type="button" id="nt-apset" style="min-height:34px">📅 Book it as an appointment</button></div>`}
   <form class="grid" id="nt" novalidate style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));align-items:start">
     <div class="panel stack">
       <h3>1 · Customer</h3>
@@ -2672,7 +2766,7 @@ async function viewNewTicket(el){
       <div class="field"><label class="label" for="nt-notes">Notes for the tech</label><textarea id="nt-notes" rows="2" placeholder="Face ID works before repair. Small dent top left.">${esc(D.notes || '')}</textarea></div>
       <div class="field"><label class="label" for="nt-tech">Assign tech</label><select id="nt-tech"><option value="">Unassigned</option>${S.staff.filter(e => e.active).map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select></div>
       <div class="err" id="nt-err" role="alert"></div>
-      <button class="primary" type="submit">Create ticket</button>
+      <button class="primary" type="submit">${D.apptAt ? 'Book appointment' : 'Create ticket'}</button>
     </div>
     <div class="panel stack" id="nt-testp" ${testable(D.device) ? '' : 'hidden'}>
       <h3>3 · Check-in test <span class="small muted" style="font-weight:400">(optional)</span></h3>
@@ -2682,7 +2776,11 @@ async function viewNewTicket(el){
     </div>
   </form>`;
   const keep = () => { if (!$('#nt-dev')) return; Object.assign(D, {device: $('#nt-dev').value, issue: $('#nt-iss').value, imei: $('#nt-imei').value, callback: $('#nt-cb').value, bh: $('#nt-bh').value, bhs: $('#nt-bhs').value, subject: $('#nt-sub').value, notes: $('#nt-notes').value}); };
-  $('#back').onclick = () => go('tickets');
+  $('#back').onclick = () => go(D.apptAt ? 'appts' : 'tickets');
+  const apRe = () => { const y = window.scrollY; viewNewTicket(el).then(() => window.scrollTo(0, y)); };
+  $('#nt-apch') && ($('#nt-apch').onclick = () => { keep(); apptPicker('Change the appointment time', D.apptAt, at => { D.apptAt = at; apRe(); }); });
+  $('#nt-apx') && ($('#nt-apx').onclick = () => { keep(); D.apptAt = null; apRe(); });
+  $('#nt-apset') && ($('#nt-apset').onclick = () => { keep(); apptPicker('Book an appointment: pick the time', null, at => { D.apptAt = at; apRe(); }); });
   pcField('nt-pc', D.passcode || '', v => { D.passcode = v; }).mount($('#nt-pcbox'));
   bindTestGrid($('#nt-tg'), D.tests); $('#nt-tn').oninput = e => { D.testNote = e.target.value; };
   const cq = $('#nt-cq'); let cqt; if (cq) cq.oninput = () => { clearTimeout(cqt); cqt = setTimeout(() => { keep(); D.cq = cq.value; viewNewTicket(el).then(() => { const n = $('#nt-cq'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 250); };
@@ -2718,14 +2816,14 @@ async function viewNewTicket(el){
   $('#nt').onsubmit = async e => {
     e.preventDefault(); keep();
     const cbd = (D.callback || '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
-    const bhN = bhAtCheckin(D.device, D.issue), bhV = (D.bh || '').trim();
+    const bhN = !D.apptAt && bhAtCheckin(D.device, D.issue), bhV = (D.bh || '').trim();
     const err = !D.customerId ? 'Pick or add the customer first.' : bhN && bhV && !(+bhV >= 1 && +bhV <= 100) ? 'Battery health is a number from 1 to 100.' : bhN && !bhV && !D.bhs ? 'iPhone repair: enter the battery health %, or pick N/A.' : cbd && cbd.length !== 10 ? 'The call-back number should be 10 digits (or leave it blank).' : !D.device.trim() ? 'Enter the device.' : !D.issue ? 'Pick the issue.' : !D.subject.trim() ? 'Enter a subject.'
       : '';
     $('#nt-err').textContent = err; if (err) return;
     /* one tap = one ticket: lock the form while it saves (the database also hands back the same ticket for a repeat within 60 s) */
     const form = $('#nt'); if (form.dataset.busy) return; form.dataset.busy = '1'; const sb = form.querySelector('[type="submit"]'); if (sb) { sb.disabled = true; sb.dataset.lbl = sb.textContent; sb.textContent = 'Opening ticket…'; }
     let t; try { t = await Store.createTicket(S.user, S.store, {customerId: D.customerId, device: D.device.trim(), issue: D.issue, subject: D.subject.trim(),
-      estimate: null, imei: D.imei.trim(), passcode: (D.passcode || '').trim(), callback: cbd || null, techId: $('#nt-tech').value || null, notes: D.notes.trim()}); }
+      estimate: null, imei: D.imei.trim(), passcode: (D.passcode || '').trim(), callback: cbd || null, techId: $('#nt-tech').value || null, notes: D.notes.trim(), ...(D.apptAt ? {apptAt: D.apptAt} : {})}); }
     catch (x) { delete form.dataset.busy; if (sb) { sb.disabled = false; sb.textContent = sb.dataset.lbl; } $('#nt-err').textContent = x.message; return; }
     /* a price carried over from the Quote tool goes straight on as the first charge (no separate "quoted price" to keep in sync) */
     if (+D.estimate > 0) { try { const cat = /diag/i.test(D.subject) ? 'Diagnostic' : /console/i.test(D.issue) ? 'Console repair' : 'Repair';
@@ -2734,8 +2832,9 @@ async function viewNewTicket(el){
           pid = (cand.find(p => (p.qty?.[S.store] || 0) > 0 && (!want || partQual(p.name) === want)) || cand.find(p => (p.qty?.[S.store] || 0) > 0))?.id || null; } }
         await Store.ticketCharge(S.user, S.store, t.id, {desc: D.subject.trim(), cat, price: +D.estimate, ...(pid ? {partId: pid} : {})}); } catch (e) { toast("Ticket made, but the quoted charge didn't save: " + e.message); } }
     if (bhN && (bhV || D.bhs)) { try { await Store.updateTicket(S.user, S.store, t.id, bhV ? {bh: +bhV} : {bhSkip: D.bhs}); } catch (e) { toast("Ticket made, but the battery health didn't save: " + e.message); } }
-    if (testable(D.device) && testsDone(D.tests)) { try { await Store.saveTicketTest(S.user, S.store, t.id, 'checkin', D.tests, (D.testNote || '').trim()); } catch (e) { toast("Ticket made, but the check-in test didn't save: " + e.message); } }
+    if (!D.apptAt && testable(D.device) && testsDone(D.tests)) { try { await Store.saveTicketTest(S.user, S.store, t.id, 'checkin', D.tests, (D.testNote || '').trim()); } catch (e) { toast("Ticket made, but the check-in test didn't save: " + e.message); } }
     if (D.addBatt && !/batt/i.test(D.subject + ' ' + D.issue)) { try { const p = await addBatteryCharge(t, D.addBatt); toast('Battery added at ' + cents(D.addBatt.deal) + (p ? ' · battery pulled from stock' : ' · no battery on the shelf: special order it')); } catch (x) { toast("Ticket made, but the battery didn't save: " + x.message); } }
+    if (D.apptAt) { S.draft = {}; BAR_CNT.v = null; toast(`Booked: #${t.number} · ${apptText(D.apptAt)}`); return go('appts'); }
     S.draft = {}; S.justCreated = t.id; go('ticket', {ticketId: t.id});
   };
 }
