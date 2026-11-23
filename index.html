@@ -2840,7 +2840,7 @@ async function viewNewTicket(el){
     if (+D.estimate > 0) { try { const cat = /diag/i.test(D.subject) ? 'Diagnostic' : /console/i.test(D.issue) ? 'Console repair' : 'Repair';
         /* a quoted repair pulls the matching part from stock, same as Add charge does (so cost and profit are right) */
         let pid = null; if (cat === 'Repair') { const want = repairWants(D.subject); if (want !== 'none') { const cand = partsFor(await Store.parts().catch(() => []), D.device.trim(), want, S.store, repairType(D.subject));
-          pid = (cand.find(p => (p.qty?.[S.store] || 0) > 0 && (!want || partQual(p.name) === want)) || cand.find(p => (p.qty?.[S.store] || 0) > 0))?.id || null; } }
+          pid = (cand.find(p => (p.qty?.[S.store] || 0) > 0 && (!want || partQual(p.name) === want)) || (['lcd', 'oled'].includes(want) ? null : cand.find(p => (p.qty?.[S.store] || 0) > 0)))?.id || null; } }
         await Store.ticketCharge(S.user, S.store, t.id, {desc: D.subject.trim(), cat, price: +D.estimate, ...(pid ? {partId: pid} : {})}); } catch (e) { toast("Ticket made, but the quoted charge didn't save: " + e.message); } }
     if (bhN && (bhV || D.bhs)) { try { await Store.updateTicket(S.user, S.store, t.id, bhV ? {bh: +bhV} : {bhSkip: D.bhs}); } catch (e) { toast("Ticket made, but the battery health didn't save: " + e.message); } }
     if (!D.apptAt && testable(D.device) && testsDone(D.tests)) { try { await Store.saveTicketTest(S.user, S.store, t.id, 'checkin', D.tests, (D.testNote || '').trim()); } catch (e) { toast("Ticket made, but the check-in test didn't save: " + e.message); } }
@@ -2917,7 +2917,7 @@ const partNorm = x => ' ' + String(x || '').toLowerCase().replace(/\b(apple|ipho
 const partKey = device => partNorm(String(device || '').replace(/\b\d+\s?(gb|tb)\b/ig, '').replace(/\b(unlocked|t-mobile|verizon|at&t|black|white|blue|red|green|gray|grey|gold|silver|purple|pink)\b/ig, '')).trim();
 const partQual = n => /oled|xo7|x07|genuine|oem|service pack/i.test(n) ? 'oled' : /aq7|incell|lcd|aftermarket/i.test(n) ? 'lcd' : null;
 const PART_TYPES = {battery: /batter/i, port: /charg|port/i, back: /back glass|back housing|housing|frame/i, camera: /camera|lens/i, speaker: /speaker|mesh/i};
-const repairType = name => (/lcd|oled|display|digitizer|glass \+ lcd/i.test(name) || /\bipad\b.*glass repair/i.test(name)) && !/back glass/i.test(name) ? 'display' : Object.keys(PART_TYPES).find(k => PART_TYPES[k].test(name)) || null;
+const repairType = name => (/lcd|oled|display|digitizer|glass \+ lcd/i.test(name) || /\bipad\b.*glass repair/i.test(name) || /glass (repair|only)\s*\((good|better|best|incell|oled)\)/i.test(name)) && !/back glass/i.test(name) ? 'display' : Object.keys(PART_TYPES).find(k => PART_TYPES[k].test(name)) || null;
 const partIsType = (p, type) => !type ? true : type === 'display' ? (p.kind === 'Screen' || /lcd|oled|xo7|x07|aq7|incell|digitizer|display/i.test(p.name)) && !/batter|charg|port|camera|back|speaker/i.test(p.name) : PART_TYPES[type].test(p.name);
 /* device family: an iPhone 11 must never match iPad Pro 11" parts (and the other way round) */
 const devFam = x => /\bipad\b/i.test(x) ? 'ipad' : /\biphone\b/i.test(x) ? 'iphone' : /\b(galaxy|samsung)\b/i.test(x) ? 'galaxy' : /\bpixel\b/i.test(x) ? 'pixel' : /\b(switch|ps[45]|playstation|xbox)\b/i.test(x) ? 'console' : null;
@@ -2950,7 +2950,14 @@ function partsFor(parts, device, want, store, type){
   const score = p => (want === 'digi' ? (partQual(p.name) ? 0 : 2) : want && partQual(p.name) === want ? 2 : 0) + ((p.qty?.[store] || 0) > 0 ? 1 : 0);
   return hits.sort((a, b) => score(b) - score(a) || a.name.localeCompare(b.name)).slice(0, 8);
 }
-const repairWants = name => /\bipad\b.*glass repair/i.test(name) ? 'digi' : /^glass (repair|only)|data (transfer|backup)|software|virus/i.test(name) ? 'none' : /lcd replacement \(aftermarket\)|^lcd/i.test(name) ? 'lcd' : /oled/i.test(name) ? 'oled' : /lcd/i.test(name) ? 'lcd' : null;
+/* which screen a repair takes. iPhone tiers (Nov 23, Sam): Good = incell / aftermarket LCD, Better = premium OLED, Best = genuine (OLED family).
+   Tiered glass repairs install a new screen too (the old one goes to refurb), so they pull the matching screen. */
+const repairWants = name => /\bipad\b.*glass repair/i.test(name) ? 'digi'
+  : /data (transfer|backup)|software|virus/i.test(name) ? 'none'
+  : /glass (repair|only)\s*\((better|best|oled)\)/i.test(name) ? 'oled'
+  : /glass (repair|only)\s*\((good|incell)\)|incell lcd/i.test(name) ? 'lcd'
+  : /\bglass (repair|only)\b/i.test(name) ? 'none'
+  : /lcd replacement \(aftermarket\)|^lcd/i.test(name) ? 'lcd' : /oled|premium|genuine/i.test(name) ? 'oled' : /lcd|incell|aftermarket/i.test(name) ? 'lcd' : null;
 
 /* ---------- passcode / Samsung pattern ----------
    A pattern is saved in the passcode field as "Pattern 1-2-3-6-9": dots numbered 1-9, left to right, top to bottom. */
@@ -3228,7 +3235,7 @@ async function chargeSheet(t, c, after, opts = {}){
       const B = L.querySelector('#cs-body');
       if (tab === 'price' && picked) {
         const want = repairWants(picked.desc); const cand = want === 'none' ? [] : partsFor(parts, picked.device, want, t.store, repairType(picked.desc));
-        const best = cand.find(p => (p.qty?.[t.store] || 0) > 0 && (!want || partQual(p.name) === want)) || cand.find(p => (p.qty?.[t.store] || 0) > 0);
+        const best = cand.find(p => (p.qty?.[t.store] || 0) > 0 && (!want || partQual(p.name) === want)) || (['lcd', 'oled'].includes(want) ? null : cand.find(p => (p.qty?.[t.store] || 0) > 0));   /* never swap quality: Better = OLED only */
         const sel = picked.sel !== undefined ? picked.sel : (best?.id || '');
         B.innerHTML = `<div class="stack" style="gap:10px"><div><b style="font-size:17px">${esc(picked.desc)}</b></div>
           <div class="row" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
