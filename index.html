@@ -4119,7 +4119,7 @@ async function viewSpotCheck(el){
   el.innerHTML = `<div class="stack">
     <div class="panel stack">
       <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><h2>Inventory spot check</h2>
-        <div class="row" style="gap:6px;flex-wrap:wrap">${can(3) ? `<select id="sp-st" style="width:auto">${Object.entries(STORES).map(([k, v]) => `<option value="${k}" ${k === F.store ? 'selected' : ''}>${v}</option>`).join('')}</select>` : `<b>${STORES[F.store]}</b>`}
+        <div class="row" style="gap:6px;flex-wrap:wrap">${can(2) ? `<select id="sp-st" style="width:auto">${Object.entries(STORES).map(([k, v]) => `<option value="${k}" ${k === F.store ? 'selected' : ''}>${v}</option>`).join('')}</select>` : `<b>${STORES[F.store]}</b>`}
           <button id="sp-prev" aria-label="Previous day">‹</button><input type="date" id="sp-day" value="${F.day}" max="${dayKey(new Date())}" style="width:auto"><button id="sp-next" aria-label="Next day" ${F.day >= dayKey(new Date()) ? 'disabled' : ''}>›</button></div></div>
       <p class="small muted" style="margin:0">Everything that changed ${STORES[F.store]}'s parts and accessories on ${new Date(F.day + 'T12:00').toLocaleDateString('en-US', {weekday: 'long', month: 'short', day: 'numeric'})}, next to the ticket or sale that explains it. Check the red flags, then spot-count a few of the parts that moved.${tracked ? '' : ' <b>Exact stock tracking started ' + (D.tracking ? fmtDate(D.tracking) + ' ' + fmtTime(D.tracking) : 'today') + ':</b> before that this page works from tickets and sales only.'}</p>
       <div class="grid g3" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr))">${stat(flags.filter(f => f.lvl === 'bad').length, 'Red flags')}${stat(used.length, 'Parts used')}${stat(acc.reduce((s, a) => s + a.q, 0), 'Accessories sold')}${stat(phones.length, 'Phones sold')}${stat(bought.length, 'Buybacks')}${stat(other.length, 'Other stock changes')}</div>
@@ -7019,7 +7019,7 @@ async function viewInventory(el){
       <div class="row" style="justify-content:space-between"><h2>Devices</h2><span class="muted small">${rows.length} shown · ${money(atCost)} at cost</span></div>
       <div class="grid g3">
         <div class="field"><label class="label" for="iv-q">Search</label><input id="iv-q" value="${esc(F.q)}" placeholder="Model or IMEI" autocomplete="off"></div>
-        ${can(3) ? `<div class="field"><label class="label" for="iv-st">Store</label><select id="iv-st"><option value="mine">This store (${S.store})</option><option value="all">All stores</option>${Object.entries(STORES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div>` : ''}
+        ${`<div class="field"><label class="label" for="iv-st">Store</label><select id="iv-st"><option value="mine">This store (${S.store})</option><option value="all">All stores</option>${Object.entries(STORES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div>`}
       </div>
       <div class="row" style="gap:6px;flex-wrap:wrap">${DEV_CATS.map(([k, l, f]) => { const n = catCount(f); return n || ['all', 'iphone-unl', 'samsung-unl', 'ipad', 'mac'].includes(k) || F.cat === k ? chipBtn('dcat', k, l, n, F.cat === k) : ''; }).join('')}</div>
       <div class="row" style="gap:6px;flex-wrap:wrap;align-items:center"><span class="label" style="margin-right:4px">Show</span>${DEV_STATUS.map(([k, l, f]) => chipBtn('dst', k, l, stCount(f), F.status === k)).join('')}</div>
