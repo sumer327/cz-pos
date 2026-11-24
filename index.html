@@ -6319,7 +6319,7 @@ async function viewBuyback(el){
           <div class="field"><label class="label" for="s-dob">Date of birth</label><input id="s-dob" data-s="dob" type="date" value="${sv('dob')}"></div>
           <div class="field"><label class="label" for="s-first">First name</label><input id="s-first" data-s="firstName" value="${sv('firstName')}"></div>
           <div class="field"><label class="label" for="s-last">Last name</label><input id="s-last" data-s="lastName" value="${sv('lastName')}"></div>
-          <div class="field"><label class="label" for="s-email">Email</label><input id="s-email" data-s="email" type="email" inputmode="email" value="${sv('email')}" placeholder="name@gmail.com"></div>
+          <div class="field"><label class="label" for="s-email">Email <span style="color:var(--bad)">*</span> <span class="muted" style="font-weight:400">(required)</span></label><input id="s-email" data-s="email" type="email" inputmode="email" value="${sv('email')}" placeholder="name@gmail.com"></div>
           <div class="field"><label class="label" for="s-heard">How did they hear about us?</label><select id="s-heard" data-s="heardFrom"><option value="">Pick one…</option>${HEARD_FROM.map(h => `<option ${B.seller.heardFrom === h ? 'selected' : ''}>${h}</option>`).join('')}</select></div>
         </div>
         <div class="grid g2">
