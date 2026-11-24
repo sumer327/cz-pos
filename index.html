@@ -5924,6 +5924,8 @@ function rpLines(invs, dv, pr, tk){
   const out = [];
   invs.forEach(i => {
     const sub = i.subtotal ?? i.total - (i.tax || 0), ls = i.lines || [];
+    /* RepairShopr sales from before a store moved to this POS: cost loaded from RepairShopr's Sales Detail report (rs_invoice_costs), so profit counts */
+    if (i.rsId && i.rsCost != null) { out.push({i, cat: 'RepairShopr sale', desc: 'RepairShopr invoice (cost from RepairShopr)', qty: 1, rev: +sub || 0, cost: +i.rsCost || 0, rs: true}); return; }
     if (!ls.length) { out.push({i, cat: i.rsId ? 'RepairShopr (no detail)' : 'Other', desc: i.rsId ? 'RepairShopr invoice' : 'Sale', qty: 1, rev: +sub || 0, cost: null}); return; }
     const t = i.ticketId ? tk[i.ticketId] : null;
     const repairRev = ls.filter(l => !l.productId && !l.deviceId && !/accessory|glass|phone sale|discount|refund/i.test(l.cat || '')).reduce((a, l) => a + (+l.price || 0) * (+l.qty || 1), 0);
@@ -5971,7 +5973,7 @@ async function viewReports(el){
 
   if (R.tab === 'overview') {
     const per = st => { const iv = invs.filter(i => i.store === st), ln = lines.filter(l => l.i.store === st), bb = bbs.filter(b => b.store === st), pu = punches.filter(p => p.store === st);
-      const sales = sum(iv, i => i.subtotal ?? i.total - (i.tax || 0)), known = ln.filter(l => l.cost !== null && !l.i.rsId), refunds = sum(iv.filter(i => i.total < 0), i => -i.total);
+      const sales = sum(iv, i => i.subtotal ?? i.total - (i.tax || 0)), known = ln.filter(l => l.cost !== null && (!l.i.rsId || l.rs)), refunds = sum(iv.filter(i => i.total < 0), i => -i.total);
       const pays = {}; iv.forEach(i => payParts(i).forEach(p => { pays[p.method] = (pays[p.method] || 0) + (+p.amount || 0); }));
       const tIn = tixAll.filter(t => t.store === st && new Date(t.createdAt) >= t0 && new Date(t.createdAt) < t1), tOut = tixAll.filter(t => t.store === st && t.resolvedAt && new Date(t.resolvedAt) >= t0 && new Date(t.resolvedAt) < t1);
       const h = sum(pu, hrs);
@@ -5983,18 +5985,18 @@ async function viewReports(el){
     const P = stores.map(per), T = P.reduce((a, p) => { Object.keys(p).forEach(k => { if (typeof p[k] === 'number') a[k] = (a[k] || 0) + p[k]; }); return a; }, {});
     body = `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px">
         ${kpi('Sales (before tax)', cents(T.sales), `${T.n} sale${T.n === 1 ? '' : 's'} · avg ${T.n ? cents(T.sales / T.n) : '—'}`)}
-        ${kpi('Profit on POS sales', cents(T.posProfit), T.posRev ? `${rpPct(T.posProfit, T.posRev)} margin on ${cents(T.posRev)}` : 'no POS sales yet')}
+        ${kpi('Profit (before tax)', cents(T.posProfit), T.posRev ? `${rpPct(T.posProfit, T.posRev)} margin on ${cents(T.posRev)}` : 'no sales with cost yet')}
         ${kpi('Phones sold', `${T.soldN} · ${cents(T.soldRev)}`, `profit ${cents(T.soldProfit)}`)}
         ${kpi('Buybacks', `${T.bbN} · ${cents(T.bbPaid)}`, T.bbN ? `avg ${cents(T.bbPaid / T.bbN)}` : '')}
         ${kpi('Tickets', `${T.tIn} in · ${T.tOut} done`, '')}
         ${kpi('Sales per labor hour', T.hours ? cents(T.sales / T.hours) : '—', `${(T.hours || 0).toFixed(1)} hrs clocked`)}
       </div>
-      ${tbl(['Store', '$Sales', '#Sales', '$Avg sale', '$Accessories & glass', '$Refunds', '$Tax', '$POS profit', '#Phones sold', '$Phone profit', '#Buybacks', '$Paid out', '#Tickets in', '#Tickets done', 'Hours', '$Sales / hr'],
+      ${tbl(['Store', '$Sales', '#Sales', '$Avg sale', '$Accessories & glass', '$Refunds', '$Tax', '$Profit', '#Phones sold', '$Phone profit', '#Buybacks', '$Paid out', '#Tickets in', '#Tickets done', 'Hours', '$Sales / hr'],
         P.map(p => `<tr>${td('<b>' + STORES[p.st] + '</b>')}${td(cents(p.sales), 1)}${td(p.n, 1)}${td(p.n ? cents(p.sales / p.n) : '—', 1)}${td(cents(p.acc), 1)}${td(p.refunds ? cents(p.refunds) : '—', 1)}${td(cents(p.tax), 1)}${td(p.posRev ? cents(p.posProfit) : '—', 1)}${td(p.soldN, 1)}${td(cents(p.soldProfit), 1)}${td(p.bbN, 1)}${td(cents(p.bbPaid), 1)}${td(p.tIn, 1)}${td(p.tOut, 1)}${td(p.hours.toFixed(1), 1)}${td(p.hours ? cents(p.sales / p.hours) : '—', 1)}</tr>`),
         stores.length > 1 ? `<tr>${td('<b>Total</b>')}${td('<b>' + cents(T.sales) + '</b>', 1)}${td(T.n, 1)}${td(T.n ? cents(T.sales / T.n) : '—', 1)}${td(cents(T.acc), 1)}${td(T.refunds ? cents(T.refunds) : '—', 1)}${td(cents(T.tax), 1)}${td(cents(T.posProfit), 1)}${td(T.soldN, 1)}${td(cents(T.soldProfit), 1)}${td(T.bbN, 1)}${td(cents(T.bbPaid), 1)}${td(T.tIn, 1)}${td(T.tOut, 1)}${td(T.hours.toFixed(1), 1)}${td(T.hours ? cents(T.sales / T.hours) : '—', 1)}</tr>` : '')}
       <h3 style="margin:8px 0 0">How they paid</h3>
       ${tbl(['Store', ...[...new Set(P.flatMap(p => Object.keys(p.pays)))].map(m => '$' + m)], P.map(p => `<tr>${td(STORES[p.st])}${[...new Set(P.flatMap(q => Object.keys(q.pays)))].map(m => td(p.pays[m] ? cents(p.pays[m]) : '—', 1)).join('')}</tr>`))}
-      ${T.rsSales ? `<div class="banner small">${cents(T.rsSales)} of these sales were rung up in RepairShopr, which only sends totals. Item detail and profit cover sales rung up in this POS.</div>` : ''}`;
+      ${T.rsSales ? `<div class="banner small">${cents(T.rsSales)} of these sales were rung up in RepairShopr. Profit includes RepairShopr sales from before each store moved to this POS (cost from RepairShopr's Sales Detail report); item detail covers sales rung up in this POS.</div>` : ''}`;
     csv = [['Store', 'Sales', 'Sales count', 'Accessories & glass', 'Refunds', 'Tax', 'POS profit', 'Phones sold', 'Phone profit', 'Buybacks', 'Paid out', 'Tickets in', 'Tickets done', 'Hours'],
       ...P.map(p => [STORES[p.st], p.sales.toFixed(2), p.n, p.acc.toFixed(2), p.refunds.toFixed(2), p.tax.toFixed(2), p.posProfit.toFixed(2), p.soldN, p.soldProfit.toFixed(2), p.bbN, p.bbPaid.toFixed(2), p.tIn, p.tOut, p.hours.toFixed(1)])];
   }
@@ -7778,14 +7780,14 @@ const dashRanges = () => { const d0 = new Date(new Date().toDateString()), d1 = 
 function dashNums(invs, sold, dv, pr, tk){
   const lines = rpLines(invs, dv, pr, tk), onInv = new Set(lines.filter(l => l.deviceId).map(l => l.deviceId));
   const sum = (a, f) => a.reduce((s, x) => s + (+f(x) || 0), 0);
-  const known = lines.filter(l => l.cost !== null && !l.i.rsId);
+  const known = lines.filter(l => l.cost !== null && (!l.i.rsId || l.rs));
   const other = sold.filter(d => !onInv.has(d.id));
   const otherRev = sum(other, d => d.soldPrice), otherProfit = sum(other, d => (d.channel === 'Swappa' ? swappaNet(d) : (+d.soldPrice || 0)) - (+d.cost || 0) - (+d.partsCost || 0));
   const isAcc = l => /accessory|glass/i.test(l.cat || '');
   return {
     sales: sum(invs, i => i.subtotal ?? i.total - (i.tax || 0)) + otherRev,
     profit: sum(known, l => l.rev - l.cost) + otherProfit,
-    rsOnly: invs.length > 0 && invs.every(i => i.rsId && !i.by),   /* still on RepairShopr: no costs, so no profit */
+    rsOnly: invs.length > 0 && invs.every(i => i.rsId && !i.by && i.rsCost == null),   /* still on RepairShopr: no costs, so no profit */
     repairs: sum(lines.filter(l => !isAcc(l) && !l.deviceId && !/phone sale|discount|refund/i.test(l.cat || '')), l => l.rev),
     acc: sum(lines.filter(isAcc), l => l.rev), phones: sum(lines.filter(l => l.deviceId || /phone sale/i.test(l.cat || '')), l => l.rev),
     swappa: sum(other.filter(d => d.channel === 'Swappa'), d => d.soldPrice), swappaN: other.filter(d => d.channel === 'Swappa').length,
