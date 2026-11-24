@@ -7139,7 +7139,7 @@ const DEV_CATS = [['all', 'All devices', () => true], ['iphone-unl', 'Unlocked i
   ['mac', 'MacBooks & iMacs', d => devKind(d) === 'mac'], ['watch', 'Apple Watch', d => devKind(d) === 'watch'], ['pixel', 'Pixels', d => devKind(d) === 'pixel'], ['console', 'Consoles', d => devKind(d) === 'console'], ['other', 'Other', d => devKind(d) === 'other']];
 const DEV_STATUS = [['active', 'In inventory', d => !['sold', 'atlas', 'repair'].includes(d.status)],   /* repair stock has its own chip so reps aren't sorting around it */ ['sell', 'Ready to sell', d => ['hot', 'tolist', 'swappa'].includes(d.status)],
   ['hot', 'Hot stock', d => d.status === 'hot'], ['tolist', 'To list', d => d.status === 'tolist'], ['swappa', 'On Swappa', d => d.status === 'swappa'], ['repair', 'Repair stock →', d => d.status === 'repair'],
-  ['testing', 'Pending', d => d.status === 'testing'], ['wholesale', 'Wholesale', d => d.status === 'wholesale'], ['sold', 'Sold', d => ['sold', 'atlas'].includes(d.status)], ['all', 'Everything', () => true]];
+  ['testing', 'Pending', d => d.status === 'testing'], ['wholesale', 'Wholesale', d => d.status === 'wholesale'], ['atlas', 'Sent to Atlas', d => d.status === 'atlas'], ['sold', 'Sold', d => ['sold', 'atlas'].includes(d.status)], ['all', 'Everything', () => true]];
 async function viewInventory(el){
   const F = S.inv; if (!DEV_STATUS.some(x => x[0] === F.status) || F.status === 'repair') F.status = 'active'; if (!DEV_CATS.some(x => x[0] === F.cat)) F.cat = 'all';
   const all = await Store.devices();
