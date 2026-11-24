@@ -7053,9 +7053,10 @@ function paypalPickSheet(x, d, onPick){
     } catch (e) { L.querySelector('#pps-e').textContent = e.message; } });
 }
 function shipLabelSheet(x, d, after){
-  const st = {to: {name: x.buyer || '', street1: '', street2: '', city: '', state: '', zip: '', ...(x.shipTo || {})}, pay: x.paypalTxn ? {id: x.paypalTxn} : null, box: shipBoxFor(d), rates: null, rate: null, test: !SHIP_LIVE, notify: true, busy: false};
+  const st = {to: {name: x.buyer || '', street1: '', street2: '', city: '', state: '', zip: '', ...(x.shipTo || {})}, pay: x.paypalTxn ? {id: x.paypalTxn} : null, box: shipBoxFor(d), rates: null, rate: null, test: !SHIP_LIVE, notify: true, busy: false,
+    ins: (+d?.soldPrice || 0) > 675 ? Math.ceil(+d.soldPrice) : 0};   /* insurance (Nov 24): default = sale price over $675, else none; any amount can be typed */
   const f = (k, l, ph, w) => `<div class="field" ${w ? `style="grid-column:${w}"` : ''}><label class="label" for="sh-${k}">${l}</label><input id="sh-${k}" data-to="${k}" value="${esc(st.to[k] || '')}" placeholder="${ph || ''}" autocomplete="off"></div>`;
-  sheet(`<style>[data-box][aria-pressed=true],[data-rate][aria-pressed=true],[data-pp][aria-pressed=true]{border:2px solid var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent)}</style>
+  sheet(`<style>[data-box][aria-pressed=true],[data-ins][aria-pressed=true],[data-rate][aria-pressed=true],[data-pp][aria-pressed=true]{border:2px solid var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent)}</style>
     <div class="row" style="justify-content:space-between"><h3>Ship ${esc(x.label)}</h3><button data-close>Close</button></div>
     <div class="stack" style="gap:6px"><div class="row" style="justify-content:space-between"><span class="label">1 · Buyer's PayPal payment</span><button class="small" id="sh-pprl">Refresh</button></div>
       <div id="sh-pp" class="stack" style="gap:6px"><span class="muted small">Loading PayPal payments…</span></div></div>
@@ -7064,6 +7065,10 @@ function shipLabelSheet(x, d, after){
     <div class="stack" style="gap:6px"><span class="label">3 · Box</span>
       <div class="row" style="gap:6px;flex-wrap:wrap">${[['small', 'Small Flat Rate', 'phones'], ['medium', 'Medium Flat Rate', 'tablets, some Macs'], ['custom', 'Custom box', 'measure it']].map(([k, l, h]) => `<button data-box="${k}" aria-pressed="${st.box === k}">${l}<span class="small muted" style="display:block">${h}</span></button>`).join('')}</div>
       <div class="grid g3" id="sh-dims" hidden>${['length', 'width', 'height'].map(k => `<div class="field"><label class="label" for="sh-${k}">${k[0].toUpperCase() + k.slice(1)} (in)</label><input id="sh-${k}" inputmode="decimal"></div>`).join('')}<div class="field"><label class="label" for="sh-weight">Weight (lb)</label><input id="sh-weight" inputmode="decimal"></div></div></div>
+    <div class="stack" style="gap:6px"><span class="label">Insurance</span>
+      <div class="row" style="gap:6px;flex-wrap:wrap"><button data-ins="0">None</button>${+d?.soldPrice > 0 ? `<button data-ins="${Math.ceil(+d.soldPrice)}">Sale price · ${money(Math.ceil(+d.soldPrice))}</button>` : ''}
+        <span class="row" style="gap:4px;align-items:center"><span class="small muted">or $</span><input id="sh-ins" inputmode="numeric" placeholder="amount" style="width:110px" aria-label="Insurance amount"></span></div>
+      <span class="small muted" id="sh-insnote"></span></div>
     ${(SHIP_LIVE ? '' : '<div class="banner warn small">Shipping from the POS is in testing: this makes a test label only.</div>')}
     <label class="row small" style="gap:6px"><input type="checkbox" id="sh-notify" checked style="width:auto;min-height:0"> PayPal emails the buyer the tracking number</label>
     <div id="sh-rates"></div><div class="err" id="sh-e" role="alert"></div>
@@ -7082,10 +7087,16 @@ function shipLabelSheet(x, d, after){
     loadPP(false); $l('#sh-pprl').onclick = () => loadPP(true);
     const box = () => { L.querySelectorAll('[data-box]').forEach(b => b.setAttribute('aria-pressed', b.dataset.box === st.box)); $l('#sh-dims').hidden = st.box !== 'custom'; reset(); };
     L.querySelectorAll('[data-box]').forEach(b => b.onclick = () => { st.box = b.dataset.box; box(); }); box();
+    const ins = () => { L.querySelectorAll('[data-ins]').forEach(b => b.setAttribute('aria-pressed', +b.dataset.ins === st.ins));
+      const typed = ![...L.querySelectorAll('[data-ins]')].some(b => +b.dataset.ins === st.ins); $l('#sh-ins').value = typed && st.ins ? st.ins : '';
+      $l('#sh-insnote').textContent = st.ins ? `Insured for ${money(st.ins)}. The cost is included in the postage price below.` : 'Not insured beyond what USPS includes with Priority Mail.'; reset(); };
+    L.querySelectorAll('[data-ins]').forEach(b => b.onclick = () => { st.ins = +b.dataset.ins; ins(); });
+    $l('#sh-ins').oninput = e => { const v = Math.round(parseFloat(e.target.value.replace(/[$,]/g, '')) || 0); st.ins = Math.max(0, Math.min(5000, v)); L.querySelectorAll('[data-ins]').forEach(b => b.setAttribute('aria-pressed', +b.dataset.ins === st.ins && !e.target.value)); $l('#sh-insnote').textContent = st.ins ? `Insured for ${money(st.ins)}. The cost is included in the postage price below.` : 'Not insured beyond what USPS includes with Priority Mail.'; reset(); };
+    ins();
     ['length', 'width', 'height', 'weight'].forEach(k => $l('#sh-' + k).oninput = reset);
     $l('#sh-test') && ($l('#sh-test').onchange = e => { st.test = e.target.checked; reset(); });
     $l('#sh-notify').onchange = e => { st.notify = e.target.checked; };
-    const drawRates = () => { $l('#sh-rates').innerHTML = `<div class="stack" style="gap:6px"><span class="label">4 · Postage${st.test ? ' <span class="pill warn">TEST</span>' : ''}</span>${st.rates.map(r => `<button data-rate="${r.id}" aria-pressed="${st.rate === r.id}" style="text-align:left"><div class="row" style="justify-content:space-between"><span>${esc(r.service)}</span><b class="num">${cents(r.amount)}</b></div>${r.days ? `<div class="small muted">about ${r.days} day${r.days > 1 ? 's' : ''}</div>` : ''}</button>`).join('')}</div>`;
+    const drawRates = () => { $l('#sh-rates').innerHTML = `<div class="stack" style="gap:6px"><span class="label">4 · Postage${st.ins ? ` (incl. ${money(st.ins)} insurance)` : ''}${st.test ? ' <span class="pill warn">TEST</span>' : ''}</span>${st.rates.map(r => `<button data-rate="${r.id}" aria-pressed="${st.rate === r.id}" style="text-align:left"><div class="row" style="justify-content:space-between"><span>${esc(r.service)}</span><b class="num">${cents(r.amount)}</b></div>${r.days ? `<div class="small muted">about ${r.days} day${r.days > 1 ? 's' : ''}</div>` : ''}</button>`).join('')}</div>`;
       L.querySelectorAll('[data-rate]').forEach(b => b.onclick = () => { st.rate = b.dataset.rate; drawRates(); });
       const r = st.rates.find(y => y.id === st.rate); $l('#sh-go').textContent = r ? `${st.test ? 'Make test label' : 'Buy label'} · ${cents(r.amount)} · print` : 'Pick the postage'; };
     $l('#sh-go').onclick = async () => { if (st.busy) return; err();
@@ -7095,13 +7106,13 @@ function shipLabelSheet(x, d, after){
       try {
         if (!st.rates) { btn.textContent = 'Getting the price…';
           const dims = st.box === 'custom' ? Object.fromEntries(['length', 'width', 'height', 'weight'].map(k => [k, parseFloat($l('#sh-' + k).value)])) : {};
-          const r = await Store.ship({action: 'rates', test: st.test, store: x.store, to: t, box: st.box, ...dims});
+          const r = await Store.ship({action: 'rates', test: st.test, store: x.store, to: t, box: st.box, insurance: st.ins, content: d ? `Used ${devKind(d) === 'ipad' ? 'tablet' : devKind(d) === 'mac' ? 'laptop' : 'cell phone'}` : 'Used cell phone', ...dims});
           st.rates = r.rates; st.rate = r.rates[0]?.id; drawRates(); return; }
         const rate = st.rates.find(y => y.id === st.rate); if (!rate) return err('Pick the postage.');
         btn.textContent = st.test ? 'Making the test label…' : 'Buying the label…';
         const pid = ppIds(st.pay); const r = await Store.ship({action: 'buy', test: st.test, rate: rate.id, paypalTxn: pid[0] || '', paypalAlt: pid.slice(1), notify: st.notify});
         const pp = r.paypal;
-        await Store.shipLabel(S.user, S.store, x.id, {tracking: r.tracking, shipTo: t, service: rate.service, cost: st.test ? 0 : rate.amount, labelUrl: r.labelUrl, shippoTx: r.shippoTx,
+        await Store.shipLabel(S.user, S.store, x.id, {tracking: r.tracking, shipTo: t, service: rate.service, insurance: st.ins || 0, cost: st.test ? 0 : rate.amount, labelUrl: r.labelUrl, shippoTx: r.shippoTx,
           paypalTxn: (pp?.ok && pp.txn) || pid[0] || '', paypalOk: !!pp?.ok, paypalError: pp && !pp.ok ? pp.error : (st.pay && st.test ? 'test label: not sent to PayPal' : '')});
         let printed = false;
         if (r.pdf) { try { await Store.cloudPrint(SHIP_TSPL[S.store] ? {store: S.store, kind: 'ship', raw: await pdfToTspl(r.pdf), title: 'Label ' + x.label} : {store: S.store, kind: 'ship', pdf: r.pdf, fit: true, title: 'Label ' + x.label}); printed = 'the shipping label printer'; }
