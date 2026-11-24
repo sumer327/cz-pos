@@ -1897,8 +1897,8 @@ const HELP_KB = [
   'Sold on Swappa: open the sale and tap **Ship · print label**. Tracking goes to Swappa and PayPal by itself.']},
  {t: 'OfferUp: post a phone, lower the price', k: 'offerup offer up list listing post posted ref price drop lower sync needs 8 a day', s: [
   'Goal: **8 new OfferUp posts a day per store** until every phone in stock is posted. **Devices → OfferUp** shows today\'s count and the **Needs OfferUp** list, oldest first.',
-  'Post the phone on OfferUp at the **store price** (the price on its label). The **last line** of the description is **Ref #** and the stock number, like **Ref #50123** (tap **Copy "Ref #…"**).',
-  'Then tap **Posted ✓** next to it (or **Posted on OfferUp** on the phone) and enter the price you posted it at. Paste the OfferUp link if you have it. Wrong phone? **Undo** on the phone.',
+  'Post the phone from the store\'s phone at the **store price** (the price on its label). Type **Ref #** and the stock number as the **last line** of the description, like **Ref #50123** (each row shows it).',
+  'Then tap **Posted ✓** next to it (or **Posted on OfferUp** on the phone) and enter the price you posted it at. The OfferUp sync adds the link later. Wrong phone? **Undo** on the phone.',
   'Price drop: open the phone (or **Devices → OfferUp → Listed**) and tap **Lower OfferUp price**. The 2-hour sync changes it on OfferUp.']},
  {t: 'Ship wholesale devices to Atlas', k: 'wholesale atlas ship box pack tracking packing list', s: [
   'Go to **Wholesale**.',
@@ -6756,15 +6756,13 @@ function ouPostSheet(d, after){
   const p0 = devPrice(d);
   sheet(`<div class="row" style="justify-content:space-between"><h3>Posted on OfferUp · #${d.stockNo}</h3><button data-close>Close</button></div>
     <p class="muted small" style="margin:0">${esc(d.model)} ${esc(d.storage || '')} · ${esc(d.carrier || '')}${p0 ? ` · store price ${cents(p0)}` : ''}</p>
-    <div class="banner small" style="margin:0">Last line of the OfferUp description must be <b>Ref #${d.stockNo}</b> <button type="button" id="op-cp" style="min-height:28px;padding:1px 8px;margin-left:6px">Copy</button></div>
+    <div class="banner" style="margin:0">Last line of the OfferUp description: <b class="num" style="font-size:18px">Ref #${d.stockNo}</b></div>
     <div class="field"><label class="label" for="op-p">Price you posted it at</label><input id="op-p" inputmode="decimal" value="${p0 ? p0 : ''}"></div>
-    <div class="field"><label class="label" for="op-u">OfferUp link <span class="muted" style="font-weight:400">(optional: Share → Copy link)</span></label><input id="op-u" inputmode="url" autocomplete="off" placeholder="https://offerup.com/item/detail/…"></div>
     <div class="err" id="op-e" role="alert"></div><button class="primary" id="op-go">Save · posted on OfferUp</button>`,
     (L, close) => {
-      L.querySelector('#op-cp').onclick = async () => { try { await navigator.clipboard.writeText('Ref #' + d.stockNo); toast('Copied "Ref #' + d.stockNo + '"'); } catch { toast('Type Ref #' + d.stockNo); } };
       L.querySelector('#op-go').onclick = async () => { const v = parseFloat(String(L.querySelector('#op-p').value).replace(/[$,]/g, ''));
         if (!(v > 0)) { L.querySelector('#op-e').textContent = 'Enter the price you posted it at.'; return; }
-        try { await Store.offerupMark(S.user, S.store, d.id, v, L.querySelector('#op-u').value.trim()); close(); toast(`#${d.stockNo} marked posted on OfferUp at ${cents(v)}`); after && after(); } catch (e) { L.querySelector('#op-e').textContent = e.message; } }; });
+        try { await Store.offerupMark(S.user, S.store, d.id, v, ''); close(); toast(`#${d.stockNo} marked posted on OfferUp at ${cents(v)}`); after && after(); } catch (e) { L.querySelector('#op-e').textContent = e.message; } }; });
 }
 const ouPrice = d => +(d.offerup?.price ?? d.offerup?.postedPrice ?? 0) || null;
 function ouDropSheet(d, after){
@@ -6790,11 +6788,11 @@ async function viewOfferup(el){
   const tabs = [['needs', `Needs OfferUp (${needs.length})`], ['listed', `Listed (${listed.length})`], ['drops', `Price drops waiting (${drops.length})`], ['odd', `Listings to fix (${odd.length})`]];
   const syncLine = st.pending ? `<span class="pill warn">Sync requested ${ago(st.pending)} · runs within 2 hours</span>` : `<span class="small muted">${st.lastSync ? `Last checked ${ago(st.lastSync)} · ${last.listings ?? 0} listings, ${last.matched ?? 0} matched` : 'Not checked yet'}</span>`;
   let body = '';
-  if (O.tab === 'needs') body = `<p class="muted small" style="margin:0">Phones in stock that are not on OfferUp yet, oldest first. Post each one on OfferUp at the store price with <b>Ref #&lt;stock #&gt;</b> as the <b>last line</b> of the description, then tap <b>Posted ✓</b> and enter the price you posted it at.</p>
+  if (O.tab === 'needs') body = `<p class="muted small" style="margin:0">Phones in stock that are not on OfferUp yet, oldest first. Post each one from the store phone at the store price, typing its <b>Ref #</b> (shown on the right) as the <b>last line</b> of the description. Then tap <b>Posted ✓</b> here and enter the price you posted it at. The OfferUp sync adds the link by itself.</p>
     <div class="tbl"><table><thead><tr><th>Stock #</th><th>Device</th>${O.store === 'all' ? '<th>Store</th>' : ''}<th class="r">List at</th><th>In stock</th><th></th></tr></thead><tbody>
     ${needs.map(d => `<tr><td class="num">${d.stockNo}</td><td><b>${esc(d.model)}</b> <span class="muted">${esc([d.storage, d.carrier].filter(Boolean).join(' · '))}</span></td>${O.store === 'all' ? `<td>${d.store}</td>` : ''}
       <td class="r num">${devPrice(d) ? cents(devPrice(d)) : '<span class="small muted">no price</span>'}</td><td class="small"><span class="${daysOld(d.createdAt) >= 2 ? 'pill warn' : ''}">${daysOld(d.createdAt)}d</span></td>
-      <td class="r" style="white-space:nowrap"><button data-ref="${d.stockNo}" ${btn}>Copy "Ref #${d.stockNo}"</button> <button class="primary" data-oupost="${d.id}" ${btn}>Posted ✓</button></td></tr>`).join('') || `<tr><td colspan="6" class="muted">Everything in stock is on OfferUp.</td></tr>`}</tbody></table></div>`;
+      <td class="r" style="white-space:nowrap"><span class="num" style="font-weight:800;font-size:15px;margin-right:10px">Ref #${d.stockNo}</span><button class="primary" data-oupost="${d.id}" ${btn}>Posted ✓</button></td></tr>`).join('') || `<tr><td colspan="6" class="muted">Everything in stock is on OfferUp.</td></tr>`}</tbody></table></div>`;
   if (O.tab === 'listed' || O.tab === 'drops') { const L = O.tab === 'drops' ? drops : listed; body = `<p class="muted small" style="margin:0">${O.tab === 'drops' ? 'Prices lowered in the POS that the sync has not changed on OfferUp yet.' : 'Phones posted on OfferUp. Tap <b>Lower price</b> to drop one: the sync changes it on OfferUp.'}</p>
     <div class="tbl"><table><thead><tr><th>Stock #</th><th>Device</th>${O.store === 'all' ? '<th>Store</th>' : ''}<th class="r">On OfferUp</th><th class="r">Store price</th><th>Last seen / posted</th><th></th></tr></thead><tbody>
     ${L.map(d => { const o = d.offerup, pend = +o.price < +o.postedPrice; return `<tr><td class="num">${d.stockNo}</td><td><b>${esc(d.model)}</b> <span class="muted">${esc([d.storage, d.carrier].filter(Boolean).join(' · '))}</span>${d.status === 'swappa' ? ' <span class="pill">also on Swappa</span>' : ''}</td>${O.store === 'all' ? `<td>${d.store}</td>` : ''}
@@ -6814,7 +6812,6 @@ async function viewOfferup(el){
   el.querySelectorAll('[data-out]').forEach(b => b.onclick = () => { O.tab = b.dataset.out; again(); });
   $('#ou-store') && ($('#ou-store').onchange = e => { O.store = e.target.value; again(); });
   $('#ou-sync').onclick = async () => { try { await Store.offerupRequest(S.user, S.store); toast('OfferUp sync requested. It runs within 2 hours.'); again(); } catch (e) { toast(e.message); } };
-  el.querySelectorAll('[data-ref]').forEach(b => b.onclick = async () => { try { await navigator.clipboard.writeText('Ref #' + b.dataset.ref); toast(`Copied "Ref #${b.dataset.ref}". Paste it in the OfferUp description.`); } catch { toast('Type Ref #' + b.dataset.ref + ' in the OfferUp description.'); } });
   el.querySelectorAll('[data-oud]').forEach(b => b.onclick = () => ouDropSheet(all.find(d => d.id === b.dataset.oud), again));
   el.querySelectorAll('[data-oupost]').forEach(b => b.onclick = () => ouPostSheet(all.find(d => d.id === b.dataset.oupost), again));
 }
