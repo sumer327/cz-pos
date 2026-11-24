@@ -624,6 +624,7 @@ const DemoStore = {
     if (x.part) { const nm = String(x.part.name || '').trim(), c = Math.round((+x.part.cost || 0) * 100) / 100; if (!nm) throw new Error('Name the part.'); if (!(c > 0)) throw new Error('Enter what the part cost us.');
       row.partsUsed.push({name: nm, cost: c, at: now(), by: emp.id, outside: true}); row.log.unshift({at: now(), who: emp.id, text: `Part cost added: ${nm} (${money(c)})`}); }
     if (x.removeAt) { const r = row.partsUsed.find(p => p.at === x.removeAt); if (!r) throw new Error('That part is already off this device. Reload.');
+      if (r.defective) throw new Error('That part is on the RMA list. Tap "Not defective" first if it was marked by mistake.');
       if (r.partId) { const p = d.parts.find(q => q.id === r.partId); if (p) p.qty[row.store] = (p.qty[row.store] || 0) + 1; }
       row.partsUsed = row.partsUsed.filter(p => p !== r); row.log.unshift({at: now(), who: emp.id, text: `Part taken off: ${r.name} (${money(r.cost)})${r.partId ? ', back on the shelf' : ''}`}); }
     if ('battery' in x) { const b = parseInt(x.battery, 10); if (!(b >= 1 && b <= 100)) throw new Error('Battery health is a number from 1 to 100.');
@@ -637,6 +638,24 @@ const DemoStore = {
     row.log.unshift({at: now(), who: emp.id, text: `Part used: ${p.name} (${money(p.cost)})`}); row.updatedAt = now();
     this.log(d, emp.id, store, 'Part used', `#${row.stockNo} ${p.name} → ${p.qty[row.store]} left`); this.save(d); return row;
   },
+  async devicePartDefective(emp, store, id, at, reason, replace = true, undo = false){   /* v102: repair stock defective part → RMA */
+    const d = this.db(); const row = d.devices.find(x => x.id === id); if (!row) throw new Error('Device not found.');
+    if (['sold', 'atlas'].includes(row.status)) throw new Error('That device is already sold.');
+    const pu = (row.partsUsed || []).find(x => x.at === at); if (!pu) throw new Error('That part is not on this device anymore. Reload the page.');
+    if (undo) { if (!pu.defective) throw new Error('That part is not marked defective.');
+      const r = d.rmaLog.find(x => x.refId === row.id && x.name === pu.name && x.status === 'held'); if (!r) throw new Error('That part already shipped back to the vendor, so it can\'t come off the RMA list.');
+      d.rmaLog = d.rmaLog.filter(x => x !== r); const p = pu.partId && d.parts.find(x => x.id === pu.partId); if (p?.rma?.[row.store]) p.rma[row.store]--;
+      pu.cost = pu.origCost ?? pu.cost; ['defective', 'defectReason', 'defectBy', 'defectAt', 'origCost'].forEach(k => delete pu[k]);
+      row.log.unshift({at: now(), who: emp.id, text: `Not defective after all: ${pu.name} (off the RMA list, cost back on the phone)`}); }
+    else { const why = String(reason || '').trim(); if (why.length < 3) throw new Error('Say what was wrong with the part.'); if (pu.defective) throw new Error('That part is already marked defective.');
+      const p = pu.partId && d.parts.find(x => x.id === pu.partId); const rep = !!(replace && p);
+      if (rep && (p.qty[row.store] || 0) < 1) throw new Error(`No ${p.name} left at this store for a replacement. Untick "Pull a replacement" and order one for this device.`);
+      Object.assign(pu, {defective: true, defectReason: why, defectBy: emp.id, defectAt: now(), origCost: pu.cost, cost: 0});
+      if (rep) { p.qty[row.store] -= 1; row.partsUsed.push({partId: p.id, name: p.name, cost: p.cost || 0, at: new Date(Date.now() + 1).toISOString(), by: emp.id, replaces: at}); }
+      if (p) this.rmaAdd(d, emp, row.store, p, `Stock #${row.stockNo} · ${why}`, row.id);
+      else { d.rmaLog.unshift({id: uid(), at: now(), store: row.store, partId: null, name: pu.name, screen: /lcd|oled|xo7|x07|aq7|incell|digitizer|display|screen/i.test(pu.name), reason: `Stock #${row.stockNo} · ${why}`, refId: row.id, by: emp.id, status: 'held'}); this.log(d, emp.id, row.store, 'RMA +1', `#${row.stockNo} ${pu.name} · ${why}`); }
+      row.log.unshift({at: now(), who: emp.id, text: `Defective part → RMA: ${pu.name} (${why})${rep ? '. Replacement pulled from the shelf.' : '. No replacement pulled yet.'}`}); }
+    row.partsCost = row.partsUsed.reduce((a, x) => a + (+x.cost || 0), 0); row.updatedAt = now(); this.save(d); return row; },
   async partOrders(){ return this.db().partOrders; },
   async orderPart(emp, store, o){
     if (!o.name?.trim()) throw new Error('Enter the part name.');
@@ -1341,6 +1360,7 @@ const LiveStore = {
   async removeAnnouncement(emp, id){ return this.rpc('pos_announce_remove', {p_pin: this.pinFor(emp), p_id: id}); },
   async deviceEdit(emp, store, id, patch){ return this.rpc('pos_device_edit', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_patch: patch}); },
   async deviceExtra(emp, store, id, x){ return this.rpc('pos_device_extra', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_x: x}); },
+  async devicePartDefective(emp, store, id, at, reason, replace = true, undo = false){ return this.rpc('pos_device_part_defective', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_at: at, p_reason: reason || '', p_replace: !!replace, p_undo: !!undo}); },
   async deviceUsePart(emp, store, id, partId){ return this.rpc('pos_device_part', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_part: partId}); },
   async partOrders(){ return this.swr('partOrders', async () => { const {data, error} = await this.sb.from('part_orders_v').select('*').order('createdAt', {ascending: false}).limit(500); if (error) throw error; return data; }); },
   async orderPart(emp, store, o){ return this.rpc('pos_order_part', {p_pin: this.pinFor(emp), p_store: store, p_o: o}); },
@@ -1896,6 +1916,7 @@ const HELP_KB = [
   'Going to Atlas? Move it to **Wholesale**, never straight to "sent to Atlas".']},
  {t: 'Repair stock: fix our own phone', k: 'repair stock our phone fix finish repair done add to inventory', s: [
   'Go to **Repairs → Repair stock** and open the phone.',
+  'Part turned out bad? On the part tap **Defective → RMA**, say what\'s wrong, and (for a shelf part) tick **Pull a replacement**. The bad part goes on the RMA list, its label prints, and its cost comes off the phone. Marked it by mistake? **Not defective** undoes it.',
   'Add the parts used, then when it\'s fixed tap **Move it** to Inventory, Swappa or Wholesale.',
   'The POS asks you to print a new label with the updated cost: do it and swap the label.']},
  {t: 'Swappa: list, lower the price, ship a sale', k: 'swappa list listing price drop lower sold ship shipping label tracking paypal', s: [
@@ -6583,7 +6604,7 @@ async function viewRepair(el){
       </div>
       <div class="panel stack">
         <h3>Parts</h3>
-        ${d.partsUsed?.length ? `<div class="tbl"><table><tbody>${d.partsUsed.map(p => `<tr><td>${esc(p.name)}<div class="small muted">${p.outside ? 'outside part' : 'from stock'} · ${esc(staffName(p.by))}</div></td><td class="r num">${cents(p.cost)}</td><td class="r"><button data-prm="${esc(p.at)}" aria-label="Take ${esc(p.name)} off" title="Logged by mistake? Take it off${p.partId ? ' (goes back on the shelf)' : ''}" style="min-height:30px;padding:2px 8px">✕</button></td></tr>`).join('')}<tr><td><b>Parts total</b></td><td class="r num"><b>${cents(d.partsCost || 0)}</b></td><td></td></tr></tbody></table></div>` : '<span class="small muted">No parts logged yet.</span>'}
+        ${d.partsUsed?.length ? `<div class="tbl"><table><tbody>${d.partsUsed.map(p => `<tr><td>${esc(p.name)}<div class="small muted">${p.outside ? 'outside part' : 'from stock'} · ${esc(staffName(p.by))}${p.replaces ? ' · replacement' : ''}</div>${p.defective ? `<div class="row" style="gap:6px;margin-top:4px"><span class="pill bad">defective → RMA</span><span class="small muted">${esc(p.defectReason || '')}${p.origCost ? ' · ' + cents(p.origCost) + ' credit' : ''}</span></div>` : ''}</td><td class="r num">${cents(p.cost)}</td><td class="r" style="white-space:nowrap">${p.defective ? `<button data-drmal="${esc(p.at)}" style="min-height:30px;padding:2px 8px;font-size:12px">RMA label</button> <button data-dundef="${esc(p.at)}" title="Marked by mistake? Takes it off the RMA list and puts its cost back on the phone." style="min-height:30px;padding:2px 8px;font-size:12px">Not defective</button>` : `${d.status === 'repair' ? `<button data-ddef="${esc(p.at)}" title="The part is bad: put it in the RMA bin for a vendor credit" style="min-height:30px;padding:2px 8px;font-size:12px">Defective → RMA</button> ` : ''}<button data-prm="${esc(p.at)}" aria-label="Take ${esc(p.name)} off" title="Logged by mistake? Take it off${p.partId ? ' (goes back on the shelf)' : ''}" style="min-height:30px;padding:2px 8px">✕</button>`}</td></tr>`).join('')}<tr><td><b>Parts total</b></td><td class="r num"><b>${cents(d.partsCost || 0)}</b></td><td></td></tr></tbody></table></div>` : '<span class="small muted">No parts logged yet.</span>'}
         ${po.length ? `<div class="tbl"><table><tbody>${po.map(o => `<tr><td>${esc(o.name)} ×${o.qty}</td><td><span class="pill ${o.status === 'received' ? 'ok' : o.status === 'ordered' ? 'acc' : 'bad'}">${poSt(o)}</span>${o.ref ? ` <span class="small muted">${esc(o.ref)}</span>` : ''}${o.cost ? ` <span class="small muted">${cents(o.cost)}</span>` : ''}</td><td class="r">${poEditBtns(o)}</td></tr>`).join('')}</tbody></table></div>` : ''}
         ${d.status === 'repair' ? `<div class="row" style="align-items:flex-start">${partPickHTML('r-part', 'Type the part you\'re using, e.g. 13 pro battery')}<button id="r-use">Use part</button></div>
         <div class="row" style="gap:6px"><input id="r-xn" placeholder="Part not in stock (e.g. Battery from Sentrix)" style="flex:2;min-width:160px"><input id="r-xc" inputmode="decimal" placeholder="Cost $" style="flex:1;min-width:80px;max-width:110px"><button id="r-xadd">Add cost</button></div>
@@ -6616,6 +6637,26 @@ async function viewRepair(el){
   wirePoEdit(el, po, {forType: 'device', forId: d.id, forLabel: `Stock #${d.stockNo} ${d.model}`, store: d.store, device: d.model}, () => viewRepair(el));
   const ext = async (x, msg) => { try { await Store.deviceExtra(S.user, S.store, d.id, x); toast(msg); viewRepair(el); return true; } catch (e) { toast(e.message); return false; } };
   el.querySelectorAll('[data-prm]').forEach(b => b.onclick = () => ext({removeAt: b.dataset.prm}, 'Part taken off'));
+  /* v102 (Sam): a bad part on one of our own phones goes to RMA, same as on a ticket */
+  const dRmaLbl = pu => binLabelSheet('RMA', {name: pu.name, device: `#${d.stockNo} ${d.model}`, reason: pu.defectReason, store: d.store, by: pu.defectBy || S.user.id, at: pu.defectAt});
+  el.querySelectorAll('[data-drmal]').forEach(b => b.onclick = () => { const pu = d.partsUsed.find(x => x.at === b.dataset.drmal); if (pu) dRmaLbl(pu); });
+  el.querySelectorAll('[data-dundef]').forEach(b => b.onclick = async () => { const pu = d.partsUsed.find(x => x.at === b.dataset.dundef); if (!pu) return;
+    if (!confirm(`${pu.name} isn't defective after all? It comes off the RMA list (take it out of the RMA bin) and its cost goes back on this phone.`)) return;
+    try { await Store.devicePartDefective(S.user, S.store, d.id, pu.at, '', false, true); toast('Off the RMA list'); viewRepair(el); } catch (e) { toast(e.message); } });
+  el.querySelectorAll('[data-ddef]').forEach(b => b.onclick = () => { const pu = d.partsUsed.find(x => x.at === b.dataset.ddef); if (!pu) return;
+    const shelf = pu.partId && parts.find(x => x.id === pu.partId); const left = shelf ? +(shelf.qty?.[d.store] || 0) : 0;
+    sheet(`<div class="row" style="justify-content:space-between"><h3>Defective part → RMA · #${d.stockNo}</h3><button data-close>Close</button></div>
+      <p style="margin:0"><b>${esc(pu.name)}</b> on ${esc(d.model)}</p>
+      <div class="field"><label class="label" for="dd-r">What's wrong with it?</label><input id="dd-r" placeholder="e.g. no touch, lines on screen, won't charge" autocomplete="off"></div>
+      ${shelf ? `<label class="row" style="gap:8px;align-items:center"><input type="checkbox" id="dd-rep" ${left ? 'checked' : 'disabled'}> Pull a replacement from the ${STORES[d.store]} shelf <span class="small muted">(${left} left)</span></label>`
+        : '<p class="small muted" style="margin:0">This part was special ordered, so there\'s no shelf replacement. Order another with <b>+ Order a part for this device</b>.</p>'}
+      <div class="banner small" style="margin:0">The bad part goes on the RMA list with this reason and its label prints next. Its ${cents(pu.cost)} comes off this phone's cost (Sentrix credits it)${shelf ? '; a replacement you pull is logged at its normal cost' : ''}.</div>
+      <div class="err" id="dd-e" role="alert"></div><button class="primary" id="dd-go">Send to RMA + print label</button>`, (L, close) => {
+      L.querySelector('#dd-r').focus();
+      L.querySelector('#dd-go').onclick = async () => { const why = L.querySelector('#dd-r').value.trim(); if (why.length < 3) { L.querySelector('#dd-e').textContent = 'Say what was wrong with the part.'; return; }
+        const rep = !!L.querySelector('#dd-rep')?.checked;
+        try { await Store.devicePartDefective(S.user, S.store, d.id, pu.at, why, rep); close(); toast(rep ? 'In RMA · replacement pulled' : 'In RMA');
+          await viewRepair(el); dRmaLbl({...pu, defectReason: why, defectBy: S.user.id, defectAt: new Date().toISOString()}); } catch (e) { L.querySelector('#dd-e').textContent = e.message; } }; }); });
   $('#r-xadd') && ($('#r-xadd').onclick = () => { const n = $('#r-xn').value.trim(), c = parseFloat($('#r-xc').value.replace(/[$,]/g, ''));
     if (!n) { toast('Name the part.'); return; } if (!(c > 0)) { toast('Enter what the part cost us.'); return; } ext({part: {name: n, cost: c}}, `Added ${cents(c)} to the cost`); });
   $('#r-done') && ($('#r-done').onclick = async () => { const st = $('#r-next').value; const bh = $('#r-bh').value.replace(/[%\s]/g, '');
