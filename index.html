@@ -286,7 +286,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795478686";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795493422";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -2149,6 +2149,7 @@ async function barCounts(tok){
         swappa: ships.filter(x => x.store === S.store && x.status !== 'shipped').length,
         pending: devs.filter(d => d.store === S.store && d.status === 'testing').length,
         inbox: leads.filter(l => l.status === 'new' && (!l.store || l.store === S.store)).length,
+        inboxOld: leads.filter(l => l.status === 'new' && (!l.store || l.store === S.store) && Date.now() - new Date(l.at) > 36e5).length,   /* Sam, Nov 23: unanswered over an hour = red */
         appts: tix.filter(t => t.store === S.store && t.status === 'scheduled' && t.apptAt && sameDay(new Date(t.apptAt), new Date())).length}};
     }
     if (tok !== RENDER_NO) return;
@@ -2159,7 +2160,7 @@ async function barCounts(tok){
     set('swappa', v.swappa, 'hot', `${v.swappa} Swappa sale${v.swappa === 1 ? '' : 's'} to ship`);
     set('inventory', v.pending, 'go', `${v.pending} bought device${v.pending === 1 ? '' : 's'} pending: pick where ${v.pending === 1 ? 'it goes' : 'they go'}`);
     set('devices', v.swappa + v.pending, v.swappa ? 'hot' : 'go', [v.swappa && `${v.swappa} Swappa to ship`, v.pending && `${v.pending} pending`].filter(Boolean).join(' · '));
-    set('inbox', v.inbox, 'hot', `${v.inbox} new website lead${v.inbox === 1 ? '' : 's'}`);
+    set('inbox', v.inbox, v.inboxOld ? 'hot' : 'go', `${v.inbox} new website / buyback lead${v.inbox === 1 ? '' : 's'}${v.inboxOld ? ` · ${v.inboxOld} waiting over an hour` : ''}`);
   } catch (e) { console.warn('bar counts', e); }
 }
 async function renderShell(){
@@ -3550,12 +3551,14 @@ const isBBLead = l => l.kind === 'buyback' || (!l.kind && /buyback|sell|price lo
 async function viewInbox(el){
   const [allLeads, reviews] = await Promise.all([Store.leads(), Store.reviews()]);
   const quotes = allLeads.filter(l => !isBBLead(l)), bb = allLeads.filter(isBBLead);
-  const newQ = quotes.filter(l => l.status === 'new').length, newBB = bb.filter(l => l.status === 'new').length;
+  const overdue = l => l.status === 'new' && Date.now() - new Date(l.at) > 36e5;   /* new and nobody has touched it for an hour */
+  const waitPill = l => overdue(l) ? ` <span class="pill bad" title="Nobody has answered this lead yet">waiting ${ago(l.at).replace(' ago', '')}</span>` : '';
+  const newQ = quotes.filter(l => l.status === 'new').length, newBB = bb.filter(l => l.status === 'new').length, oldQ = quotes.filter(overdue).length, oldBB = bb.filter(overdue).length;
   const due = reviews.filter(r => r.status === 'scheduled').length;
   el.innerHTML = `<div class="stack"><div class="statusbar" role="group" aria-label="Inbox section">
       <button data-ib="calls" aria-pressed="${S.ibTab === 'calls'}">Calls &amp; texts</button>
-      <button data-ib="leads" aria-pressed="${S.ibTab === 'leads'}">Website leads${newQ ? ` (${newQ} new)` : ''}</button>
-      <button data-ib="buyback" aria-pressed="${S.ibTab === 'buyback'}">Buyback leads${newBB ? ` (${newBB} new)` : ''}</button>
+      <button data-ib="leads" aria-pressed="${S.ibTab === 'leads'}">Website leads${newQ ? ` (${newQ} new${oldQ ? ` · <span style="color:var(--bad)">${oldQ} over an hour</span>` : ''})` : ''}</button>
+      <button data-ib="buyback" aria-pressed="${S.ibTab === 'buyback'}">Buyback leads${newBB ? ` (${newBB} new${oldBB ? ` · <span style="color:var(--bad)">${oldBB} over an hour</span>` : ''})` : ''}</button>
       <button data-ib="reviews" aria-pressed="${S.ibTab === 'reviews'}">Review requests${due ? ` (${due} scheduled)` : ''}</button></div><div id="ib"></div></div>`;
   el.querySelectorAll('[data-ib]').forEach(b => b.onclick = () => { S.ibTab = b.dataset.ib; viewInbox(el); });
   const box = $('#ib');
@@ -3579,8 +3582,8 @@ async function viewInbox(el){
     return h <= 0 ? '<span class="pill warn">Lock expired</span>' : `<span class="pill ${h < 12 ? 'warn' : 'acc'}">Locked · ${h < 24 ? Math.ceil(h) + ' h left' : Math.ceil(h / 24) + ' days left'}</span>`; };
   if (BB) box.innerHTML = `<div class="stack"><p class="muted small" style="margin:0">Every 72-hour price lock from the buyback pages (cellularzonesa.com/sell-your-…) lands here with the seller's number, the device and the locked range. Text them from the store number, mark them <b>Coming in</b> when they say so, and tap <b>Start buy</b> when they walk in — honor the locked range if the device matches what they picked.</p>
     <div class="tbl"><table><thead><tr><th>When</th><th>Seller</th><th>Device &amp; locked price</th><th>Store</th><th>Status</th><th></th></tr></thead><tbody>
-    ${leads.map(l => { const k = l.lock || {}; return `<tr><td class="small" style="white-space:nowrap">${fmtTime(l.at)}<div class="muted">${ago(l.at)}</div></td>
-      <td><b>${esc(l.name)}</b>${l.example ? ' <span class="pill">example</span>' : ''}<div class="small muted num">${fmtPhone(l.phone)}${l.email ? ' · ' + esc(l.email) : ''}</div>${l.paid ? '<div class="small muted">From a Google ad</div>' : ''}</td>
+    ${leads.map(l => { const k = l.lock || {}; return `<tr><td class="small" style="white-space:nowrap">${fmtTime(l.at)}<div class="muted">${ago(l.at)}</div>${waitPill(l)}</td>
+      <td><b>${esc(l.name)}</b>${l.example ? ' <span class="pill">example</span>' : ''}<div class="small muted num">${fmtPhone(l.phone)}${l.email ? ' · ' + esc(l.email) : ''}</div>${l.paid ? '<div class="small muted">From a Google ad</div>' : ''}${l.texted ? '<div class="small muted">Confirmation texted ✓</div>' : '<div class="small" style="color:var(--warn)">No text yet (goes out 9 AM–9 PM)</div>'}</td>
       <td class="small"><div><b>${esc(l.device)}</b>${k.condition ? ' · ' + esc(k.condition) : ''}${k.pay ? ' · ' + esc(k.pay) : ''}${k.carrier ? ' (' + esc(k.carrier) + ')' : ''}</div>
         <div><b class="num">${esc(k.offer || (l.total ? '$' + l.total : ''))}</b>${k.code ? ` · code <span class="num">${esc(k.code)}</span>` : ''} ${lockLeft(l)}</div>
         <div class="muted"><span class="pill">${esc(l.source)}</span>${k.sheetPrice ? ` sheet max $${k.sheetPrice}` : ''}</div>${l.notes[0] ? `<div class="muted">Last note: ${esc(l.notes[0].text)}</div>` : ''}</td>
@@ -3589,7 +3592,7 @@ async function viewInbox(el){
     </tbody></table></div></div>`;
   else box.innerHTML = `<div class="stack"><p class="muted small" style="margin:0">Repair quote requests from the website widget land here. Text them from the store number, then turn them into a ticket. (Price locks from the buyback pages are under <b>Buyback leads</b>.)</p>
     <div class="tbl"><table><thead><tr><th>When</th><th>From</th><th>Wants</th><th>Store</th><th>Status</th><th></th></tr></thead><tbody>
-    ${leads.map(l => `<tr><td class="small" style="white-space:nowrap">${fmtTime(l.at)}<div class="muted">${ago(l.at)}</div></td>
+    ${leads.map(l => `<tr><td class="small" style="white-space:nowrap">${fmtTime(l.at)}<div class="muted">${ago(l.at)}</div>${waitPill(l)}</td>
       <td><b>${esc(l.name)}</b>${l.example ? ' <span class="pill">example</span>' : ''}<div class="small muted num">${fmtPhone(l.phone)}${l.email ? ' · ' + esc(l.email) : ''}</div></td>
       <td class="small"><span class="pill">${esc(l.source)}</span><div><b>${esc(l.device)}</b> · ${esc(l.request)}</div>${l.notes[0] ? `<div class="muted">Last note: ${esc(l.notes[0].text)}</div>` : ''}</td>
       <td>${l.store || ''}</td>
