@@ -91,6 +91,8 @@ tr.click{cursor:pointer}tr.click:hover td{background:var(--soft)}
 .offer .cell.main .v{color:var(--accent);font-size:28px}
 .script{background:var(--warn-soft);color:var(--ink);border-radius:var(--r);padding:14px;font-size:16px}
 .script b{color:var(--warn)}
+.navmenu{position:fixed;z-index:60;background:var(--panel,#fff);color:var(--ink);border:1px solid var(--line,#ccc);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:4px;min-width:180px;display:flex;flex-direction:column}
+.navmenu button{all:unset;cursor:pointer;padding:9px 12px;border-radius:7px;font-size:14px}.navmenu button:hover,.navmenu button:focus-visible{background:var(--soft)}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:12px 18px;border-radius:999px;font-weight:500;z-index:50;max-width:calc(100% - 32px)}
 .sheet{position:fixed;inset:0;background:rgb(0 0 0 / .45);display:flex;align-items:flex-end;justify-content:center;z-index:40;padding:16px;padding-bottom:calc(16px + env(safe-area-inset-bottom,0px))}
 .sheet .panel{width:100%;max-width:560px;max-height:88vh;overflow:auto}
@@ -2060,8 +2062,38 @@ function applyNav(nav){ if (!nav) return; NAV_KEYS.forEach(k => { if (k !== 'q')
   if (nav.tab === 'device') { S.tab = 'inventory'; S.openDevice = nav.deviceId; } else { S.tab = nav.tab; const k = ROUTE_KEY[nav.tab]; if (k) S[k] = nav[k]; } }
 const openTab = url => { const w = window.open(url, '_blank'); if (w) w.opener = null; };
 let MOD_CLICK = 0;
+/* Right-click (or middle-click) anything that opens a ticket, customer, invoice or device: "Open in new tab" / "Copy link".
+   Finds the click handler that would navigate, runs it in probe mode (go() only reports the link), and only for handlers
+   that do nothing but navigate, so probing never changes anything. */
+let NAV_PROBE = null;
+const NAV_SAFE = /go\('(customer|ticket|invoice|repair|device)'/, NAV_UNSAFE = /await|Store\.|close\(|Sheet\(|toast|innerHTML|\bS\.\w+\s*=|renderShell|\.disabled/;
+function navUrlAt(target){
+  if (!S.user || target.closest('input,textarea,select,[contenteditable]')) return null;
+  for (let el = target; el && el !== document.body; el = el.parentElement){
+    if (typeof el.onclick !== 'function') continue;
+    const src = String(el.onclick); if (!NAV_SAFE.test(src) || NAV_UNSAFE.test(src)) return null;
+    NAV_PROBE = {url: null}; try { el.onclick({target, currentTarget: el, key: '', metaKey: false, ctrlKey: false, stopPropagation(){}, preventDefault(){}}); } catch {} const u = NAV_PROBE.url; NAV_PROBE = null;
+    return u;
+  }
+  return null; }
+const navMenuClose = () => document.querySelector('.navmenu')?.remove();
+document.addEventListener('contextmenu', e => { navMenuClose(); const url = navUrlAt(e.target); if (!url) return; e.preventDefault();
+  const m = document.createElement('div'); m.className = 'navmenu'; m.setAttribute('role', 'menu');
+  m.innerHTML = '<button role="menuitem" data-nm="open">Open in new tab</button><button role="menuitem" data-nm="copy">Copy link</button>';
+  document.body.appendChild(m); const r = m.getBoundingClientRect();
+  m.style.left = Math.min(e.clientX, innerWidth - r.width - 8) + 'px'; m.style.top = Math.min(e.clientY, innerHeight - r.height - 8) + 'px';
+  const full = new URL(url, location.href).href;
+  m.querySelector('[data-nm=open]').onclick = () => { navMenuClose(); openTab(full); };
+  m.querySelector('[data-nm=copy]').onclick = async () => { navMenuClose(); try { await navigator.clipboard.writeText(full); toast('Link copied'); } catch { toast('Could not copy the link'); } };
+  m.querySelector('button').focus(); });
+document.addEventListener('click', e => { if (!e.target.closest('.navmenu')) navMenuClose(); }, true);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') navMenuClose(); });
+window.addEventListener('scroll', navMenuClose, true); window.addEventListener('blur', navMenuClose);
+document.addEventListener('auxclick', e => { if (e.button !== 1) return; const url = navUrlAt(e.target); if (url) { e.preventDefault(); openTab(new URL(url, location.href).href); } });   /* middle-click: new tab */
+document.addEventListener('mousedown', e => { if (e.button === 1 && navUrlAt(e.target)) e.preventDefault(); });   /* no autoscroll on middle-click */
 document.addEventListener('click', e => { MOD_CLICK = (e.metaKey || e.ctrlKey) ? Date.now() : 0; }, true);
 function go(tab, extra = {}, fromHistory = false){
+  if (NAV_PROBE) { NAV_PROBE.url = urlFor(tab === 'device' ? 'device' : tab, extra); return; }   /* right-click / middle-click: just work out the link */
   if (!fromHistory && S.user && MOD_CLICK && Date.now() - MOD_CLICK < 1000) { MOD_CLICK = 0; return openTab(urlFor(tab, extra)); }   /* Cmd/Ctrl-click: new tab */
   if (tab === 'device') { S.openDevice = extra.deviceId; tab = 'inventory'; extra = {}; }
   Object.assign(S, {tab}, extra);
