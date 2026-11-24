@@ -1029,11 +1029,11 @@ const DemoStore = {
   },
   async emailReceipt(){ return {demo: true}; },
   receiptLink(id){ return location.origin + location.pathname.replace(/[^/]*$/, '') + 'r.html#' + id; },
-  async ghlSend(emp, store, {customer, ticketId, message}){
+  async ghlSend(emp, store, {customer, ticketId, message, toNote}){
     if (!message.trim()) throw new Error('Type the text first.');
     if (!customer?.phone) throw new Error('This customer has no phone number.');
     const d = this.db(); d.ghlOut.push({at: now(), phone: customer.phone, body: message.trim(), by: emp.id});
-    if (ticketId) { const t = d.tickets.find(x => x.id === ticketId); t.comments.unshift({id: uid(), at: now(), who: emp.id, text: 'Text sent: ' + message.trim(), pub: true}); t.updatedAt = now(); }
+    if (ticketId) { const t = d.tickets.find(x => x.id === ticketId); t.comments.unshift({id: uid(), at: now(), who: emp.id, text: (toNote ? `Text sent to ${toNote}: ` : 'Text sent: ') + message.trim(), pub: true}); t.updatedAt = now(); }
     this.log(d, emp.id, store, 'Text sent', `${fmtPhone(customer.phone)}: ${message.trim().slice(0, 80)}`); this.save(d); return {ok: true, demo: true};
   },
   /* ---------- helpers ---------- */
@@ -1447,7 +1447,7 @@ const LiveStore = {
   async saveCallSource(emp, cs){ return this.rpc('pos_save_call_source', {p_pin: this.pinFor(emp), p_number: cs.number, p_label: cs.label || '', p_paid: !!cs.paid, p_store: cs.store || '', p_delete: !!cs.delete}); },
   async ghlCall(body){ const {data, error} = await this.sb.functions.invoke('ghl', {body}); if (error) { let m = error.message; try { m = (await error.context.json()).error || m; } catch {} throw new Error(m); } if (data?.error) throw new Error(data.error); return data; },
   async ghlThread(store, c){ if (!c?.phone) return []; const r = await this.ghlCall({action: 'thread', store, phone: c.phone, name: c.name}); if (r.notConnected) throw Object.assign(new Error(r.notConnected), {soft: true}); return r.messages || []; },
-  async ghlSend(emp, store, {customer, ticketId, message}){ return this.ghlCall({action: 'send', pin: this.pinFor(emp), store, phone: customer?.phone, name: customer?.name, message, ticketId}); },
+  async ghlSend(emp, store, {customer, ticketId, message, toNote}){ return this.ghlCall({action: 'send', pin: this.pinFor(emp), store, phone: customer?.phone, name: customer?.name, message, ticketId, toNote: toNote || ''}); },
   async emailReceipt(emp, store, {email, customer, subject, html}){ return this.ghlCall({action: 'email', pin: this.pinFor(emp), store, email, phone: customer?.phone, name: customer?.name, subject, html}); },
   receiptLink(id){ return location.origin + location.pathname.replace(/[^/]*$/, '') + 'r.html#' + id; },
   /* Round-3 modules: designed and working in the demo; their database functions get written once Sam signs off on how they work. */
@@ -1853,7 +1853,7 @@ const HELP_KB = [
   'After every payment the receipt window opens: **Print receipt**, **Text receipt** or **Email receipt**.',
   'Reprint later: **Counter → Invoices**, find it, tap **Receipt** (or open the ticket and tap the invoice).']},
  {t: 'Text or email a customer', k: 'text message sms email customer send address call back direct line number not showing inbox reply', s: [
-  'From a ticket: **Communication to customer** → type or pick a template → **Send text**. Tap **Email [name]** to send an email instead.',
+  'From a ticket: **Communication to customer** → type or pick a template → **Send text**. If the ticket has a different call-back number, pick **Customer** or **Call-back** in the box at the top right before sending. Tap **Email [name]** to send an email instead.',
   'Someone called the store\'s direct line? **Inbox → Calls & texts → + Text a number**, type their number.',
   '**Send address** sends the store\'s address in one tap. Texts go out from the store\'s number and replies come back in the Inbox.']},
  {t: 'Inbox: calls, texts, website and buyback leads', k: 'inbox calls texts missed call website leads buyback leads price lock quote request reply start ticket start buy', s: [
@@ -2406,6 +2406,9 @@ async function viewTicket(el){
   const isOpen = t.status !== 'resolved';
   const first = (c.name || '').split(' ')[0];
   const readyMsg = `Hi ${first}, this is Cellular Zone ${STORES[t.store]}. Your ${t.device} is ready for pickup. We're open Mon–Sat 10–8, Sun 11–6. Thank you!`;
+  /* numbers this ticket can text: the customer's phone, plus the call-back number when it's a different one */
+  const p10 = x => String(x || '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
+  const smsNums = [[p10(c.phone), `Customer · ${fmtPhone(c.phone)}`], [p10(t.callback), `Call-back · ${fmtPhone(t.callback)}`]].filter(([v], i, a) => v.length === 10 && a.findIndex(x => x[0] === v) === i);
   const tpls = [['Ready for pickup', readyMsg],
     ['Part on order', `Hi ${first}, this is Cellular Zone ${STORES[t.store]}. Quick update on your ${t.device}: the part is on order. We'll text you as soon as it's in.`],
     ['Approve price', `Hi ${first}, this is Cellular Zone ${STORES[t.store]}. We checked your ${t.device}. The repair comes to ${cents(tQuote(t))} plus tax. Reply YES and we'll get started.`],
@@ -2496,10 +2499,10 @@ async function viewTicket(el){
     <div class="panel stack">
       <h3>Communication to customer</h3>
       <div class="stack" style="gap:8px;background:var(--soft);border-radius:var(--r);padding:12px">
-        <div class="row" style="justify-content:space-between"><span class="label">Text ${esc((c.name || 'customer').split(' ')[0])} from the ${STORES[t.store]} number</span><span class="small muted num">${fmtPhone(c.phone)}</span></div>
+        <div class="row" style="justify-content:space-between"><span class="label">Text ${esc((c.name || 'customer').split(' ')[0])} from the ${STORES[t.store]} number</span>${smsNums.length > 1 ? `<select id="t-smsto" aria-label="Text which number" style="width:auto;min-height:32px;padding:2px 8px;font-size:13px">${smsNums.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select>` : `<span class="small muted num">${fmtPhone(smsNums[0]?.[0] || '')}</span>`}</div>
         <div class="row" style="gap:6px">${tpls.map((x, i) => `<button type="button" data-tpl="${i}" style="min-height:32px;padding:4px 10px;font-size:13px">${x[0]}</button>`).join('')}</div>
         <textarea id="t-sms" rows="3" aria-label="Text message" placeholder="Type a text or pick a template">${S.prefillSms ? esc(S.prefillSms) : ''}</textarea>
-        <div class="row" style="justify-content:space-between"><span class="small muted" id="t-smsn"></span><button id="t-send" ${c.phone ? '' : 'disabled title="No phone number on file"'}>Send text</button></div>
+        <div class="row" style="justify-content:space-between"><span class="small muted" id="t-smsn"></span><button id="t-send" ${smsNums.length ? '' : 'disabled title="No phone number on file"'}>Send text</button></div>
       </div>
       <details class="stack" style="gap:8px;background:var(--soft);border-radius:var(--r);padding:12px" id="t-emb"><summary style="cursor:pointer"><span class="label">Email ${esc((c.name || 'customer').split(' ')[0])}</span>${c.email ? ` <span class="small muted">${esc(c.email)}</span>` : ''}</summary>
         <div class="stack" style="gap:8px;margin-top:8px">
@@ -2598,7 +2601,10 @@ Cellular Zone ${esc(STORES[t.store] || '')}</textarea>
   el.querySelectorAll('[data-tpl]').forEach(b => b.onclick = () => { sms.value = tpls[+b.dataset.tpl][1]; cnt(); sms.focus(); });
   $('#t-send').onclick = async () => {
     const btn = $('#t-send'); btn.disabled = true; btn.textContent = 'Sending…';
-    try { const r = await Store.ghlSend(S.user, t.store, {customer: c, ticketId: t.id, message: sms.value}); toast(r.demo ? 'Demo: text logged, not actually sent' : 'Text sent from GoHighLevel'); viewTicket(el); }
+    const to = $('#t-smsto')?.value || smsNums[0]?.[0] || c.phone, isCb = to !== String(c.phone || '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
+    try { const r = await Store.ghlSend(S.user, t.store, {customer: {...c, phone: to}, ticketId: t.id, message: sms.value});
+      if (isCb) await Store.addComment(S.user, S.store, t.id, `↑ That text went to the call-back number ${fmtPhone(to)}, not the customer's phone.`, false).catch(() => {});
+      toast(r.demo ? 'Demo: text logged, not actually sent' : `Text sent to ${fmtPhone(to)}`); viewTicket(el); }
     catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Send text'; }
   };
   $('#t-emgo').onclick = async () => {
