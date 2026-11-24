@@ -1242,6 +1242,8 @@ const DemoStore = {
     if (kind === 'price') { const dv = d.devices.find(x => x.id === id); dv.swappa = Object.assign({}, dv.swappa || {}, {syncedPrice: +value, syncedAt: now(), syncOk: !!ok, syncNote: note || null}); this.log(d, emp.id, dv.store, ok ? 'Swappa price synced' : 'Swappa price not synced', `#${dv.stockNo} $${value}${note ? ' · ' + note : ''}`); }
     else { const sh = d.ships.find(x => x.id === id); Object.assign(sh, ok ? {swappaPostedAt: now(), swappaError: null} : {swappaError: note || 'failed'}); this.log(d, emp.id, sh.store, ok ? 'Swappa tracking added' : 'Swappa tracking failed', `${sh.label} · ${sh.tracking}`); }
     this.save(d); return {ok: true}; },
+  async prefsGet(emp){ const d = this.db(); return d.prefs?.[emp.id] || null; },
+  async prefsSet(emp, pins){ const d = this.db(); d.prefs = d.prefs || {}; d.prefs[emp.id] = {pins}; this.save(d); return {ok: true}; },
   async offerupMark(emp, store, id, price, url){ const d = this.db(); const dv = d.devices.find(x => x.id === id);
     if (price == null) { if (dv.offerup?.id) throw new Error('The OfferUp sync already found this listing. Ask a manager.'); dv.offerup = null; this.log(d, emp.id, store, 'OfferUp post unmarked', '#' + dv.stockNo); this.save(d); return dv; }
     if (!(price > 0)) throw new Error('Enter the price you posted it at.'); if (url && !/^https?:\/\/([a-z0-9-]+\.)*offerup\.com\//i.test(url)) throw new Error("That link isn't an OfferUp link. Leave it blank if you don't have it.");
@@ -1520,6 +1522,8 @@ const LiveStore = {
   async swappaSold(emp, store, id, price, buyer){ return this.rpc('pos_swappa_sold', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_price: price, p_buyer: buyer || ''}); },
   async ships(){ const {data, error} = await this.sb.from('ships_v').select('*').order('at', {ascending: false}).limit(1000); if (error) throw error; return data; },
   async swappaSync(emp, kind, id, value, ok, note){ return this.rpc('pos_swappa_sync', {p_pin: this.pinFor(emp), p_kind: kind, p_id: id, p_value: String(value ?? ''), p_ok: !!ok, p_note: note || ''}); },
+  async prefsGet(emp){ return this.rpc('pos_prefs_get', {p_pin: this.pinFor(emp)}); },
+  async prefsSet(emp, pins){ return this.rpc('pos_prefs_set', {p_pin: this.pinFor(emp), p_pins: pins}); },
   async offerupMark(emp, store, id, price, url){ return this.rpc('pos_offerup_mark', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_price: price, p_url: url || null}); },
   async offerupDrop(emp, store, id, price){ return this.rpc('pos_offerup_drop', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_price: price}); },
   async offerupStatus(){ const {data, error} = await this.sb.rpc('pos_offerup_status'); if (error) throw error; return data || {}; },
@@ -2133,7 +2137,14 @@ let BAR_MENUS = [];
 document.addEventListener('click', () => BAR_MENUS.forEach(([, m]) => { const x = $(m); if (x) x.hidden = true; }));
 const pinsKey = () => 'czpos-pins-' + S.user.id;
 const pinsGet = () => { const p = ls.get(pinsKey(), null); return Array.isArray(p) ? p : (S.user.role === 'tech' ? ['techboard', 'parts'] : ['register', 'buyback']); };
-const pinsSet = p => ls.set(pinsKey(), p);
+const pinsSet = p => { ls.set(pinsKey(), p); if (S.user) Store.prefsSet(S.user, p).catch(() => {}); };
+/* pins follow the person, not the computer: once per sign-in pull this person's saved pins; if they have none saved yet, save this computer's */
+let PINS_SYNCED = null;
+function pinsSync(){
+  if (!S.user || PINS_SYNCED === S.user.id) return; const uid = S.user.id; PINS_SYNCED = uid;
+  Store.prefsGet(S.user).then(r => { if (!S.user || S.user.id !== uid) return;
+    if (Array.isArray(r?.pins)) { if (JSON.stringify(r.pins) !== JSON.stringify(ls.get(pinsKey(), null))) { ls.set(pinsKey(), r.pins); renderShell(); } }
+    else { const loc = ls.get(pinsKey(), null); if (Array.isArray(loc)) Store.prefsSet(S.user, loc).catch(() => {}); } }).catch(() => { PINS_SYNCED = null; }); }
 /* press / anywhere (not while typing) to jump to search */
 document.addEventListener('keydown', e => {
   if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey || !S.user) return;
@@ -2173,7 +2184,7 @@ async function renderShell(){
   if (tok !== RENDER_NO || !S.user) return;
   const mine = myNotes(notes); const unread = mine.filter(n => !n.readBy.includes(S.user.id));
   const cur = ALIAS[S.tab] || S.tab;
-  const pins = pinsGet().filter(k => PAGES[k] && can(PAGES[k][1]));
+  pinsSync(); const pins = pinsGet().filter(k => PAGES[k] && can(PAGES[k][1]));
   const grpOn = g => g.k ? cur === g.k : g.items.some(i => i[0] === cur);
   const item = ([k, l]) => `<div class="mi"><button data-t="${k}" ${cur === k ? 'aria-current="page"' : ''}>${l}<span class="cnt" data-cnt="${k}" hidden></span></button><button class="pinb ${pins.includes(k) ? 'on' : ''}" data-pin="${k}" title="${pins.includes(k) ? 'Unpin from the bar' : 'Pin to the bar'}" aria-label="${pins.includes(k) ? 'Unpin' : 'Pin'} ${l}">${pins.includes(k) ? '★' : '☆'}</button></div>`;
   const first = S.user.name.split(' ')[0];
