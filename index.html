@@ -367,6 +367,9 @@ const DRAWER_KEEP = 100;   /* at close, the cash taken in that day goes into the
 const DENOMS = [['b100', 100, '$100 bills'], ['b50', 50, '$50 bills'], ['b20', 20, '$20 bills'], ['b10', 10, '$10 bills'], ['b5', 5, '$5 bills'], ['b1', 1, '$1 bills'],
   ['c25', 0.25, 'Quarters'], ['c10', 0.10, 'Dimes'], ['c5', 0.05, 'Nickels'], ['c1', 0.01, 'Pennies']];
 /* "Reffered By" options from the Buyback Log (2026) sheet */
+/* Returning sellers must also say what brought them back THIS time (Nov 24): "Returning Customer" alone hid ad-driven repeat sellers. */
+const BACK_VIA = ['Facebook / Instagram ad', 'Google', 'Text or message from us', 'OfferUp', 'Drive by / just came in', 'Referred by someone', 'Other'];
+const heardLabel = s => !s ? '' : (s.heardFrom || '') + (s.heardFrom === 'Returning Customer' && s.backVia ? ' · via ' + s.backVia : '');
 const HEARD_FROM = ['Walk In / Drive By', 'Returning Customer', 'Referred', 'Google', 'Apple Maps', 'Website', 'Facebook', 'Instagram', 'OfferUp', 'OfferUp - Sam', 'Chat GPT'];
 const PAYOUTS = ['Cash','Apple Pay','Cash App','Zelle','PayPal','Trade-in credit'];          // how a buyback seller gets paid
 const SAM_PAYS = ['Apple Pay','Cash App','Zelle','PayPal'];
@@ -5903,7 +5906,7 @@ async function buybackRecordSheet(bbId, dvId){
       <div class="stack" style="gap:8px">
         ${sect('Seller', row('Name', `<b>${esc([s.firstName, s.lastName].filter(Boolean).join(' '))}</b>`) + row('Phone', fmtPhone(s.phone || bb.phone || '')) + row('Email', esc(s.email || ''))
           + row('Address', esc([s.address, s.city, s.state, s.zip].filter(Boolean).join(', '))) + row('Date of birth', us(s.dob)) + row('Photo ID', esc([s.idType, s.idState, idShow].filter(Boolean).join(' · ')) + (s.idExp ? ` · exp ${us(s.idExp)}` : ''))
-          + row('ID note', esc(bb.idNote || '')) + row('Heard about us', esc(s.heardFrom || '')))}
+          + row('ID note', esc(bb.idNote || '')) + row('Heard about us', esc(heardLabel(s))))}
         ${sect('Payment', row('Max buy', bb.max ? cents(bb.max) : '') + row('Paid', `<b>${cents(bb.paid)}</b>`) + row('Paid by', esc(bb.payout || '')) + row('Sent to', esc(bb.payoutTo || s.payoutTo || '')))}
         ${sect('IMEI check', ic.length ? ic.map(c => `<div class="small" style="border-bottom:1px solid var(--line);padding:5px 0"><b>${esc(c.service_name || '')}</b> · ${c.verdict === 'clean' ? '<span class="pill ok">Clean</span>' : c.verdict === 'bad' ? '<span class="pill bad">Problem</span>' : c.verdict === 'warn' ? '<span class="pill warn">Check</span>' : `<span class="pill">${esc(c.verdict || '')}</span>`} <span class="muted">${fmtDate(c.at)}</span>
             ${(c.flags || []).length ? `<div style="color:var(--bad)">${esc(c.flags.join(' · '))}</div>` : ''}${c.override_reason ? `<div style="color:var(--warn)">Overridden${c.override_by ? ' by ' + esc(staffName(c.override_by)) : ''}: ${esc(c.override_reason)}</div>` : ''}
@@ -5933,7 +5936,7 @@ async function bosSheet(bbId, dvId){
 
 /* ---------------- BUYBACK: appraise → test → seller → pay → bill of sale + label ---------------- */
 const newBB = () => ({q:'', model:null, carrier:null, storage:null, cond:null, checks:{}, battery:'', color:'', imei:'', notes:'', paid:'', payout:'Cash', payoutTo:'',
-  seller:{firstName:'', lastName:'', phone:'', email:'', heardFrom:'', address:'', city:'San Antonio', state:'TX', zip:'', dob:'', idType: ID_TYPES[0], idNumber:'', idState:'TX', idExp:''}});
+  seller:{firstName:'', lastName:'', phone:'', email:'', heardFrom:'', backVia:'', address:'', city:'San Antonio', state:'TX', zip:'', dob:'', idType: ID_TYPES[0], idNumber:'', idState:'TX', idExp:''}});
 S.bb = newBB();
 function bbNeeds(B){
   const n = [];
@@ -6130,8 +6133,8 @@ async function viewReports(el){
     const t3 = (title, f) => `<h3 style="margin:8px 0 0">${title}</h3>` + tbl([title.replace(/^By /, ''), '#Count', '$Paid', '$Avg', '%Of max'], grp(f).map(([k, r]) => `<tr>${td(esc(k))}${td(r.n, 1)}${td(cents(r.paid), 1)}${td(cents(r.paid / r.n), 1)}${td(rpPct(r.paid, r.max), 1)}</tr>`));
     const model = b => { const d = dv[b.deviceId]; return d ? [d.model, d.storage].filter(Boolean).join(' ') : ''; };
     body = `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px">${kpi('Buybacks', bbs.length)}${kpi('Paid out', cents(sum(bbs, b => b.paid)))}${kpi('Avg paid vs max', rpPct(sum(bbs, b => b.paid), sum(bbs, b => b.max)), 'lower = better deals')}</div>
-      ${t3('By how they heard about us', b => b.seller?.heardFrom)}${t3('By rep', b => staffName(b.by))}${t3('By payout', b => b.payout)}${t3('By model', model)}`;
-    csv = [['Date', 'Store', 'Receipt', 'Device', 'Paid', 'Max', 'Payout', 'Heard from', 'Rep'], ...bbs.map(b => [new Date(b.at).toLocaleString('en-US'), b.store, b.store + b.receiptNo, model(b), b.paid, b.max || '', b.payout, b.seller?.heardFrom || '', staffName(b.by)])];
+      ${t3('By how they heard about us', b => heardLabel(b.seller))}${t3('By rep', b => staffName(b.by))}${t3('By payout', b => b.payout)}${t3('By model', model)}`;
+    csv = [['Date', 'Store', 'Receipt', 'Device', 'Paid', 'Max', 'Payout', 'Heard from', 'Rep'], ...bbs.map(b => [new Date(b.at).toLocaleString('en-US'), b.store, b.store + b.receiptNo, model(b), b.paid, b.max || '', b.payout, heardLabel(b.seller), staffName(b.by)])];
   }
 
   if (R.tab === 'damaged') {
@@ -6198,7 +6201,7 @@ async function viewBbLog(el){
       <td class="small">${(l => l === 'Unlocked' ? '<span class="pill ok">Unlocked</span>' : l === 'Financed' ? '<span class="pill bad">Financed</span>' : l === 'Locked' || l === 'Locked / financed' ? `<span class="pill warn">${l}</span>` : '<span class="muted">—</span>')(lockOf(d?.carrier))}</td>
       <td class="r num"><b>${cents(b.paid)}</b>${d && +d.partsCost ? `<div class="small muted">+ ${cents(d.partsCost)} parts</div>` : ''}</td>
       <td class="small">${esc(b.payout || '')}</td>
-      <td>${esc([s.firstName, s.lastName].filter(Boolean).join(' '))}<div class="small muted">${fmtPhone(s.phone || b.phone || '')}${s.email ? '<br>' + esc(s.email) : ''}${s.heardFrom ? '<br>Heard: ' + esc(s.heardFrom) : ''}</div></td>
+      <td>${esc([s.firstName, s.lastName].filter(Boolean).join(' '))}<div class="small muted">${fmtPhone(s.phone || b.phone || '')}${s.email ? '<br>' + esc(s.email) : ''}${s.heardFrom ? '<br>Heard: ' + esc(heardLabel(s)) : ''}</div></td>
       <td class="small">${esc(b.by ? staffName(b.by) : '')}</td>
       <td>${stPill(d)}</td>
       <td class="r"><button data-blb="${b.id}" style="min-height:32px;padding:2px 10px">Bill of sale</button></td></tr>`).join('') || '<tr><td colspan="11" class="muted">No buys match.</td></tr>'}
@@ -6321,6 +6324,7 @@ async function viewBuyback(el){
           <div class="field"><label class="label" for="s-last">Last name</label><input id="s-last" data-s="lastName" value="${sv('lastName')}"></div>
           <div class="field"><label class="label" for="s-email">Email <span style="color:var(--bad)">*</span> <span class="muted" style="font-weight:400">(required)</span></label><input id="s-email" data-s="email" type="email" inputmode="email" value="${sv('email')}" placeholder="name@gmail.com"></div>
           <div class="field"><label class="label" for="s-heard">How did they hear about us?</label><select id="s-heard" data-s="heardFrom"><option value="">Pick one…</option>${HEARD_FROM.map(h => `<option ${B.seller.heardFrom === h ? 'selected' : ''}>${h}</option>`).join('')}</select></div>
+          <div class="field" id="s-back-f" ${B.seller.heardFrom === 'Returning Customer' ? '' : 'hidden'}><label class="label" for="s-back">What brought them back this time? <span style="color:var(--bad)">*</span> <span class="muted" style="font-weight:400">(ask: "Did you see us on Facebook or Instagram?")</span></label><select id="s-back" data-s="backVia"><option value="">Pick one…</option>${BACK_VIA.map(h => `<option ${B.seller.backVia === h ? 'selected' : ''}>${h}</option>`).join('')}</select></div>
         </div>
         <div class="grid g2">
           <div class="field"><label class="label" for="s-idt">Photo ID</label><select id="s-idt" data-s="idType">${ID_TYPES.map(t => `<option ${B.seller.idType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
@@ -6361,7 +6365,8 @@ async function viewBuyback(el){
   el.querySelectorAll('[data-ck]').forEach(b => b.onclick = () => { B.checks[b.dataset.ck] = B.checks[b.dataset.ck] === b.dataset.v ? undefined : b.dataset.v; const y = window.scrollY; re().then(() => window.scrollTo(0, y)); });
   $('#bb-allpass') && ($('#bb-allpass').onclick = () => { CHECKS.forEach(([k]) => { if (!B.checks[k]) B.checks[k] = 'pass'; }); const y = window.scrollY; re().then(() => window.scrollTo(0, y)); });
   el.querySelectorAll('[data-b]').forEach(i => i.oninput = i.onchange = () => { B[i.dataset.b] = i.value; if (i.dataset.b === 'battery') { const y = window.scrollY; clearTimeout(S._bt); S._bt = setTimeout(() => re().then(() => { window.scrollTo(0, y); const n = $('#bb-bat'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }), 600); } });
-  el.querySelectorAll('[data-s]').forEach(i => i.oninput = i.onchange = () => { B.seller[i.dataset.s] = i.value; });
+  el.querySelectorAll('[data-s]').forEach(i => i.oninput = i.onchange = () => { B.seller[i.dataset.s] = i.value; if (i.dataset.s === 'heardFrom') showBack(); });
+  function showBack() { const f = $('#s-back-f'); if (!f) return; const on = B.seller.heardFrom === 'Returning Customer'; f.hidden = !on; if (!on) { B.seller.backVia = ''; $('#s-back').value = ''; } }
   /* IMEI check (Sickw): runs by itself once a valid 15-digit IMEI is typed; the button re-runs it or checks a serial */
   const keepY = () => { const y = window.scrollY; return re().then(() => window.scrollTo(0, y)); };
   const runIC = async (fresh) => { const im = normImei(B.imei); if (im.length < (needsIC(B.model) ? 10 : 8)) { toast(needsIC(B.model) ? 'Type the full IMEI first.' : 'Type the full serial number first.'); return; }
@@ -6392,7 +6397,7 @@ async function viewBuyback(el){
         if (!x) m.set(k, {seller: {...s0, phone: ph}, n: 1, last: b.at}); else { x.n++; if (new Date(b.at) > new Date(x.last)) { x.seller = {...s0, phone: ph}; x.last = b.at; } } });
       S.sellers = [...m.values()]; S.sellersAt = Date.now(); } return S.sellers; };
   const fill = x => { const keep = ['firstName', 'lastName', 'phone', 'email', 'address', 'city', 'state', 'zip', 'dob', 'idType', 'idNumber', 'idState', 'idExp'];
-    keep.forEach(k => { if (x.seller[k]) B.seller[k] = x.seller[k]; }); B.seller.heardFrom = 'Returning Customer';
+    keep.forEach(k => { if (x.seller[k]) B.seller[k] = x.seller[k]; }); B.seller.heardFrom = 'Returning Customer'; B.seller.backVia = '';
     const expired = B.seller.idExp && new Date(B.seller.idExp) < new Date(new Date().toDateString()); if (expired) B.seller.idExp = '';
     const y = window.scrollY; re().then(() => { window.scrollTo(0, y); toast(expired ? 'Filled in from their last buy. Their ID on file is expired: get the new ID number and expiration.' : 'Filled in from their last buy. Check the photo ID still matches.'); }); };
   let sft; $('#s-find').oninput = e => { clearTimeout(sft); sft = setTimeout(async () => { const q = e.target.value.trim().toLowerCase(), qd = q.replace(/\D/g, ''); const box = $('#s-hits'); if (!box) return;
@@ -6404,7 +6409,7 @@ async function viewBuyback(el){
     const ph = B.seller.phone.replace(/\D/g, ''); if (ph.length !== 10) return;
     const prev = (await sellers()).find(x => x.seller.phone === ph); if (prev && !B.seller.idNumber) return fill(prev);
     const c = await Store.customerByPhone(ph);
-    if (c) { const [f, ...r] = c.name.split(' '); if (!B.seller.firstName) { B.seller.firstName = f; $('#s-first').value = f; } if (!B.seller.lastName) { B.seller.lastName = r.join(' '); $('#s-last').value = B.seller.lastName; } if (c.email && !B.seller.email) { B.seller.email = c.email; $('#s-email').value = c.email; } if (!B.seller.heardFrom) { B.seller.heardFrom = 'Returning Customer'; $('#s-heard').value = 'Returning Customer'; } $('#s-known').innerHTML = `<span class="pill acc">Returning customer: ${esc(c.name)}</span>`; }
+    if (c) { const [f, ...r] = c.name.split(' '); if (!B.seller.firstName) { B.seller.firstName = f; $('#s-first').value = f; } if (!B.seller.lastName) { B.seller.lastName = r.join(' '); $('#s-last').value = B.seller.lastName; } if (c.email && !B.seller.email) { B.seller.email = c.email; $('#s-email').value = c.email; } if (!B.seller.heardFrom) { B.seller.heardFrom = 'Returning Customer'; $('#s-heard').value = 'Returning Customer'; showBack(); } $('#s-known').innerHTML = `<span class="pill acc">Returning customer: ${esc(c.name)}</span>`; }
   });
   const warn = () => { const v = parseFloat(B.paid);
     $('#f-warn').innerHTML = v > max ? `<div class="banner warn small">${money(v)} is ${money(v - max)} over max buy. A manager PIN will be needed.</div>` : (row.atlas && v > row.atlas ? `<div class="banner warn small">Paying more than Atlas pays (${money(row.atlas)}). Only do this if it will sell in store or on Swappa.</div>` : ''); };
@@ -6422,6 +6427,7 @@ async function viewBuyback(el){
       : ph.length !== 10 ? "Enter the seller's 10-digit phone number."
       : !/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test((sl.email || '').trim()) ? "Enter the seller's email address (name@gmail.com)."
       : !sl.heardFrom ? 'Pick how they heard about us.'
+      : sl.heardFrom === 'Returning Customer' && !sl.backVia ? 'Returning seller: ask what brought them back this time (Facebook/Instagram ad, Google, text from us…).'
       : !sl.dob ? "Enter the seller's date of birth." : age < 18 ? 'Seller must be 18 or older. Do not buy.'
       : !sl.idNumber.trim() ? 'Enter the ID number from the photo ID.' : !sl.idExp ? 'Enter the ID expiration date.' : new Date(sl.idExp) < new Date(new Date().toDateString()) ? 'That ID is expired. Ask for a current photo ID.'
       : !(paid > 0) ? 'Enter what you are paying the seller.'
