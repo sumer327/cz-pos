@@ -857,6 +857,7 @@ const DemoStore = {
     return {buybackId: b.id, at: b.at, store: b.store, customerId: b.customerId, phone: c.phone, name: c.name, paid: b.paid, creditLeft: b.creditLeft, model: dv.model, storage: dv.storage, stockNo: dv.stockNo}; }).filter(x => x.phone === phone); },
   async tradeCashout(emp, store, id){ const d = this.db(); const b = d.buybacks.find(x => x.id === id); if (!(b?.creditLeft > 0)) throw new Error("There's no trade-in credit left on that buy.");
     const amt = b.creditLeft; Object.assign(b, {creditCash: (b.creditCash || 0) + amt, creditCashAt: now(), creditLeft: 0}); this.log(d, emp.id, store, 'Trade-in credit paid in cash', cents(amt)); this.save(d); return {cash: amt}; },
+  async bbLogMonth(){ return []; },
   async atlasBatches(){ return (this.db().atlasBatches || []).slice().sort((a, b) => new Date(b.at) - new Date(a.at)); },
   async wholesaleShip(emp, store, ids, tracking, notes){
     const d = this.db(); const devs = d.devices.filter(x => ids.includes(x.id) && x.store === store && x.status === 'wholesale');
@@ -1441,6 +1442,7 @@ const LiveStore = {
   async ticketCharge(emp, store, id, add, removeId){ const r = await this.rpc('pos_ticket_charge', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_add: add || null, p_remove: removeId || null}); this.keep(this.cT, [r]); return r; },
   async tradeCredits(phone){ const {data, error} = await this.sb.from('trade_credits_v').select('*').eq('phone', phone).order('at'); if (error) throw error; return data; },
   async tradeCashout(emp, store, id){ return this.rpc('pos_trade_cashout', {p_pin: this.pinFor(emp), p_store: store, p_id: id}); },
+  async bbLogMonth(m0){ const mm = new Date(m0); const key = `${mm.getFullYear()}-${String(mm.getMonth() + 1).padStart(2, '0')}-01`; const {data, error} = await this.sb.from('bb_log_month').select('store, n, paid').eq('month', key); if (error) throw error; return data || []; },
   async atlasBatches(){ const {data, error} = await this.sb.from('atlas_batches_v').select('*').order('at', {ascending: false}).limit(200); if (error) throw error; return data; },
   async wholesaleShip(emp, store, ids, tracking, notes){ return this.rpc('pos_wholesale_ship', {p_pin: this.pinFor(emp), p_store: store, p_ids: ids, p_tracking: tracking || '', p_notes: notes || ''}); },
   async atlasPayout(emp, id, amount){ return this.rpc('pos_atlas_payout', {p_pin: this.pinFor(emp), p_id: id, p_amount: amount}); },
@@ -7937,7 +7939,7 @@ const dashMeter = (v, of, tone) => `<div class="dm"><div class="dm-f ${tone || '
 const greet = () => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; };
 
 async function viewDashboard(el){
-  if (can(3) && S.dashMode !== 'store') return viewOwnerDash(el);
+  if (can(2) && S.dashMode !== 'store') return viewOwnerDash(el);   /* Nov 24 (Sam): managers (Josh) see the 3-store dashboard too */
   return viewRepDash(el);
 }
 
@@ -7950,6 +7952,8 @@ async function viewOwnerDash(el){
     Store.punches(R.d0, R.d1).catch(() => []), Store.registerDays().catch(() => []), Store.ships().catch(() => []), Store.buybacksAll().catch(() => []),
     Store.audit(80).catch(() => []), Store.parts().catch(() => []), Store.partOrders().catch(() => []), Store.transfers().catch(() => []), Store.leads().catch(() => [])]);
   const atlasB = await Store.atlasBatches().catch(() => []);
+  const bbLog = await Store.bbLogMonth(R.m0).catch(() => []);   /* buybacks logged on the Buyback Log sheet before the store moved to the POS */
+  const bbLx = st => bbLog.find(x => x.store === st) || {n: 0, paid: 0};
   DASH_SHIP = Object.fromEntries(ships.filter(x => x.deviceId && +x.labelCost > 0).map(x => [x.deviceId, +x.labelCost]));
   const custs = await Store.customers().catch(() => []); const C = custById(custs);
   const dv = Object.fromEntries(devs.map(d => [d.id, d])), pr = Object.fromEntries(prods.map(p => [p.id, p])), tk = Object.fromEntries(tix.map(t => [t.id, t]));
@@ -7966,7 +7970,7 @@ async function viewOwnerDash(el){
     const awaiting = atlasB.filter(b => b.store === st && b.payout == null);
     const bb = bbM.filter(b => b.store === st), bbT = bb.filter(b => isToday(b.at));
     const open = tix.filter(t => t.store === st && t.status !== 'resolved');
-    return [st, {st, day, mon, bbT: bbT.length, bbT$: bbT.reduce((a, b) => a + (+b.paid || 0), 0), bbM: bb.length, bbM$: bb.reduce((a, b) => a + (+b.paid || 0), 0),
+    return [st, {st, day, mon, bbT: bbT.length, bbT$: bbT.reduce((a, b) => a + (+b.paid || 0), 0), bbM: bb.length + (+bbLx(st).n || 0), bbM$: bb.reduce((a, b) => a + (+b.paid || 0), 0) + (+bbLx(st).paid || 0),
       open, lineup: open.filter(t => ['new', 'progress', 'board', 'reply'].includes(t.status)).sort((a, b) => (a.status === 'board') - (b.status === 'board') || new Date(a.createdAt) - new Date(b.createdAt)),
       parts: open.filter(t => ['parts', 'order'].includes(t.status)), waitCust: open.filter(t => t.status === 'customer'),
       pending: devs.filter(d => d.store === st && d.status === 'testing'), repairStock: devs.filter(d => d.store === st && d.status === 'repair'),
@@ -8092,6 +8096,7 @@ async function viewRepDash(el){
   const [invM, bbM, devs, prods, tix, ships, porders, parts, custs, revs] = await Promise.all([Store.invoices(R.m0, R.d1), Store.buybacks(R.m0, R.d1).catch(() => []), Store.devices(),
     Store.products().catch(() => []), Store.tickets(), Store.ships().catch(() => []), Store.partOrders().catch(() => []), Store.parts().catch(() => []), Store.customers().catch(() => []),
     Store.reviewLinks(R.m0).catch(() => [])]);
+  const bbLogS = (await Store.bbLogMonth(R.m0).catch(() => [])).find(x => x.store === st) || {n: 0};
   const atlasB = await Store.atlasBatches().catch(() => []);
   const C = custById(custs);
   const dv = Object.fromEntries(devs.map(d => [d.id, d])), pr = Object.fromEntries(prods.map(p => [p.id, p])), tk = Object.fromEntries(tix.map(t => [t.id, t]));
@@ -8146,7 +8151,7 @@ async function viewRepDash(el){
     ['appraisal', 'New appraisal', 'Price a device for a seller'], ['quote', 'New quote', 'Repair price + phone script']];
   el.innerHTML = `<div class="dash">
     <div class="dh"><div><h2>${greet()}, ${esc(S.user.name.split(' ')[0])}</h2><div class="muted">${STORES[st]} · ${new Date().toLocaleDateString('en-US', {weekday: 'long', month: 'long', day: 'numeric'})}</div></div>
-      ${can(3) ? '<button id="od-owner" class="small">← All stores</button>' : ''}</div>
+      ${can(2) ? '<button id="od-owner" class="small">← All stores</button>' : ''}</div>
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">${QA.map(([k, l, d]) => `<button class="qa" data-qa="${k}" style="min-height:64px;text-align:left;align-items:flex-start;flex-direction:column;justify-content:center;gap:2px"><b>${l}</b><span class="small muted">${d}</span></button>`).join('')}</div>
     ${anns.length || can(3) ? annHTML : ''}
     <section class="dp goals"><header><h3>${STORES[st]} today</h3><span class="small muted">Daily goals: ${money(DAILY_GOAL)} profit · ${money(ACC_GOAL)} accessories</span></header>
@@ -8154,7 +8159,7 @@ async function viewRepDash(el){
         <div class="mine">
           <div><span class="dk-l">My sales</span><b class="num">${money(day.sales)}</b><span class="dk-s">today · ${money(mon.sales)} this month</span></div>
           <div><span class="dk-l">My accessories</span><b class="num">${money(mon.acc)}</b><span class="dk-s">this month</span></div>
-          <div><span class="dk-l">Buybacks at ${STORES[st]}</span><b class="num">${bbSt.length} <small>today</small></b><span class="dk-s">${bbS.length} this month · ${myBB.length} by you</span></div>
+          <div><span class="dk-l">Buybacks at ${STORES[st]}</span><b class="num">${bbSt.length} <small>today</small></b><span class="dk-s">${bbS.length + (+bbLogS.n || 0)} this month · ${myBB.length} by you</span></div>
           <div><span class="dk-l">Review links sent</span><b class="num">${myRev.length}</b><span class="dk-s">by you this month</span></div>
         </div></div></section>
     <section class="dp"><header><h3>${STORES[st]} resale profit · ${new Date().toLocaleDateString('en-US', {month: 'long'})}</h3><span class="small muted">Buy low, sell right: this is what the phones we bought made</span></header>
