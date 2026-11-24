@@ -6262,7 +6262,8 @@ function icHtml(B){
   const r = ic.res, fl = icFlags(r), tip = icCarrierTip(B, r);
   const head = ic.over ? `<div class="banner warn small"><b>Override saved:</b> ${esc(ic.over)}. Josh was alerted.</div>`
     : r.verdict === 'clean' ? `<div class="banner ok small"><b>IMEI clean.</b> iCloud off, not blacklisted${r.checks.length > 1 ? ', carrier check clean' : ''}.</div>`
-    : r.verdict === 'warn' ? `<div class="banner warn small"><b>Check this:</b> ${esc(fl.join(', ') || 'see the report')}. Usually means the <b>financed price</b>.</div>`
+    : r.verdict === 'warn' && fl.length && fl.every(f => /carrier locked/i.test(f)) ? `<div class="banner warn small"><b>Carrier locked.</b> Not blacklisted and iCloud is off, so it can be bought: pay the <b>locked / financed price</b> and send it to <b>Wholesale</b>.</div>`
+    : r.verdict === 'warn' ? `<div class="banner warn small"><b>Check this:</b> ${esc(fl.join(', ') || 'see the report')}. Not blacklisted. Usually means the <b>financed price</b>.</div>`
     : r.verdict === 'error' ? `<div class="banner bad small"><b>Sickw couldn't check it:</b> ${esc(r.checks.find(c => c.verdict === 'error')?.lines?.[0]?.v || 'no answer')}</div>`
     : `<div class="banner bad small"><b>Don't buy it:</b> ${esc(fl.join(', '))}. Hand it back, or buy it anyway only with a good reason.</div>`;
   const tone = t => t === 'bad' ? 'color:var(--bad);font-weight:600' : t === 'warn' ? 'color:var(--warn);font-weight:600' : t === 'ok' ? 'color:var(--ok)' : '';
@@ -6453,6 +6454,7 @@ async function viewBuyback(el){
       : !sl.idNumber.trim() ? 'Enter the ID number from the photo ID.' : !sl.idExp ? 'Enter the ID expiration date.' : new Date(sl.idExp) < new Date(new Date().toDateString()) ? 'That ID is expired. Ask for a current photo ID.'
       : !(paid > 0) ? 'Enter what you are paying the seller.'
       : !['inv', 'repair', 'wholesale'].includes(B.dest) ? 'Pick where the device goes: Inventory, Repair stock or Wholesale.'
+      : B.checks.lock !== 'pass' || B.checks.imei !== 'pass' ? 'The "iCloud / Google account removed" and "IMEI blacklist check clean" tests must be Pass to buy. Carrier locked or financed is not a fail: mark them Pass and send it to Wholesale.'
       : SAM_PAYS.includes(B.payout) && !(B.payoutTo || '').trim() ? `Enter where to send the ${B.payout} payment.` : '';
     const ic = B.ic && B.ic.imei === normImei(B.imei) ? B.ic : null;
     const icErr = err ? '' : !needsIC(B.model) && (!ic || ic.err) ? '' : !ic || ic.busy ? 'Run the IMEI check in step 1 first (tap Check IMEI).'
@@ -6462,9 +6464,13 @@ async function viewBuyback(el){
     const icNote = !ic || ic.err ? 'No IMEI check: serial-number device' : ic.over ? `IMEI override: ${ic.over}` : `IMEI check ${ic.res.verdict === 'clean' ? 'clean' : 'flagged: ' + icFlags(ic.res).join(', ')} (Sickw)`;
     let override = null;
     if (paid > max) { override = await askPin(`Manager approval: paying ${money(paid)} (max ${money(max)})`, 2); if (!override) return; }
-    const r = await Store.recordBuyback(S.user, S.store, {model: B.model, storage: B.storage, carrier: B.carrier, cond: B.cond, color: B.color.trim(), imei: B.imei.trim(),
+    /* Nov 24: a server refusal used to vanish (the button just did nothing): show it */
+    const fbtn = form.querySelector('[type=submit]'); if (fbtn) fbtn.disabled = true;
+    let r; try { r = await Store.recordBuyback(S.user, S.store, {model: B.model, storage: B.storage, carrier: B.carrier, cond: B.cond, color: B.color.trim(), imei: B.imei.trim(),
       battery: B.battery === '' ? null : +B.battery, checklist: {...B.checks, ...(+B.appraisal?.retail > 0 ? {sheetPrice: +B.appraisal.retail} : {})}, sheetPrice: +B.appraisal?.retail > 0 ? +B.appraisal.retail : null, needs, paid, max, payout: B.payout, payoutTo: (B.payoutTo || '').trim(), notes: [B.notes.trim(), icNote].filter(Boolean).join(' · '),
-      seller: {...sl, phone: ph, email: (sl.email || '').trim().toLowerCase(), firstName: sl.firstName.trim(), lastName: sl.lastName.trim(), state: sl.state.toUpperCase()}}, override);
+      seller: {...sl, phone: ph, email: (sl.email || '').trim().toLowerCase(), firstName: sl.firstName.trim(), lastName: sl.lastName.trim(), state: sl.state.toUpperCase()}}, override); }
+    catch (x) { if (fbtn) fbtn.disabled = false; $('#f-err').textContent = 'Not saved: ' + x.message; $('#f-err').scrollIntoView({block: 'center'}); toast(x.message); return; }
+    if (fbtn) fbtn.disabled = false;
     /* the rep must pick where it goes before Complete buy: Inventory (hot stock or to list), Repair stock or Wholesale. No more Pending. */
     { const sp = +B.appraisal?.retail > 0 ? +B.appraisal.retail : null; const dest = B.dest === 'inv' ? (HOT_STOCK.includes(String(B.model || '').toUpperCase()) ? 'hot' : 'tolist') : B.dest;
       const patch = {...(r.device.status !== dest ? {status: dest} : {}), ...(sp && !(+r.device.listPrice > 0) ? {listPrice: sp} : {})};
