@@ -286,7 +286,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795640218";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795650910";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -3058,7 +3058,7 @@ function partsFor(parts, device, want, store, type){
 /* which screen a repair takes. iPhone tiers (Nov 23, Sam): Good = incell / aftermarket LCD, Better = premium OLED, Best = genuine (OLED family).
    Tiered glass repairs install a new screen too (the old one goes to refurb), so they pull the matching screen. */
 const repairWants = name => /\bipad\b.*glass repair/i.test(name) ? 'digi'
-  : /data (transfer|backup)|software|virus/i.test(name) ? 'none'
+  : /data (transfer|backup)|software|virus|thermal|paste|liquid metal|clean|diagnos|unlock|factory reset|set ?up|labor|micro ?solder|board repair/i.test(name) ? 'none'   /* services that take no part (Nov 25: PS5 thermal paste was pulling an HDMI port) */
   : /glass (repair|only)\s*\((better|best|oled)\)/i.test(name) ? 'oled'
   : /glass (repair|only)\s*\((good|incell)\)|incell lcd/i.test(name) ? 'lcd'
   : /\bglass (repair|only)\b/i.test(name) ? 'none'
@@ -3350,7 +3350,7 @@ async function chargeSheet(t, c, after, opts = {}){
             <div class="stack" style="gap:2px"><span class="label">Customer pays</span><b class="num" id="cs-fin" style="font-size:20px">${cents(picked.price)}</b></div></div>
           <div class="small muted" id="cs-dx" style="margin-top:-4px">Discounts are tracked: the invoice and receipt show the regular price and the discount.</div>
           <span class="label">Part from ${STORES[t.store]} stock</span>
-          ${want === 'none' ? '<span class="small muted">Glass repair: no part comes out of stock.</span>' : cand.length ? partRows(cand, sel) : `<span class="small" style="color:var(--bad)">No matching part on file for ${esc(picked.device)}.</span>`}
+          ${want === 'none' ? `<span class="small muted">${/glass/i.test(picked.desc) ? 'Glass repair' : 'Service only'}: no part comes out of stock.</span>` : cand.length ? partRows(cand, sel) : `<span class="small" style="color:var(--bad)">No matching part on file for ${esc(picked.device)}.</span>`}
           <label class="row" style="gap:10px;cursor:pointer;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r);flex-wrap:nowrap"><input type="radio" name="cs-part" value="" ${sel === '' ? 'checked' : ''} style="width:20px;height:20px;flex:none"><span>No part from stock <span class="small muted">(glass repair, labor only, or it's on order)</span></span></label>
           ${(() => { const ask = refurbAsk(picked.desc, picked.device); if (!ask) return '';
             if (ask === 'always') return '<div class="banner acc small"><b>Original screen → refurb bin.</b> Glass repair price includes the refurb credit, so the screen you take off goes in the refurb bin. The bin count goes up by one.</div>';
