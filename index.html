@@ -286,7 +286,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795564320";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795568963";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -348,7 +348,7 @@ function setLineDisc(l, amt, pct){
   const base = +l.orig || +l.price; pct = +pct || 0; amt = +amt || 0;
   const d = Math.round((pct > 0 ? base * pct / 100 : amt) * 100) / 100;
   if (!(d > 0)) { l.price = base; delete l.orig; delete l.discPct; return; }
-  if (d >= base) throw new Error(`The discount can't be the whole price of "${l.desc}". Remove the line instead.`);
+  if (d > base) throw new Error(`The discount can't be more than the price of "${l.desc}".`);   /* Nov 24 (Sam): 100% off is allowed (free case to close a deal) */
   l.orig = base; l.price = Math.round((base - d) * 100) / 100; if (pct > 0) l.discPct = pct; else delete l.discPct;
 }
 const IV_OPEN = new Set();
@@ -836,7 +836,7 @@ const DemoStore = {
   async ticketCharge(emp, store, id, add, removeId){
     const d = this.db(); const t = d.tickets.find(x => x.id === id); t.charges = t.charges || [];
     if (add) { if (t.status === 'resolved') throw new Error('This ticket is closed. Open a rework or a new ticket to charge more.');
-      if (!String(add.desc || '').trim()) throw new Error('Name the charge.'); if (!(+add.price > 0)) throw new Error('Enter a price above $0.');
+      if (!String(add.desc || '').trim()) throw new Error('Name the charge.'); if (!(+add.price > 0) && !(+add.price === 0 && +add.orig > 0)) throw new Error('Enter a price above $0 (or a 100% discount off the regular price).');
       const c = {id: uid(), desc: add.desc.trim(), cat: add.cat || 'Repair', price: Math.round(+add.price * 100) / 100, by: emp.id, at: now(), ...(add.productId ? {productId: add.productId} : {}), ...(add.glass ? {glass: add.glass} : {})};
       if (add.partId) { const p = d.parts.find(x => x.id === add.partId); if (!p) throw new Error('That part was not found.');
         if ((p.qty[t.store] || 0) < 1) throw new Error(`No ${p.name} left at this store. Special order it, or add the charge without the part.`);
@@ -3370,7 +3370,7 @@ async function chargeSheet(t, c, after, opts = {}){
         L.querySelector('#cs-back').onclick = () => { picked = null; body(); };
         L.querySelector('#cs-so') && (L.querySelector('#cs-so').onclick = () => specialOrderSheet({forType: 'ticket', forId: t.id, forLabel: `Ticket #${t.number} ${t.subject}`, store: t.store, device: t.device}, () => {}));
         L.querySelector('#cs-addp').onclick = async e => { const {fin: price, base} = disc(); const pid = L.querySelector('[name="cs-part"]:checked')?.value || '';
-          if (!(price > 0)) { toast('The price after the discount has to be above $0.'); return; }
+          if (!(price > 0) && !(price === 0 && base > 0)) { toast('Enter the regular price (a 100% discount makes it free).'); return; }
           const ask = refurbAsk(picked.desc, picked.device); const rf = ask === 'always' ? 'yes' : ask === 'ask' ? L.querySelector('[name="cs-rf"]:checked')?.value : null;
           if (ask === 'ask' && !rf) { toast('Say whether the original screen goes in the refurb bin.'); return; }
           await add({desc: picked.desc, cat: picked.cat, price, ...(price < base - 0.004 ? {orig: base} : {}), ...(pid ? {partId: pid} : {}), ...(rf === 'yes' ? {refurb: true} : rf ? {origScreen: rf} : {})}, e.target);
@@ -3490,7 +3490,7 @@ function checkoutSheet(t, c){
     Store.settings().then(set => { const u = L.querySelector('#co-up'); if (u) u.innerHTML = upsellBox(set); });
     L.querySelector('#co-pay').onchange = e => { L.querySelector('#co-sq').hidden = !e.target.value.startsWith('Square'); L.querySelector('#co-onf').hidden = e.target.value !== 'Other'; };
     L.querySelector('#co-go').onclick = async () => {
-      const bad = lines.find(l => !l.desc.trim() || !(l.price > 0));
+      const bad = lines.find(l => !l.desc.trim() || !(l.price > 0 || (+l.price === 0 && +l.orig > 0)));
       if (bad) { L.querySelector('#co-err').textContent = 'Every line needs an item name and a price.'; return; }
       const coNote = L.querySelector('#co-on').value.trim(); if (L.querySelector('#co-pay').value === 'Other' && coNote.length < 4) { L.querySelector('#co-err').textContent = 'Write why "Other" was used (it shows on the day report).'; L.querySelector('#co-on').focus(); return; }
       let inv; try { inv = await Store.checkout(S.user, S.store, {...(L.querySelector('#co-pay').value === 'Other' ? {payNote: coNote} : {}), ticketId: t?.id || null, customerId: c?.id || null, lines: lines.map(l => ({desc: l.desc.trim(), cat: l.cat, price: +l.price, ...(l.glass ? {glass: l.glass} : {}), ...(l.glassWarrantyId ? {glassWarrantyId: l.glassWarrantyId} : {})})), partsCost, payment: L.querySelector('#co-pay').value}); }
