@@ -286,7 +286,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795714170";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795717452";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -3509,7 +3509,7 @@ async function renderThread(box, store, c){
   try {
     const list = await Store.ghlThread(store, c);
     box.className = 'timeline';
-    box.innerHTML = list.length ? list.slice(0, 20).map(m => {
+    box.innerHTML = list.length ? list.map(m => {
       const call = /CALL/i.test(m.type); const out = m.direction === 'outbound';
       const label = call ? (m.status === 'voicemail' ? 'Voicemail' : m.status === 'missed' || m.status === 'no-answer' ? 'Missed call' : `Call${m.duration ? ' · ' + Math.round(m.duration / 60) + ' min' : ''}`) : (out ? 'Text sent' : 'Text received');
       return `<div class="c ${out ? 'pub' : ''}"><div class="small muted">${label} · ${new Date(m.at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</div>${m.body ? `<div>${esc(m.body)}</div>` : ''}</div>`;
@@ -3650,8 +3650,10 @@ async function viewInbox(el){
   box.querySelectorAll('[data-lt]').forEach(b => b.onclick = () => { const l = leads.find(x => x.id === b.dataset.lt); const first = l.name.split(' ')[0]; const k = l.lock || {};
     const bbMsg = `Hi ${first}, this is Cellular Zone${l.store ? ' ' + STORES[l.store] : ''}. Your price for the ${l.device} is locked${k.offer ? ' at ' + k.offer : ''}${k.code ? ' (code ' + k.code + ')' : ''}${k.expires ? ' until ' + new Date(k.expires).toLocaleString('en-US', {weekday: 'short', hour: 'numeric', minute: '2-digit'}) : ''}. Bring it in any time, we pay cash on the spot. Open till 8.`;
     sheet(`<div class="row" style="justify-content:space-between"><h3>Text ${esc(l.name)}</h3><button data-close>Close</button></div>
+      <div class="small muted num">${fmtPhone(l.phone)} · past calls and texts with this number (newest first)</div>
+      <div id="lt-th" class="small muted" style="max-height:38vh;overflow:auto;border:1px solid var(--line);border-radius:var(--r);padding:8px">Loading…</div>
       <textarea id="lt-msg" rows="4">${esc(isBBLead(l) ? bbMsg : `Hi ${first}, this is Cellular Zone${l.store ? ' ' + STORES[l.store] : ''}. Thanks for reaching out about your ${l.device}. We have the part in stock and it takes about 30 minutes. Can you come in today? Open till 8.`)}</textarea>
-      <div class="row" style="gap:8px"><button class="primary" id="lt-go">Send text</button>${STORE_ADDR[l.store || S.store] ? '<button id="lt-addr">Send address</button>' : ''}</div>`, (L, close) => (L.querySelector('#lt-addr') && (L.querySelector('#lt-addr').onclick = async e => { e.target.disabled = true;
+      <div class="row" style="gap:8px"><button class="primary" id="lt-go">Send text</button>${STORE_ADDR[l.store || S.store] ? '<button id="lt-addr">Send address</button>' : ''}</div>`, (L, close) => (renderThread(L.querySelector('#lt-th'), l.store || S.store, {name: l.name, phone: l.phone}), L.querySelector('#lt-addr') && (L.querySelector('#lt-addr').onclick = async e => { e.target.disabled = true;
         try { const r = await Store.ghlSend(S.user, l.store || S.store, {customer: {name: l.name, phone: l.phone}, message: STORE_ADDR[l.store || S.store]}); await Store.updateLead(S.user, l.id, {status: l.status === 'new' ? 'contacted' : l.status}, 'Texted the address'); close(); toast(r.demo ? 'Demo: address logged, not actually sent' : 'Address sent'); viewInbox(el); }
         catch (err) { toast(err.message); e.target.disabled = false; } }), L.querySelector('#lt-go').onclick = async () => {
         try { const r = await Store.ghlSend(S.user, l.store || S.store, {customer: {name: l.name, phone: l.phone}, message: L.querySelector('#lt-msg').value}); await Store.updateLead(S.user, l.id, {status: l.status === 'new' ? 'contacted' : l.status}, 'Texted'); close(); toast(r.demo ? 'Demo: text logged, not actually sent' : 'Text sent'); viewInbox(el); } catch (e) { toast(e.message); } })); });
