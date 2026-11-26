@@ -286,7 +286,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795650910";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795714170";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -6268,7 +6268,10 @@ function icCarrierTip(B, res){
   if (res?.att || /at&t/i.test(c)) return `<b>AT&amp;T:</b> go to <a href="https://www.att.com/deviceunlock/" target="_blank" rel="noopener" style="color:var(--accent)">att.com/deviceunlock</a> › "Not an AT&amp;T customer" › Submit an unlock request › mobile number from AT&amp;T? <b>No</b> › paste the IMEI and put <b>your own work email</b>. Wait 1–15 min for the 2nd email: "We approved your unlock request" = paid off (clean price). "We can't approve" (installment plan, active on another account, less than 60 days old, too many attempts) = <b>financed price</b>. Don't tell the customer it's unlocked.`;
   if (/t-?mobile|metro/i.test(c)) return `<b>T-Mobile step 2:</b> also check the IMEI on <a href="https://www.t-mobile.com/commerce/bring-your-own-phone?INTNAV=tNav%3AJoinUs%3ABYOD#phone-check" target="_blank" rel="noopener" style="color:var(--accent)">T-Mobile's Bring Your Own Phone page</a>. All 4 green checks = clean price. Financed, Loan, Blocked or Active on account = <b>financed price</b>.`;
   if (/cricket/i.test(c)) return `<b>Cricket step 2:</b> also check it on <a href="https://www.cricketwireless.com/shop/imei-check.html" target="_blank" rel="noopener" style="color:var(--accent)">Cricket's IMEI check</a>. All green checks = clean price. Blocked or Active on account = <b>financed price</b>.`;
-  if (/verizon|spectrum|boost|straight|xfinity|us cellular|consumer|total|tracfone|locked|financ/i.test(c)) return `<b>${esc(B.carrier || 'This carrier')}:</b> considered <b>financed</b> unless it's unlocked from the original carrier. Pay the financed price.`;
+  /* Nov 26 (Sam): Sickw says SIM-unlocked (e.g. Apple factory unlocked, "Locked Carrier: 10 - Unlock") = paid off, clean price */
+  const simUnlocked = (res?.checks || []).some(k => (k.lines || []).some(l => /sim.?lock|lock status/i.test(l.k) && /\bunlocked\b/i.test(l.v)));
+  if (simUnlocked && !icFlags(res).some(f => /financ/i.test(f))) return `<b>Unlocked:</b> Sickw shows the SIM lock as <b>Unlocked</b>, so it isn't tied to a carrier or a payment plan. Pay the <b>clean (paid off) price</b>.`;
+  if (/verizon|spectrum|boost|straight|xfinity|us cellular|consumer|total|tracfone|(?<!un)locked|financ/i.test(c)) return `<b>${esc(B.carrier || 'This carrier')}:</b> considered <b>financed</b> unless it's unlocked from the original carrier. Pay the financed price.`;
   return '';
 }
 /* Only phones have an IMEI that Sickw checks. Laptops, MacBooks, iPads, tablets, Apple Watches, consoles, AirPods…: serial number, no Sickw check required. */
@@ -6287,6 +6290,7 @@ function icHtml(B){
   const head = ic.over ? `<div class="banner warn small"><b>Override saved:</b> ${esc(ic.over)}. Josh was alerted.</div>`
     : r.verdict === 'clean' ? `<div class="banner ok small"><b>IMEI clean.</b> iCloud off, not blacklisted${r.checks.length > 1 ? ', carrier check clean' : ''}.</div>`
     : r.verdict === 'warn' && fl.length && fl.every(f => /carrier locked/i.test(f)) ? `<div class="banner warn small"><b>Carrier locked.</b> Not blacklisted and iCloud is off, so it can be bought: pay the <b>locked / financed price</b> and send it to <b>Wholesale</b>.</div>`
+    : r.verdict === 'warn' && !fl.length ? `<div class="banner ok small"><b>IMEI clean.</b> iCloud off, not blacklisted.</div>`
     : r.verdict === 'warn' ? `<div class="banner warn small"><b>Check this:</b> ${esc(fl.join(', ') || 'see the report')}. Not blacklisted. Usually means the <b>financed price</b>.</div>`
     : r.verdict === 'error' ? `<div class="banner bad small"><b>Sickw couldn't check it:</b> ${esc(r.checks.find(c => c.verdict === 'error')?.lines?.[0]?.v || 'no answer')}</div>`
     : `<div class="banner bad small"><b>Don't buy it:</b> ${esc(fl.join(', '))}. Hand it back, or buy it anyway only with a good reason.</div>`;
