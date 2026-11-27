@@ -287,7 +287,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795810752";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795811072";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -788,6 +788,7 @@ const DemoStore = {
   },
   async setPasscode(emp, store, id, v){ const d = this.db(); const t = d.tickets.find(x => x.id === id); v = (v || '').trim().slice(0, 100) || '';
     t.passcode = v; t.updatedAt = now(); t.comments.unshift({id: uid(), at: now(), who: emp.id, text: !v ? 'Passcode removed' : isPattern(v) ? 'Pattern lock saved' : 'Passcode saved', pub: false, sys: true}); this.save(d); return t; },
+  async deleteComment(emp, store, id, cid){ const d = this.db(); const t = d.tickets.find(x => x.id === id); const c = t.comments.find(x => x.id === cid); if (!c || c.sys || c.pub) throw new Error("That note can't be deleted."); if (c.who !== emp.id && RANK[emp.role] < 2) throw new Error('Only the person who wrote it or a manager can delete this note.'); t.comments = t.comments.filter(x => x.id !== cid); this.save(d); return t; },
   async addComment(emp, store, id, text, pub){
     const d = this.db(); const t = d.tickets.find(x => x.id === id);
     t.comments.unshift({id: uid(), at: now(), who: emp.id, text, pub}); t.updatedAt = now(); this.save(d); return t;
@@ -1430,6 +1431,7 @@ const LiveStore = {
   async updateTicket(emp, store, id, patch){ return this.rpc('pos_update_ticket', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_patch: patch}); },
   async deleteTicket(emp, store, id, reason){ const r = await this.rpc('pos_delete_ticket', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_reason: reason}); this.cT.delete(id); return r; },
   async setPasscode(emp, store, id, v){ const r = await this.rpc('pos_set_passcode', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_passcode: v || ''}); this.keep(this.cT, [r]); return r; },
+  async deleteComment(emp, store, id, cid){ return this.rpc('pos_ticket_comment_delete', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_comment: cid}); },
   async addComment(emp, store, id, text, pub){ return this.rpc('pos_ticket_comment', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_text: text, p_pub: pub}); },
   async partDamaged(emp, store, id, idx, who, note){ const r = await this.rpc('pos_part_damaged', {p_pin: this.pinFor(emp), p_store: store, p_id: id, p_idx: idx, p_who: who, p_note: note}); this.keep && this.cT && this.keep(this.cT, [r]); return r; },
   async useTicketPart(emp, store, id, partId, opts = {}){   /* v95: with rma, one call pulls the part and puts the one that came out on the RMA list with the reason */
@@ -2536,7 +2538,7 @@ async function viewTicket(el){
       <div class="row"><button class="primary" id="t-addnote" style="min-height:44px">Add note</button></div>
       <span class="label">Ticket history</span>
       ${pullNow ? '<div class="small muted" id="t-rsnotes">Loading the notes from RepairShopr…</div>' : t.rsId && !t.comments.length ? '<div class="small muted">RepairShopr has no notes on this ticket.</div>' : ''}
-      <div class="timeline" style="max-height:440px;overflow:auto">${t.comments.map(m => `<div class="c ${m.pub ? 'pub' : ''}"><div class="small muted">${esc(m.who ? staffName(m.who) : (m.by || 'RepairShopr'))} · ${new Date(m.at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}${m.pub ? ' · <b style="color:var(--accent)">to customer</b>' : ''}</div><div${m.sys ? ' class="muted"' : ''}>${esc(m.text)}</div></div>`).join('')}</div>
+      <div class="timeline" style="max-height:440px;overflow:auto">${t.comments.map(m => `<div class="c ${m.pub ? 'pub' : ''}"><div class="small muted">${esc(m.who ? staffName(m.who) : (m.by || 'RepairShopr'))} · ${new Date(m.at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}${m.pub ? ' · <b style="color:var(--accent)">to customer</b>' : ''}${!m.sys && !m.pub && m.id && (m.who === S.user?.id || can(2)) ? ` · <button type="button" data-cdel="${esc(m.id)}" class="small" style="min-height:0;padding:0 6px;border:0;background:none;color:var(--muted);text-decoration:underline">Delete</button>` : ''}</div><div${m.sys ? ' class="muted"' : ''}>${esc(m.text)}</div></div>`).join('')}</div>
     </div>
     <div class="panel stack">
       <h3>Communication to customer</h3>
@@ -2661,6 +2663,9 @@ Cellular Zone ${esc(STORES[t.store] || '')}</textarea>
       toast(r?.demo ? 'Demo: email logged, not actually sent' : 'Email sent to ' + em); viewTicket(el); }
     catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Send email'; }
   };
+  el.querySelectorAll('[data-cdel]').forEach(b => b.onclick = () => { const m = t.comments.find(x => x.id === b.dataset.cdel);
+    sheet(`<h3>Delete this note?</h3><div class="small" style="white-space:pre-wrap;background:var(--soft);border-radius:var(--r);padding:10px">${esc(m?.text || '')}</div><div class="small muted">It comes off the ticket. A copy stays in the activity log.</div><div class="row" style="gap:8px"><button class="primary" id="cd-go">Delete note</button><button data-close>Keep it</button></div>`,
+      (L, close) => L.querySelector('#cd-go').onclick = async e => { e.target.disabled = true; try { await Store.deleteComment(S.user, S.store, t.id, b.dataset.cdel); close(); toast('Note deleted'); viewTicket(el); } catch (err) { toast(err.message); e.target.disabled = false; } }); });
   $('#t-addnote').onclick = async () => { const v = $('#t-note').value.trim(); if (!v) { toast('Type the note first.'); return; } await Store.addComment(S.user, S.store, t.id, v, false); viewTicket(el); };
   renderThread($('#t-ghl'), t.store, c);
   el.querySelectorAll('[data-rmlo]').forEach(b => b.onclick = () => { const x = myRma.find(y => y.id === b.dataset.rmlo); binLabelSheet('RMA', {name: x.name, device: t.device, reason: x.reason, ticket: t.number, store: x.store, by: x.by, at: x.at}); });
