@@ -286,7 +286,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795717452";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795797789";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -5173,7 +5173,36 @@ function pickupSheet(t, after){
 }
 /* ---------- tempered glass: pick the model so that model's glass comes out of inventory ---------- */
 const isGlassProd = p => /tempered|glass protector|screen protector/i.test(p.name || '') && !/lens|camera/i.test(p.name || '');
+/* iPad glass names list several models ("iPad 7th / 8th / 9th (10.2)", "iPad Pro 11 / Air 4 / Air 5", "iPad Pro 12.9 (3rd / 4th)").
+   Nov 27 (Trish, PT): "iPad 9th Gen" / "iPad Air 5" found nothing, so iPads get their own matcher. */
+function ipadSpec(t){
+  t = String(t || '').toLowerCase().replace(/apple|tempered glass|screen protector|glass|generation|\bgen\b|["”]|wi-?fi|cellular|lte|\d+\s?gb|\d+\s?tb/g, ' ');
+  if (!/ipad/.test(t)) return null; t = t.replace(/ipad/g, ' ');
+  const fam = /\bpro\b/.test(t) ? 'pro' : /\bair\b/.test(t) ? 'air' : /\bmini\b/.test(t) ? 'mini' : 'plain';
+  const nums = (t.match(/\d+(\.\d+)?/g) || []).map(Number);
+  return {fam, nums};
+}
+function ipadGlassFits(name, device){
+  const d = ipadSpec(device); if (!d) return null;
+  const n = String(name || '').toLowerCase().replace(/tempered glass|ipad|["”]/g, ' ');
+  const segs = n.replace(/\([^)]*\)/g, ' ').split('/'); let fam = 'plain'; const models = [];
+  segs.forEach(sg => { if (/\bpro\b/.test(sg)) fam = 'pro'; else if (/\bair\b/.test(sg)) fam = 'air'; else if (/\bmini\b/.test(sg)) fam = 'mini';
+    else if (/\d+(st|nd|rd|th)\b/.test(sg)) fam = 'plain';   /* "Air / 5th / 6th": 5th and 6th are plain iPads */
+    const ns = (sg.match(/\d+(\.\d+)?/g) || []).map(Number); models.push({fam, ns}); });
+  const gens = ((n.match(/\(([^)]*)\)/) || [])[1] || '').match(/\d+(?=st|nd|rd|th)/g)?.map(Number) || [];
+  if (d.fam === 'pro') {
+    const size = d.nums.find(x => [9.7, 10.5, 11, 12.9, 13].includes(x)); if (!size) return /\bpro\b/.test(n);
+    if (!models.some(m => m.fam === 'pro' && m.ns.includes(size))) return false;
+    if (size === 12.9 && gens.length) { const g = d.nums.find(x => x !== 12.9 && x < 10); return g ? gens.includes(g) : true; }
+    return true;
+  }
+  const num = d.nums.find(x => x < 30);
+  if (num == null) return models.some(m => m.fam === d.fam);
+  if (d.fam === 'air' && num <= 2) return models.some(m => m.fam === 'air' && (m.ns.includes(num) || !m.ns.length));
+  return models.some(m => m.fam === d.fam && m.ns.includes(num));
+}
 function glassFits(name, device){
+  const ip = ipadGlassFits(name, device); if (ip !== null && /ipad/i.test(name)) return ip;
   const key = partKey(device); if (!key) return true; const n = partNorm(name);
   const k2 = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return new RegExp('[\\s/]' + k2 + '(?=[\\s/])(?!\\s*(max|mini|ultra|pro|\\+|fe|e|lite)\\b)(?!\\+)').test(n);
