@@ -287,7 +287,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795811072";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795811579";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -8263,10 +8263,16 @@ async function viewRepDash(el){
     <div class="dg">
       <section class="dp"><header><h3>Repair lineup</h3><span class="chip">${lineup.length}</span></header>
         <ul class="ds-list clk">${lineup.slice(0, 14).map(t => `<li data-t="${t.id}">${stPill(t.status)} <span class="grow">#${t.number} ${cName(t)} · ${esc(t.subject || '')}</span> <span class="muted small">${daysOld(t.createdAt)}d${t.techId ? ' · ' + esc(staffName(t.techId).split(' ')[0]) : ''}</span></li>`).join('') || '<li class="muted">Nothing waiting.</li>'}</ul></section>
+      ${(() => { const todayInv = invM.filter(i => i.store === st && isToday(i.at)).sort((a, b) => new Date(b.at) - new Date(a.at));
+        const tot = todayInv.filter(i => i.paid !== false).reduce((a, i) => a + (+i.total || 0), 0);
+        const what = i => esc((i.lines || []).map(l => l.desc).filter(Boolean).join(', ').slice(0, 90) || 'Sale');
+        return `<section class="dp"><header><h3>Rung up today</h3><span class="chip">${todayInv.length} · ${money(tot)}</span></header>
+        <ul class="ds-list clk">${todayInv.map(i => `<li data-inv="${i.id}"><span class="muted small num" style="min-width:58px">${fmtTime(i.at)}</span> <span class="grow">#${i.number} ${i.customerId ? esc(C[i.customerId]?.name || '') + ' · ' : ''}${what(i)}<span class="muted small"> · ${esc(payParts(i).map(p => p.method).filter(Boolean).join(' + '))}${i.by ? ' · ' + esc(staffName(i.by).split(' ')[0]) : ''}</span></span> <b class="num" style="white-space:nowrap">${i.paid === false ? '<span class="pill warn">not paid</span> ' : ''}${money(+i.total || 0)}</b></li>`).join('') || '<li class="muted">Nothing rung up yet today.</li>'}</ul></section>`; })()}
     </div>
   </div>`;
   el.querySelectorAll('[data-cat]').forEach(b => b.onclick = () => { D.open = D.open === b.dataset.cat ? null : b.dataset.cat; viewRepDash(el); });
   el.querySelectorAll('[data-t]').forEach(x => x.onclick = () => go('ticket', {ticketId: x.dataset.t}));
+  el.querySelectorAll('[data-inv]').forEach(x => x.onclick = () => go('invoice', {invoiceId: x.dataset.inv}));
   el.querySelectorAll('[data-act]').forEach(x => x.onclick = () => { const [k, v, sub] = x.dataset.act.split(':');
     if (k === 't') go('ticket', {ticketId: v}); else if (k === 'r') go('repair', {deviceId: v}); else { if (sub) S.sw.tab = sub; go(v); } });
   $('#od-owner') && ($('#od-owner').onclick = () => { S.dashMode = 'owner'; viewDashboard(el); });
