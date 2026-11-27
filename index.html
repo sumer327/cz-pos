@@ -287,7 +287,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795806598";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795810752";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -7728,7 +7728,7 @@ async function specialOrderSheet(ctx, after){
     <div class="err" id="so-err" role="alert"></div>`,
   (L, close) => {
     const order = async o => { const rush = L.querySelector('#so-rush').checked; const err = L.querySelector('#so-err'); err.textContent = ''; try {
-      const row = await Store.orderPart(S.user, ctx.store, {name: o.name, quality: o.quality || '', productId: o.productId || '', cost: o.cost || null, price: o.price || null, url: o.url || '', source: o.source || 'sentrix', qty: o.qty || 1, rush,
+      const row = await Store.orderPart(S.user, ctx.store, {name: o.name, quality: o.quality || '', productId: o.productId || '', cost: o.cost || null, price: o.price || null, url: o.url || '', source: o.source || 'sentrix', qty: o.qty || Math.max(1, Math.min(50, parseInt(L.querySelector('#so-q')?.value) || 1)), rush,   /* qty for Sentrix orders too (Nov 27, Josh) */
         forType: ctx.forType, forId: ctx.forId || null, forLabel: ctx.forLabel || ''});
       if (ctx.replaceId) { try { await Store.cancelPartOrder(S.user, ctx.store, ctx.replaceId); } catch (e) { toast('New part ordered, but the old one could not be removed: ' + e.message); } }
       const alert = o.source === 'link' || rush;   /* plain Sentrix parts ride the next Mon/Thu order: no Slack */
@@ -7759,6 +7759,7 @@ async function specialOrderSheet(ctx, after){
       }
       B.innerHTML = `<div class="grid g2"><div class="field"><label class="label" for="so-d">Device</label><input id="so-d" value="${esc(ctx.device || '')}"></div>
           <div class="field"><label class="label" for="so-p">Part needed</label><input id="so-p" value="${esc(ctx.part || '')}" placeholder="Inner screen, charging port, back glass (blue)…"></div></div>
+        <div class="field" style="max-width:120px"><label class="label" for="so-q">How many</label><input id="so-q" inputmode="numeric" value="1"></div>
         <button class="primary" id="so-find">Find it on Sentrix</button>
         <div id="so-res"></div>
         <details><summary class="small" style="cursor:pointer">I already know the exact Sentrix part</summary>
