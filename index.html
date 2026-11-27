@@ -287,7 +287,7 @@ select.techsel{font-size:13px;min-height:30px;padding:3px 6px;width:auto;max-wid
 <div id="layer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795814882";</script>
+<script>window.CZ_CONFIG={supabaseUrl:"https://tdcekxznmfvwcuwokkba.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkY2VreHpubWZ2d2N1d29ra2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNzEwNzQsImV4cCI6MjEwOTg0NzA3NH0.5QV1fQK6Z7-WhwgpNryoasYwWR2hR-BXWiXkn8XB_XA"};window.CZ_BUILD="1795815023";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
@@ -400,6 +400,9 @@ const tgOn = () => document.documentElement.classList.contains('thx');
 const isDark = () => document.documentElement.dataset.theme ? document.documentElement.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
 function toggleTheme(){ const nx = isDark() ? 'light' : 'dark'; document.documentElement.dataset.theme = nx; try { localStorage.setItem('czpos-theme', nx); } catch {} const b = $('#themebtn'); if (b) b.textContent = nx === 'dark' ? '☀ Light mode' : '☾ Dark mode'; }
 /* carrier-locked / financed phones never get listed on Swappa: they go to wholesale (Atlas) */
+/* the appraisal prices Verizon, T-Mobile and Cricket together; the device must record which one (Nov 27, Sam) */
+const isCarrierGroup = c => /\//.test(c || '') && /verizon|t-mobile|cricket/i.test(c || '');
+const realCarrier = B => isCarrierGroup(B.carrier) ? (B.carrierPick || '') : (B.carrier || '');
 const isLockedCarrier = c => /financed|blacklist|(^|[^n])locked/i.test(c || '');   /* "Unlocked" is NOT locked */
 const CHECKS = [
   ['power','Powers on and boots', {fix: 'Diagnose (no power)'}], ['lock','iCloud / Google account removed', {req: true}], ['imei','IMEI blacklist check clean', {req: true}],
@@ -6039,7 +6042,7 @@ window.addEventListener('message', e => {
   if (e.origin !== location.origin || !e.data) return;
   if (e.data.type === 'cz-height') { const f = $('#bb-counter'); if (f) f.style.height = Math.max(640, Math.min(2400, +e.data.h + 20)) + 'px'; }
   if (e.data.type === 'cz-appraisal' && S.tab === 'buyback' && S.bb && !S.bbDone) { const a = e.data.appraisal || {};
-    Object.assign(S.bb, {appraisal: a, model: niceModel(a.model), storage: String(a.storage || '').toUpperCase().replace(/\s+/g, ''), carrier: CARRIER_NAME[a.carrierRaw] || a.carrier || '', cond: a.cond || 'used', ...(a.paid > 0 ? {paid: String(a.paid)} : {})});
+    Object.assign(S.bb, {appraisal: a, model: niceModel(a.model), storage: String(a.storage || '').toUpperCase().replace(/\s+/g, ''), carrier: CARRIER_NAME[a.carrierRaw] || a.carrier || '', carrierPick: '', cond: a.cond || 'used', ...(a.paid > 0 ? {paid: String(a.paid)} : {})});
     window.scrollTo(0, 0); viewBuyback($('#main')); }
 });
 /* ---------------- REPORTS (managers): how the stores did, sales detail, profit, accessories, tickets, techs, reps, buybacks, inventory ----------------
@@ -6374,6 +6377,9 @@ async function viewBuyback(el){
           ${(() => { const sp = retailPrice({model: B.model, storage: B.storage, carrier: B.carrier, sheetPrice: +A.retail || null}); return sp ? `<div class="small" style="margin-top:2px">Store price <b>${cents(sp)}</b> <span class="muted">set on the device automatically, same at every store</span></div>` : ''; })()}</div>
         ${B.model ? `<div class="grid g2"><div class="field"><label class="label" for="bb-imei">${needsIC(B.model) ? 'IMEI' : 'Serial number'}</label><input id="bb-imei" data-b="imei" value="${esc(B.imei)}" inputmode="${needsIC(B.model) ? 'numeric' : 'text'}" autocapitalize="characters" autocomplete="off"></div>
           <div class="field"><label class="label" for="bb-color">Color</label><input id="bb-color" data-b="color" value="${esc(B.color)}" placeholder="Graphite" autocomplete="off"></div></div>` : ''}
+        ${isCarrierGroup(B.carrier) ? `<div class="stack" style="gap:6px"><span class="label">Which carrier is it? <span class="small muted">(the price is the same for all three; the device has to say which)</span></span>
+          <div class="row" style="gap:6px;flex-wrap:wrap">${['Verizon', 'T-Mobile', 'Cricket', 'Unlocked'].map(c => `<button type="button" data-cpick="${c}" class="${B.carrierPick === c ? 'primary' : ''}" style="min-height:38px">${c}</button>`).join('')}</div>
+          ${(() => { const seen = B.ic?.res?.carrierSeen, unl = (B.ic?.res?.checks || []).some(k => (k.lines || []).some(l => /sim.?lock/i.test(l.k) && /\bunlocked\b/i.test(l.v))); return seen ? `<span class="small muted">Sickw shows it locked to <b>${esc(seen)}</b>.</span>` : unl ? '<span class="small muted">Sickw shows it <b>Unlocked</b>.</span>' : ''; })()}</div>` : ''}
         ${B.model ? `<div id="bb-ic">${icHtml(B)}</div>` : ''}
         <p class="muted small" style="margin:0">Wrong device or condition? Tap <b>Change device</b> and appraise it again.</p>
       </div>
@@ -6446,7 +6452,8 @@ async function viewBuyback(el){
   $('#bb-change').onclick = () => { Object.assign(B, {appraisal: null, model: null, carrier: null, storage: null, cond: null}); re(); };
   $('#bb-clear') && ($('#bb-clear').onclick = () => { S.bb = newBB(); re(); });
   el.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { B.model = b.dataset.m; B.carrier = B.storage = B.cond = null; const cs = [...new Set(rowsFor(B.model).map(r => r.c))]; if (cs.length === 1) B.carrier = cs[0]; re(); });
-  el.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { B.carrier = b.dataset.c; B.storage = B.cond = null; re(); });
+  el.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { B.carrier = b.dataset.c; B.carrierPick = ''; B.storage = B.cond = null; re(); });
+  el.querySelectorAll('[data-cpick]').forEach(b => b.onclick = () => { B.carrierPick = b.dataset.cpick; re(); });
   el.querySelectorAll('[data-st]').forEach(b => b.onclick = () => { B.storage = b.dataset.st; re(); });
   el.querySelectorAll('[data-cd]').forEach(b => b.onclick = () => { B.cond = b.dataset.cd; re(); });
   el.querySelectorAll('[data-ck]').forEach(b => b.onclick = () => { B.checks[b.dataset.ck] = B.checks[b.dataset.ck] === b.dataset.v ? undefined : b.dataset.v; const y = window.scrollY; re().then(() => window.scrollTo(0, y)); });
@@ -6458,7 +6465,8 @@ async function viewBuyback(el){
   const keepY = () => { const y = window.scrollY; return re().then(() => window.scrollTo(0, y)); };
   const runIC = async (fresh) => { const im = normImei(B.imei); if (im.length < (needsIC(B.model) ? 10 : 8)) { toast(needsIC(B.model) ? 'Type the full IMEI first.' : 'Type the full serial number first.'); return; }
     B.ic = {imei: im, busy: true}; await keepY();
-    try { const res = await Store.imeiCheck({imei: im, model: B.model, carrier: B.carrier, store: S.store, fresh: !!fresh}); B.ic = {imei: im, res};
+    try { const res = await Store.imeiCheck({imei: im, model: B.model, carrier: realCarrier(B), store: S.store, fresh: !!fresh}); B.ic = {imei: im, res};
+      if (isCarrierGroup(B.carrier) && !B.carrierPick) { const seen = String(res.carrierSeen || ''); B.carrierPick = /t-?mobile|metro/i.test(seen) ? 'T-Mobile' : /cricket/i.test(seen) ? 'Cricket' : /verizon/i.test(seen) ? 'Verizon' : ''; }
       const fl = res.checks.flatMap(c => c.flags || []);
       B.icAuto = [];
       if (fl.some(f => /icloud|find my/i.test(f))) { B.checks.lock = 'fail'; B.icAuto.push('lock'); }
@@ -6517,6 +6525,7 @@ async function viewBuyback(el){
       : sl.heardFrom === 'Returning Customer' && !sl.backVia ? 'Returning seller: ask what brought them back this time (Facebook/Instagram ad, Google, text from us…).'
       : !sl.dob ? "Enter the seller's date of birth." : age < 18 ? 'Seller must be 18 or older. Do not buy.'
       : !sl.idNumber.trim() ? 'Enter the ID number from the photo ID.' : !sl.idExp ? 'Enter the ID expiration date.' : new Date(sl.idExp) < new Date(new Date().toDateString()) ? 'That ID is expired. Ask for a current photo ID.'
+      : isCarrierGroup(B.carrier) && !B.carrierPick ? 'Pick the carrier in step 1: Verizon, T-Mobile, Cricket or Unlocked.'
       : !(paid > 0) ? 'Enter what you are paying the seller.'
       : !['inv', 'repair', 'wholesale'].includes(B.dest) ? 'Pick where the device goes: Inventory, Repair stock or Wholesale.'
       : B.checks.lock !== 'pass' || B.checks.imei !== 'pass' ? 'The "iCloud / Google account removed" and "IMEI blacklist check clean" tests must be Pass to buy. Carrier locked or financed is not a fail: mark them Pass and send it to Wholesale.'
@@ -6531,7 +6540,7 @@ async function viewBuyback(el){
     if (paid > max) { override = await askPin(`Manager approval: paying ${money(paid)} (max ${money(max)})`, 2); if (!override) return; }
     /* Nov 24: a server refusal used to vanish (the button just did nothing): show it */
     const fbtn = form.querySelector('[type=submit]'); if (fbtn) fbtn.disabled = true;
-    let r; try { r = await Store.recordBuyback(S.user, S.store, {model: B.model, storage: B.storage, carrier: B.carrier, cond: B.cond, color: B.color.trim(), imei: B.imei.trim(),
+    let r; try { r = await Store.recordBuyback(S.user, S.store, {model: B.model, storage: B.storage, carrier: realCarrier(B), cond: B.cond, color: B.color.trim(), imei: B.imei.trim(),
       battery: B.battery === '' ? null : +B.battery, checklist: {...B.checks, ...(+B.appraisal?.retail > 0 ? {sheetPrice: +B.appraisal.retail} : {})}, sheetPrice: +B.appraisal?.retail > 0 ? +B.appraisal.retail : null, needs, paid, max, payout: B.payout, payoutTo: (B.payoutTo || '').trim(), notes: [B.notes.trim(), icNote].filter(Boolean).join(' · '),
       seller: {...sl, phone: ph, email: (sl.email || '').trim().toLowerCase(), firstName: sl.firstName.trim(), lastName: sl.lastName.trim(), state: sl.state.toUpperCase()}}, override); }
     catch (x) { if (fbtn) fbtn.disabled = false; $('#f-err').textContent = 'Not saved: ' + x.message; $('#f-err').scrollIntoView({block: 'center'}); toast(x.message); return; }
